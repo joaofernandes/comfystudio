@@ -165,12 +165,16 @@ function randomizedShotDurationSeconds(baseSeed, sceneIndex, shotIndex) {
 
 function parseOptionalShotDurationSeconds(value, fallback) {
   const text = String(value || '').trim()
+  console.log('[PARSER DEBUG] parseOptionalShotDurationSeconds - input value:', value, 'text:', text, 'fallback:', fallback)
   if (!text) return fallback
   const match = text.match(/(\d+(?:\.\d+)?)/)
   if (!match) return fallback
   const parsed = Number(match[1])
   if (!Number.isFinite(parsed)) return fallback
-  return Number(Math.min(5, Math.max(2, parsed)).toFixed(2))
+  // Clamp to 2-15 seconds (music videos often need longer shots than ads)
+  const result = Number(Math.min(15, Math.max(2, parsed)).toFixed(2))
+  console.log('[PARSER DEBUG] Parsed duration:', parsed, '→ clamped result:', result)
+  return result
 }
 
 function parseOptionalShotTakes(value, fallback) {

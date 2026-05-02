@@ -92,6 +92,10 @@ export const YOLO_MUSIC_PROFILES = Object.freeze({
     storyboardWorkflowId: 'nano-banana-2',
     videoWorkflowId: MUSIC_VIDEO_SHOT_WORKFLOW_ID,
   }),
+  '16gb': Object.freeze({
+    storyboardWorkflowId: 'z-image-turbo-16gb-ipadapter',  // SDXL + IP-Adapter for cast support
+    videoWorkflowId: 'music-video-shot-ltx23-16gb',
+  }),
 })
 
 export const VIDEO_DURATION_PRESETS = [2, 3, 5, 8]
@@ -147,11 +151,14 @@ const WORKFLOW_DISPLAY_LABELS = Object.freeze({
   'vidu-q2-i2v': 'Vidu Q2',
   [TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID]: 'Topaz Video Upscale',
   [MUSIC_VIDEO_SHOT_WORKFLOW_ID]: 'Music Video Shot (LTX 2.3 + Audio)',
+  'music-video-shot-ltx23-16gb': 'Music Video Shot (LTX 2.3 GGUF - 16GB)',
   [VOCAL_EXTRACT_WORKFLOW_ID]: 'Vocal Extract (Mel-Band)',
   'grok-text-to-image': 'Grok Imagine',
   'google-gemini-flash-lite': 'Prompt Helper (Gemini 3.1 Flash Lite)',
   'seedream-5-lite-image-edit': 'Seedream 5.0 Lite',
   'image-edit-model-product': 'Qwen Image Edit 2509 (Model + Product)',
+  'z-image-turbo-16gb': 'Z Image Turbo (16GB)',
+  'z-image-turbo-16gb-ipadapter': 'SDXL + Cast (16GB)',
   'mask-gen': 'Mask Generation',
 })
 
@@ -268,6 +275,24 @@ const WORKFLOW_HARDWARE = Object.freeze({
     runtime: 'local',
     minimumVramGb: 6,
     recommendedVramGb: 8,
+  },
+  'z-image-turbo-16gb': {
+    tierId: 'standard',
+    runtime: 'local',
+    minimumVramGb: 12,
+    recommendedVramGb: 16,
+  },
+  'z-image-turbo-16gb-ipadapter': {
+    tierId: 'standard',
+    runtime: 'local',
+    minimumVramGb: 14,
+    recommendedVramGb: 16,
+  },
+  'music-video-shot-ltx23-16gb': {
+    tierId: 'standard',
+    runtime: 'local',
+    minimumVramGb: 14,
+    recommendedVramGb: 16,
   },
   'seedream-5-lite-image-edit': {
     tierId: 'cloud',

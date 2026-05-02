@@ -1703,6 +1703,99 @@ export function modifyGeminiPromptWorkflow(workflow, options = {}) {
 // Backward-compatible alias for legacy callers.
 export const modifyNanoBananaProWorkflow = modifyNanoBanana2Workflow
 
+export function modifySDXLIPAdapterWorkflow(workflow, options = {}) {
+  const {
+    prompt = '',
+    seed = Math.floor(Math.random() * 1000000000000),
+    width = null,
+    height = null,
+    filenamePrefix = 'image/sdxl_ipadapter',
+    referenceImages = [],
+  } = options
+
+  console.log('[SDXL-IPAdapter] Modifying workflow with:', {
+    prompt: prompt,
+    seed,
+    width,
+    height,
+    referenceImages,
+  })
+
+  const modified = JSON.parse(JSON.stringify(workflow))
+  const validReferences = (Array.isArray(referenceImages) ? referenceImages : [])
+    .map((name) => String(name || '').trim())
+    .filter(Boolean)
+    .slice(0, 1) // IP-Adapter workflow uses one reference
+
+  // Calculate dimensions like nano-banana-2 does
+  const numericWidth = Number(width)
+  const numericHeight = Number(height)
+  const hasExplicitDimensions = Number.isFinite(numericWidth) && numericWidth > 0 && Number.isFinite(numericHeight) && numericHeight > 0
+
+  // Use provided dimensions or fall back to 1280x720 for video
+  const finalWidth = hasExplicitDimensions ? numericWidth : 1280
+  const finalHeight = hasExplicitDimensions ? numericHeight : 720
+
+  // Build full prompt with user prompt - trust the storyboardPrompt for framing
+  const userPrompt = String(prompt || '').trim()
+  const fullPrompt = userPrompt || 'portrait photograph, cinematic lighting, professional quality, studio lighting'
+
+  console.log('[SDXL-IPAdapter] Using dimensions:', finalWidth, 'x', finalHeight)
+  console.log('[SDXL-IPAdapter] Full prompt:', fullPrompt)
+
+  for (const node of Object.values(modified)) {
+    if (!node?.inputs) continue
+
+    // Update positive prompt (node 2 - CLIPTextEncode)
+    // Replace the entire positive prompt with user's keyframe prompt
+    if (node.class_type === 'CLIPTextEncode' && node.inputs.text && !node.inputs.text.includes('blurry')) {
+      console.log('[SDXL-IPAdapter] Setting CLIPTextEncode prompt to:', fullPrompt)
+      node.inputs.text = fullPrompt
+    }
+
+    // Update seed (node 9 - KSampler)
+    if (node.class_type === 'KSampler' && 'seed' in node.inputs) {
+      console.log('[SDXL-IPAdapter] Setting KSampler seed to:', seed)
+      node.inputs.seed = seed
+    }
+
+    // Update dimensions (node 4 - EmptyLatentImage)
+    if (node.class_type === 'EmptyLatentImage') {
+      console.log('[SDXL-IPAdapter] Setting latent dimensions:', finalWidth, 'x', finalHeight)
+      if ('width' in node.inputs) node.inputs.width = finalWidth
+      if ('height' in node.inputs) node.inputs.height = finalHeight
+    }
+
+    // Update reference image (node 5 - LoadImage)
+    // This should receive the uploaded cast member image filename
+    if (node.class_type === 'LoadImage' && validReferences.length > 0) {
+      console.log('[SDXL-IPAdapter] Setting reference image to:', validReferences[0])
+      node.inputs.image = validReferences[0]
+    }
+
+    // Check IP-Adapter unified loader (node 6)
+    if (node.class_type === 'IPAdapterUnifiedLoader') {
+      console.log('[SDXL-IPAdapter] IPAdapterUnifiedLoader preset:', node.inputs.preset)
+    }
+
+    // Check IP-Adapter weight (node 8 - IPAdapterAdvanced)
+    if (node.class_type === 'IPAdapterAdvanced') {
+      console.log('[SDXL-IPAdapter] IP-Adapter weight:', node.inputs.weight)
+      // Balance between identity preservation and prompt control
+      console.log('[SDXL-IPAdapter] Setting weight to 0.6 for balanced identity/prompt control')
+      node.inputs.weight = 0.6
+    }
+
+    // Update filename prefix (node 11 - SaveImage)
+    if (node.class_type === 'SaveImage' && 'filename_prefix' in node.inputs) {
+      node.inputs.filename_prefix = filenamePrefix
+    }
+  }
+
+  console.log('[SDXL-IPAdapter] Modified workflow nodes:', Object.keys(modified).length)
+  return modified
+}
+
 function resolveTieredImageResolution(width, height, fallback = '1K') {
   const w = Number(width)
   const h = Number(height)

@@ -1,0 +1,125 @@
+{
+  "1": {
+    "inputs": {
+      "ckpt_name": "sd_xl_base_1.0.safetensors"
+    },
+    "class_type": "CheckpointLoaderSimple"
+  },
+  "2": {
+    "inputs": {
+      "text": "portrait photograph, cinematic lighting, professional quality, studio lighting",
+      "clip": [
+        "1",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "3": {
+    "inputs": {
+      "text": "blurry, low quality, watermark, text, cartoon, anime, multiple people, crowd, duplicate person, clone, split screen, diptych, collage, extra people, two people, group",
+      "clip": [
+        "1",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "4": {
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage"
+  },
+  "5": {
+    "inputs": {
+      "image": "model_placeholder.jpg"
+    },
+    "class_type": "LoadImage"
+  },
+  "6": {
+    "inputs": {
+      "preset": "PLUS (high strength)",
+      "model": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "IPAdapterUnifiedLoader"
+  },
+  "8": {
+    "inputs": {
+      "weight": 0.75,
+      "weight_type": "linear",
+      "combine_embeds": "concat",
+      "start_at": 0.0,
+      "end_at": 1.0,
+      "embeds_scaling": "V only",
+      "model": [
+        "6",
+        0
+      ],
+      "ipadapter": [
+        "6",
+        1
+      ],
+      "image": [
+        "5",
+        0
+      ]
+    },
+    "class_type": "IPAdapterAdvanced"
+  },
+  "9": {
+    "inputs": {
+      "seed": 999888,
+      "steps": 20,
+      "cfg": 7.5,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "denoise": 1.0,
+      "model": [
+        "8",
+        0
+      ],
+      "positive": [
+        "2",
+        0
+      ],
+      "negative": [
+        "3",
+        0
+      ],
+      "latent_image": [
+        "4",
+        0
+      ]
+    },
+    "class_type": "KSampler"
+  },
+  "10": {
+    "inputs": {
+      "samples": [
+        "9",
+        0
+      ],
+      "vae": [
+        "1",
+        2
+      ]
+    },
+    "class_type": "VAEDecode"
+  },
+  "11": {
+    "inputs": {
+      "filename_prefix": "cast_ipadapter",
+      "images": [
+        "10",
+        0
+      ]
+    },
+    "class_type": "SaveImage"
+  }
+}

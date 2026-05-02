@@ -447,8 +447,8 @@ function normalizeShotForScene(sceneId, shot, shotIndex, fallback = {}) {
   const duration = clampNumberValue(
     shot?.durationSeconds,
     2,
-    5,
-    clampNumberValue(fallback?.durationSeconds, 2, 5, 3)
+    15,  // Allow up to 15 seconds for music videos (was 5 for ads)
+    clampNumberValue(fallback?.durationSeconds, 2, 15, 3)
   )
   const takes = clampNumberValue(
     shot?.takesPerAngle,
@@ -672,7 +672,6 @@ function buildMusicVideoPlanFromScript(options = {}) {
 
       const shotTypeId = resolveMusicVideoShotTypeFromText(scriptShot.shotType) || 'performance'
       const shotTypeOption = getMusicVideoShotTypeOption(shotTypeId)
-      const { length: clampedLength } = clampMusicVideoShotLength(scriptShot.durationSeconds)
 
       const lyricMomentHint = String(scriptShot.lyricMoment || '').trim()
       const startAtRaw = String(scriptShot.startAtRaw || '').trim()
@@ -701,12 +700,15 @@ function buildMusicVideoPlanFromScript(options = {}) {
 
       let audioStart
       let audioStartSource
-      if (explicitStart !== null) {
-        audioStart = explicitStart
-        audioStartSource = 'start-at'
-      } else if (timedMatch && typeof timedMatch.startSec === 'number') {
+      // PRIORITY: When SRT timing exists, use it instead of LLM's "Start at:"
+      // This gives perfect alignment with Whisper transcription while keeping
+      // LLM-generated creative content (prompts, shot types, camera).
+      if (timedMatch && typeof timedMatch.startSec === 'number') {
         audioStart = timedMatch.startSec
         audioStartSource = 'srt-fuzzy'
+      } else if (explicitStart !== null) {
+        audioStart = explicitStart
+        audioStartSource = 'start-at'
       } else if (lineIdx >= 0) {
         audioStart = estimateLyricLineStartSeconds(lineIdx, effectiveLyricLines.length, safeTargetDuration)
         audioStartSource = 'lyric-linear'
@@ -714,6 +716,26 @@ function buildMusicVideoPlanFromScript(options = {}) {
         audioStart = runningAudioStart
         audioStartSource = 'continue'
       }
+
+      // Duration calculation: Always respect the director's explicit Length:
+      // field from the script. SRT timing is used only for positioning (Start at),
+      // not for overriding the creative shot duration — a shot can hold through
+      // multiple lyric lines or cover instrumental passages.
+      let shotDuration
+      console.log(`[DEBUG Shot ${flatShotIndex}] scriptShot.durationSeconds:`, scriptShot.durationSeconds, 'lyricMoment:', lyricMomentHint)
+      if (scriptShot.durationSeconds && Number.isFinite(scriptShot.durationSeconds)) {
+        // Use the script's explicit Length: field (director's creative intent)
+        shotDuration = scriptShot.durationSeconds
+        console.log(`[DEBUG Shot ${flatShotIndex}] Using script duration:`, shotDuration)
+      } else if (timedMatch && typeof timedMatch.endSec === 'number') {
+        // Fall back to SRT line duration only if Length: is missing
+        const srtDuration = timedMatch.endSec - timedMatch.startSec
+        shotDuration = srtDuration
+      } else {
+        // Last resort: use a default (should rarely happen with structured scripts)
+        shotDuration = 5
+      }
+      const { length: clampedLength } = clampMusicVideoShotLength(shotDuration)
 
       // Artist resolution priority:
       //   1. Per-shot `Artist:` override from the script
@@ -2824,6 +2846,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
   const imageResolutionOptions = useMemo(() => {
     switch (String(workflowId || '').trim()) {
       case 'z-image-turbo':
+      case 'z-image-turbo-16gb':
+      case 'z-image-turbo-16gb-ipadapter':
         return IMAGE_RESOLUTION_PRESET_GROUPS.standard
       case 'nano-banana-2':
       case 'nano-banana-pro':
@@ -2857,6 +2881,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
   const imageResolutionHelperText = useMemo(() => {
     switch (String(workflowId || '').trim()) {
       case 'z-image-turbo':
+      case 'z-image-turbo-16gb':
+      case 'z-image-turbo-16gb-ipadapter':
         return 'Local render sizes. 1080p uses more VRAM than square 1K.'
       case 'nano-banana-2':
       case 'nano-banana-pro':
@@ -4170,16 +4196,20 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       const angleNum = extractNumericId(variant.angle, 1)
       const takeNum = extractNumericId(variant.take, 1)
       // Keep consistency behavior, but ensure each take gets a distinct seed.
+      // For music videos, use random seeds for variety unless consistency mode is active
       const strictSeed = Number(seed) + (sceneNum * 1000) + (shotNum * 10) + takeNum
       const mediumSeed = Number(seed) + (sceneNum * 100000) + (shotNum * 1000) + (angleNum * 100) + (takeNum * 10)
       const softSeed = Number(seed) + index + 1
-      const storyboardSeed = (
-        yoloAdConsistency === 'strict'
-          ? strictSeed
-          : yoloAdConsistency === 'medium'
-            ? mediumSeed
-            : softSeed
-      )
+      const randomSeed = Math.floor(Math.random() * 1000000000)
+      const storyboardSeed = isYoloMusicMode
+        ? randomSeed  // Music videos: always random for variety
+        : (
+          yoloAdConsistency === 'strict'
+            ? strictSeed
+            : yoloAdConsistency === 'medium'
+              ? mediumSeed
+              : softSeed
+        )
       return createQueuedJob({
         category: 'image',
         workflowId: yoloStoryboardWorkflowId,
@@ -5521,7 +5551,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         job.workflowId === 'image-edit-model-product' ||
         job.workflowId === 'seedream-5-lite-image-edit' ||
         job.workflowId === 'nano-banana-2' ||
-        job.workflowId === 'nano-banana-pro'
+        job.workflowId === 'nano-banana-pro' ||
+        job.workflowId === 'z-image-turbo-16gb-ipadapter'
       )
       if (supportsReferenceImages && (job.referenceAssetId1 || job.referenceAssetId2)) {
         for (const refId of [job.referenceAssetId1, job.referenceAssetId2]) {
@@ -5573,6 +5604,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         modifyQwenImageEdit2509Workflow,
         modifyZImageTurboWorkflow,
         modifyNanoBanana2Workflow,
+        modifySDXLIPAdapterWorkflow,
         modifyGrokTextToImageWorkflow,
         modifySeedream5LiteImageEditWorkflow,
         modifyGrokVideoI2VWorkflow,
@@ -5611,7 +5643,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
             filenamePrefix: outputPrefix || 'video/ltx23_i2v',
           })
           break
-        case MUSIC_VIDEO_SHOT_WORKFLOW_ID: {
+        case MUSIC_VIDEO_SHOT_WORKFLOW_ID:
+        case 'music-video-shot-ltx23-16gb': {
           // Music-video shot: a single audio-conditioned LTX 2.3 render.
           // The audio has already been uploaded above (uploadedAudioFilename)
           // and the reference still was uploaded via the normal image path
@@ -5693,12 +5726,23 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
           })
           break
         case 'z-image-turbo':
+        case 'z-image-turbo-16gb':
           modifiedWorkflow = modifyZImageTurboWorkflow(workflowJson, {
             prompt: job.prompt,
             seed: job.seed,
             width: job.resolution?.width,
             height: job.resolution?.height,
             filenamePrefix: outputPrefix || 'image/z_image_turbo',
+          })
+          break
+        case 'z-image-turbo-16gb-ipadapter':
+          modifiedWorkflow = modifySDXLIPAdapterWorkflow(workflowJson, {
+            prompt: job.prompt,
+            seed: job.seed,
+            width: job.resolution?.width,
+            height: job.resolution?.height,
+            referenceImages: referenceFilenames,
+            filenamePrefix: outputPrefix || 'image/sdxl_ipadapter',
           })
           break
         case 'nano-banana-2':
@@ -5747,6 +5791,12 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       }
 
       updateJob(job.id, { status: 'queuing', progress: 40 })
+
+      // Debug: Log the ENTIRE final workflow being sent
+      console.log('[WORKFLOW] ==== COMPLETE WORKFLOW JSON BEING SENT TO COMFYUI ====')
+      console.log(JSON.stringify(modifiedWorkflow, null, 2))
+      console.log('[WORKFLOW] ==== END OF WORKFLOW JSON ====')
+
       const promptId = await comfyui.queuePrompt(modifiedWorkflow)
       if (!promptId) throw new Error('Failed to queue prompt')
 
@@ -7242,8 +7292,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                               LTX 2.3 audio-conditioned workflow because lip-sync grounding only
                               works there.
                             </p>
-                            <div className="mt-2 grid grid-cols-3 gap-1">
-                              {['draft', 'balanced', 'premium'].map((profileId) => {
+                            <div className="mt-2 grid grid-cols-4 gap-1">
+                              {['draft', 'balanced', 'premium', '16gb'].map((profileId) => {
                                 const isSelected = yoloMusicQualityProfile === profileId
                                 return (
                                   <button

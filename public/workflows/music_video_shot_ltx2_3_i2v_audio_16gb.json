@@ -74,12 +74,12 @@
   },
   "504": {
     "inputs": {
-      "chunks": 2,
-      "dim_threshold": 4096,
+      "chunks": 4,
+      "dim_threshold": 2048,
       "model": ["268", 0]
     },
     "class_type": "LTXVChunkFeedForward",
-    "_meta": { "title": "LTXV Chunk FeedForward" }
+    "_meta": { "title": "LTXV Chunk FeedForward (16GB VRAM Optimized)" }
   },
   "1318": {
     "inputs": {
@@ -108,7 +108,7 @@
     "_meta": { "title": "Start Seed" }
   },
   "1559": {
-    "inputs": { "vae_name": "LTX23_video_vae_bf16.safetensors" },
+    "inputs": { "vae_name": "ltx-2.3-distilled-video-vae.safetensors" },
     "class_type": "VAELoader",
     "_meta": { "title": "Load VAE (LTX 2.3 Video)" }
   },
@@ -119,17 +119,17 @@
   },
   "1562": {
     "inputs": {
-      "clip_name1": "gemma_3_12B_it_fp8_scaled.safetensors",
-      "clip_name2": "ltx-2.3_text_projection_bf16.safetensors",
+      "clip_name1": "gemma-3-12b-it-IQ4_XS.gguf",
+      "clip_name2": "ltx-2.3-distilled-connector.safetensors",
       "type": "ltxv",
       "device": "default"
     },
-    "class_type": "DualCLIPLoader",
-    "_meta": { "title": "DualCLIPLoader (Gemma 3 + LTX 2.3)" }
+    "class_type": "DualCLIPLoaderGGUF",
+    "_meta": { "title": "DualCLIPLoader GGUF (Gemma 3-12B Q4 - 16GB VRAM)" }
   },
   "1567": {
     "inputs": {
-      "vae_name": "LTX23_audio_vae_bf16.safetensors",
+      "vae_name": "ltx-2.3-distilled-audio-vae.safetensors",
       "device": "main_device",
       "weight_dtype": "bf16"
     },
@@ -143,11 +143,10 @@
   },
   "1570": {
     "inputs": {
-      "unet_name": "ltx-2.3-22b-distilled_transformer_only_fp8_scaled.safetensors",
-      "weight_dtype": "default"
+      "unet_name": "ltx-2.3-22b-distilled-Q3_K_M.gguf"
     },
-    "class_type": "UNETLoader",
-    "_meta": { "title": "Load Diffusion Model (LTX 2.3 22B)" }
+    "class_type": "UnetLoaderGGUF",
+    "_meta": { "title": "Load GGUF Model (LTX 2.3 22B Q3 - 16GB VRAM)" }
   },
   "1586": {
     "inputs": { "value": 25 },
@@ -155,9 +154,9 @@
     "_meta": { "title": "FPS" }
   },
   "1591": {
-    "inputs": { "value": 736 },
+    "inputs": { "value": 512 },
     "class_type": "INTConstant",
-    "_meta": { "title": "HEIGHT" }
+    "_meta": { "title": "HEIGHT (512 for 16GB VRAM)" }
   },
   "1594": {
     "inputs": {
@@ -175,7 +174,7 @@
     "_meta": { "title": "Mel-Band RoFormer Sampler (Vocal Extraction)" }
   },
   "1600": {
-    "inputs": { "model_name": "MelBandRoformer_fp16.safetensors" },
+    "inputs": { "model_name": "MelBandRoFormer/MelBandRoformer_fp16.safetensors" },
     "class_type": "MelBandRoFormerModelLoader",
     "_meta": { "title": "Mel-Band RoFormer Model Loader" }
   },
@@ -205,9 +204,9 @@
     "_meta": { "title": "LTXV Audio VAE Encode" }
   },
   "1606": {
-    "inputs": { "value": 1280 },
+    "inputs": { "value": 768 },
     "class_type": "INTConstant",
-    "_meta": { "title": "WIDTH" }
+    "_meta": { "title": "WIDTH (768 for 16GB VRAM)" }
   },
   "1616": {
     "inputs": {

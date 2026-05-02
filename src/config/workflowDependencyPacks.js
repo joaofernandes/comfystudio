@@ -431,6 +431,77 @@ export const WORKFLOW_DEPENDENCY_PACKS = Object.freeze({
     docsUrl: COMFY_REGISTRY_URL,
   }),
 
+  'z-image-turbo-16gb': Object.freeze({
+    id: 'z-image-turbo-16gb',
+    displayName: 'Z Image Turbo (16GB)',
+    requiredNodes: Object.freeze([
+      { classType: 'CLIPLoader' },
+      { classType: 'VAELoader' },
+      { classType: 'UNETLoader' },
+      { classType: 'ModelSamplingAuraFlow' },
+      { classType: 'KSampler' },
+      { classType: 'SaveImage' },
+    ]),
+    requiredModels: Object.freeze([
+      {
+        classType: 'CLIPLoader',
+        inputKey: 'clip_name',
+        filename: 'qwen_3_4b.safetensors',
+        targetSubdir: 'text_encoders',
+      },
+      {
+        classType: 'VAELoader',
+        inputKey: 'vae_name',
+        filename: 'ae.safetensors',
+        targetSubdir: 'vae',
+      },
+      {
+        classType: 'UNETLoader',
+        inputKey: 'unet_name',
+        filename: 'z_image_turbo_bf16.safetensors',
+        targetSubdir: 'diffusion_models',
+      },
+    ]),
+    docsUrl: COMFY_REGISTRY_URL,
+  }),
+
+  'z-image-turbo-16gb-ipadapter': Object.freeze({
+    id: 'z-image-turbo-16gb-ipadapter',
+    displayName: 'SDXL + Cast (IP-Adapter)',
+    requiredNodes: Object.freeze([
+      { classType: 'CheckpointLoaderSimple' },
+      { classType: 'CLIPTextEncode' },
+      { classType: 'LoadImage' },
+      { classType: 'CLIPVisionLoader' },
+      { classType: 'IPAdapterModelLoader' },
+      { classType: 'IPAdapterAdvanced' },
+      { classType: 'KSampler' },
+      { classType: 'VAEDecode' },
+      { classType: 'SaveImage' },
+    ]),
+    requiredModels: Object.freeze([
+      {
+        classType: 'CheckpointLoaderSimple',
+        inputKey: 'ckpt_name',
+        filename: 'sd_xl_base_1.0.safetensors',
+        targetSubdir: 'checkpoints',
+      },
+      {
+        classType: 'CLIPVisionLoader',
+        inputKey: 'clip_name',
+        filename: 'CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors',
+        targetSubdir: 'clip_vision',
+      },
+      {
+        classType: 'IPAdapterModelLoader',
+        inputKey: 'ipadapter_file',
+        filename: 'ip-adapter-plus_sdxl_vit-h.safetensors',
+        targetSubdir: 'ipadapter',
+      },
+    ]),
+    docsUrl: COMFY_REGISTRY_URL,
+  }),
+
   'image-edit': Object.freeze({
     id: 'image-edit',
     displayName: 'Qwen Image Edit',
@@ -529,6 +600,67 @@ export const WORKFLOW_DEPENDENCY_PACKS = Object.freeze({
       { classType: 'ImageToMask' },
     ]),
     requiredModels: Object.freeze([]),
+    docsUrl: COMFY_REGISTRY_URL,
+  }),
+
+  'music-video-shot-ltx23-16gb': Object.freeze({
+    id: 'music-video-shot-ltx23-16gb',
+    displayName: 'Music Video Shot (LTX 2.3 GGUF - 16GB)',
+    requiredNodes: Object.freeze([
+      { classType: 'UnetLoaderGGUF' },
+      { classType: 'DualCLIPLoaderGGUF' },
+      { classType: 'VAELoader' },
+      { classType: 'VAELoaderKJ' },
+      { classType: 'LTXVAudioVAEEncode' },
+      { classType: 'LTXVChunkFeedForward' },
+      { classType: 'LTXVConcatAVLatent' },
+      { classType: 'LTXVConditioning' },
+      { classType: 'LTXVPreprocess' },
+      { classType: 'LTXVSeparateAVLatent' },
+      { classType: 'LoadAudio' },
+      { classType: 'MelBandRoFormerModelLoader' },
+      { classType: 'MelBandRoFormerSampler' },
+      { classType: 'CreateVideo' },
+      { classType: 'SaveVideo' },
+    ]),
+    requiredModels: Object.freeze([
+      {
+        classType: 'UnetLoaderGGUF',
+        inputKey: 'unet_name',
+        filename: 'ltx-2.3-22b-distilled-Q3_K_M.gguf',
+        targetSubdir: 'unet',
+      },
+      {
+        classType: 'VAELoader',
+        inputKey: 'vae_name',
+        filename: 'ltx-2.3-distilled-video-vae.safetensors',
+        targetSubdir: 'vae',
+      },
+      {
+        classType: 'VAELoaderKJ',
+        inputKey: 'vae_name',
+        filename: 'ltx-2.3-distilled-audio-vae.safetensors',
+        targetSubdir: 'vae',
+      },
+      {
+        classType: 'DualCLIPLoaderGGUF',
+        inputKey: 'clip_name1',
+        filename: 'gemma-3-12b-it-IQ4_XS.gguf',
+        targetSubdir: 'text_encoders',
+      },
+      {
+        classType: 'DualCLIPLoaderGGUF',
+        inputKey: 'clip_name2',
+        filename: 'ltx-2.3-distilled-connector.safetensors',
+        targetSubdir: 'text_encoders',
+      },
+      {
+        classType: 'MelBandRoFormerModelLoader',
+        inputKey: 'model_name',
+        filename: 'MelBandRoFormer/MelBandRoformer_fp16.safetensors',
+        targetSubdir: 'audio_checkpoints',
+      },
+    ]),
     docsUrl: COMFY_REGISTRY_URL,
   }),
 })
