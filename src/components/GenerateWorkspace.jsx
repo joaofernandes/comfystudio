@@ -11170,9 +11170,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                           <div className="h-full p-3 rounded-lg bg-sf-dark-800/45 border border-sf-dark-700">
                             <div className="text-[10px] text-sf-text-muted uppercase tracking-wider">Quality</div>
                             <p className="mt-1 text-[10px] text-sf-text-muted">
-                              Picks the keyframe (still) workflow. The video pass is fixed to the
-                              LTX 2.3 audio-conditioned workflow because lip-sync grounding only
-                              works there.
+                              Picks the default keyframe workflow and video model pass. Use 16gb
+                              for the GGUF music-video workflow on 16GB VRAM hosts.
                             </p>
                             <div className="mt-2 grid grid-cols-4 gap-1">
                               {['draft', 'balanced', 'premium', '16gb'].map((profileId) => {

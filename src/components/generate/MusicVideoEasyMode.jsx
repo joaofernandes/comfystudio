@@ -888,7 +888,7 @@ export default function MusicVideoEasyMode({
             </p>
           </div>
         </div>
-        <div className="mt-4 grid gap-3 lg:grid-cols-3">
+        <div className="mt-4 grid gap-3 lg:grid-cols-4">
           <div>
             <FieldLabel>Aspect Ratio</FieldLabel>
             <div className="mt-2 grid grid-cols-3 gap-2">
@@ -899,6 +899,22 @@ export default function MusicVideoEasyMode({
                   title={option.helper}
                   onClick={() => setAspectRatio(option.id)}
                   className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${buttonClass(aspectRatio === option.id)}`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="lg:col-span-1">
+            <FieldLabel>Video Model</FieldLabel>
+            <div className="mt-2 grid grid-cols-1 gap-2">
+              {videoWorkflowOptions.map((option) => (
+                <button
+                  key={`music-video-output-model-${option.id}`}
+                  type="button"
+                  onClick={() => handleVideoWorkflowChange(option.id)}
+                  title={option.description}
+                  className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold transition-colors ${buttonClass(selectedVideoWorkflowId === option.id)}`}
                 >
                   {option.label}
                 </button>
@@ -1550,7 +1566,7 @@ export default function MusicVideoEasyMode({
               <p className="mt-1 max-w-3xl text-xs leading-5 text-sf-text-secondary">
                 {selectedVideoWorkflowSupports1080
                   ? 'This affects future video renders only. 1080p is the highest LTX 2.3 Music size available here for reliability.'
-                  : 'WAN 2.2 rerenders are limited to 720p here, so higher resolutions are disabled for this model.'}
+                  : `${selectedVideoWorkflowLabel} rerenders are limited to 720p here, so higher resolutions are disabled for this model.`}
               </p>
             </div>
             <div className="grid min-w-[180px] grid-cols-2 gap-2">
