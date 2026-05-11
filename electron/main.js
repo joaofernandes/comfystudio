@@ -547,6 +547,43 @@ function runCommandStreaming({ command, args = [], cwd = undefined, label = 'Com
   })
 }
 
+async function makeInstalledNodePackWritable(targetDir, label) {
+  if (process.platform === 'win32') return
+
+  const chmodRecursive = async (entryPath) => {
+    let stats
+    try {
+      stats = await fs.lstat(entryPath)
+    } catch (_) {
+      return
+    }
+
+    if (stats.isSymbolicLink()) return
+
+    try {
+      await fs.chmod(entryPath, stats.isDirectory() ? 0o777 : 0o666)
+    } catch (error) {
+      console.warn(`Could not update permissions for ${label} at ${entryPath}:`, error)
+    }
+
+    if (!stats.isDirectory()) return
+
+    let entries = []
+    try {
+      entries = await fs.readdir(entryPath)
+    } catch (error) {
+      console.warn(`Could not read installed node pack directory for ${label}:`, error)
+      return
+    }
+
+    for (const entry of entries) {
+      await chmodRecursive(path.join(entryPath, entry))
+    }
+  }
+
+  await chmodRecursive(targetDir)
+}
+
 async function installNodePackTask(task, validation, progressMeta = {}) {
   const label = task?.displayName || task?.id || 'Custom node pack'
   const targetDir = path.join(validation.customNodesPath, task.installDirName)
@@ -578,6 +615,7 @@ async function installNodePackTask(task, validation, progressMeta = {}) {
         label: `Update ${label}`,
       })
     } else {
+      await makeInstalledNodePackWritable(targetDir, label)
       emitWorkflowSetupProgress({
         stage: 'node-pack',
         status: 'complete',
@@ -622,6 +660,8 @@ async function installNodePackTask(task, validation, progressMeta = {}) {
       })
     }
   }
+
+  await makeInstalledNodePackWritable(targetDir, label)
 
   emitWorkflowSetupProgress({
     stage: 'node-pack',
