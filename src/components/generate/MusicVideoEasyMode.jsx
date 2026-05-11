@@ -206,7 +206,8 @@ function resolveOutputResolution(aspectRatio, resolutionPreset) {
 }
 
 function workflowSupports1080Resolution(workflowId) {
-  return String(workflowId || '').trim() === MUSIC_VIDEO_SHOT_WORKFLOW_ID
+  const normalized = String(workflowId || '').trim()
+  return normalized === MUSIC_VIDEO_SHOT_WORKFLOW_ID || normalized === 'music-video-shot-ltx23-16gb'
 }
 
 function getResolutionFallbackForWorkflow(workflowId, resolutionPreset) {
