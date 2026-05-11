@@ -5,6 +5,11 @@ import { buildTextAnimationPresetKeyframes, TEXT_ANIMATION_KEYFRAME_PROPERTIES }
 import { getAdjustmentValue, mergeAdjustmentSettings, normalizeAdjustmentSettings } from '../utils/adjustments'
 import { clampAudioFadeDuration } from '../utils/audioClipFades'
 import { normalizeAudioClipGainDb } from '../utils/audioClipGain'
+import { CLIP_COMPOSITE_MODE, normalizeClipCompositeMode } from '../utils/layerCompositing'
+import {
+  quantizeTimeToFrame as roundToFrame,
+  roundDurationToFrame,
+} from '../utils/timelineFrames'
 
 // Maximum number of undo states to keep
 const MAX_HISTORY_SIZE = 50
@@ -98,22 +103,6 @@ const getClipTrimEnd = (clip) => {
   const parsedSourceDuration = parseClipSourceDuration(clip.sourceDuration)
   if (parsedSourceDuration !== null) return parsedSourceDuration
   return (clip.trimStart || 0) + timelineToSourceTime(clip, clip.duration || 0)
-}
-
-/** Round a timeline time (seconds) to the nearest frame boundary. No sub-frame positions. */
-const roundToFrame = (time, fps) => {
-  if (!Number.isFinite(fps) || fps <= 0) return time
-  const frameDuration = 1 / fps
-  return Math.round(time / frameDuration) * frameDuration
-}
-
-/** Round a duration to the nearest frame, with a minimum of one frame. */
-const roundDurationToFrame = (duration, fps) => {
-  if (!Number.isFinite(fps) || fps <= 0) return duration
-  const frameDuration = 1 / fps
-  const minDuration = frameDuration
-  const rounded = Math.round(duration / frameDuration) * frameDuration
-  return Math.max(minDuration, rounded)
 }
 
 const getNormalizedLinkGroupId = (value) => {
@@ -295,7 +284,7 @@ const normalizeClipTimebases = (clips, assets, timelineFps) => {
       ? savedDuration
       : fallbackDuration
 
-    return {
+    const normalizedClip = {
       ...clip,
       sourceDuration,
       trimStart,
@@ -307,6 +296,8 @@ const normalizeClipTimebases = (clips, assets, timelineFps) => {
       speed: normalizedSpeed,
       reverse: normalizedReverse,
     }
+
+    return clampFiniteMediaClipToSource(normalizedClip, timelineFps)
   })
 }
 
@@ -326,12 +317,75 @@ const getNextClipCounter = (clips = [], fallback = 1) => {
 }
 
 const isAdjustmentClipType = (clip) => clip?.type === 'adjustment'
+const isInfinitelyExtendableClipType = (clip) => (
+  clip?.type === 'image' || clip?.type === 'adjustment' || clip?.type === 'text'
+)
 const supportsClipAdjustments = (clip) => (
   clip?.type === 'video'
   || clip?.type === 'image'
   || clip?.type === 'text'
   || clip?.type === 'adjustment'
 )
+
+const supportsLowerLayerCompositeMode = (clip) => (
+  clip?.type === 'video'
+  || clip?.type === 'image'
+  || clip?.type === 'text'
+)
+
+const floorDurationToFrame = (duration, fps) => {
+  const safeFps = Number.isFinite(Number(fps)) && Number(fps) > 0 ? Number(fps) : FRAME_RATE
+  const minDuration = 1 / safeFps
+  const parsed = Number(duration)
+  if (!Number.isFinite(parsed) || parsed <= 0) return minDuration
+  return Math.max(minDuration, Math.floor((parsed * safeFps) + 1e-6) / safeFps)
+}
+
+const clampFiniteMediaClipToSource = (clip, fps) => {
+  if (!clip || (clip.type !== 'video' && clip.type !== 'audio')) return clip
+  if (isInfinitelyExtendableClipType(clip)) return clip
+
+  const sourceDuration = parseClipSourceDuration(clip.sourceDuration)
+  if (!Number.isFinite(sourceDuration)) return clip
+
+  const safeFps = Number.isFinite(Number(fps)) && Number(fps) > 0 ? Number(fps) : FRAME_RATE
+  const timeScale = Math.max(0.0001, Number(getClipTimeScale(clip)) || 1)
+  const minDuration = 1 / safeFps
+  const minSourceSpan = minDuration * timeScale
+
+  let trimStart = Number(clip.trimStart)
+  trimStart = Number.isFinite(trimStart) ? Math.max(0, trimStart) : 0
+  trimStart = Math.min(trimStart, Math.max(0, sourceDuration - minSourceSpan))
+
+  let duration = Number(clip.duration)
+  if (!Number.isFinite(duration) || duration <= 0) duration = minDuration
+
+  let trimEnd = Number(clip.trimEnd)
+  if (!Number.isFinite(trimEnd)) {
+    trimEnd = trimStart + timelineToSourceTime(clip, duration)
+  }
+  trimEnd = Math.min(sourceDuration, Math.max(trimStart + minSourceSpan, trimEnd))
+
+  const maxTimelineDuration = Math.max(minDuration, sourceToTimelineTime(clip, trimEnd - trimStart))
+  let alignedDuration = roundDurationToFrame(duration, safeFps)
+  if (alignedDuration > maxTimelineDuration + 1e-6) {
+    alignedDuration = floorDurationToFrame(maxTimelineDuration, safeFps)
+  }
+  if (alignedDuration > maxTimelineDuration + 1e-6) {
+    alignedDuration = maxTimelineDuration
+  }
+
+  const alignedTrimEnd = Math.min(sourceDuration, trimStart + timelineToSourceTime(clip, alignedDuration))
+  const minimumTrimEnd = Math.min(sourceDuration, trimStart + minSourceSpan)
+
+  return {
+    ...clip,
+    sourceDuration,
+    duration: Math.max(minDuration, alignedDuration),
+    trimStart,
+    trimEnd: Math.min(sourceDuration, Math.max(minimumTrimEnd, alignedTrimEnd)),
+  }
+}
 
 const createDefaultClipTransform = () => ({
   positionX: 0,
@@ -441,6 +495,9 @@ export const useTimelineStore = create(
   // asset.proxyUrl over asset.playbackCacheUrl/url for preview only. Export
   // always uses asset.path. Hydrated from localStorage on boot in PreviewPanel.
   useProxyPlaybackForAssets: (typeof localStorage !== 'undefined' && localStorage.getItem('comfystudio-use-playback-proxies') === 'true'),
+  glslPreviewQuality: (typeof localStorage !== 'undefined' && localStorage.getItem('comfystudio-glsl-preview-quality')) || 'full',
+  previewCompositorMode: (typeof localStorage !== 'undefined' && localStorage.getItem('comfystudio-preview-compositor-mode')) || 'canvas',
+  showTimelineClipThumbnails: (typeof localStorage === 'undefined' || localStorage.getItem('comfystudio-show-timeline-clip-thumbnails') !== 'false'),
   
   // Snapping settings
   snappingEnabled: true,
@@ -782,6 +839,10 @@ export const useTimelineStore = create(
     const overrideTrimEnd = options?.trimEnd
     const linkGroupId = getNormalizedLinkGroupId(options?.linkGroupId)
     const selectAfterAdd = options?.selectAfterAdd !== false
+    const shouldResolveOverlaps = options?.resolveOverlaps !== false
+    const clipMetadata = options?.metadata && typeof options.metadata === 'object'
+      ? JSON.parse(JSON.stringify(options.metadata))
+      : null
     const rawDuration = overrideDuration != null ? overrideDuration : defaultDuration
     const finalDuration = roundDurationToFrame(rawDuration, fps)
     const finalTrimStart = overrideTrimStart != null ? overrideTrimStart : 0
@@ -792,7 +853,7 @@ export const useTimelineStore = create(
       console.warn(`Could not get duration for asset "${asset.name}", defaulting to 5 seconds`)
     }
     
-    const newClip = {
+    const newClip = clampFiniteMediaClipToSource({
       id: `clip-${safeClipCounter}`,
       trackId,
       assetId: asset.id,
@@ -813,8 +874,10 @@ export const useTimelineStore = create(
       color: track.type === 'video' ? getVideoColor(safeClipCounter) : getAudioColor(track.id),
       type: asset.type,
       enabled: options?.enabled !== false,
+      ...(track.type === 'video' ? { compositeLowerLayers: CLIP_COMPOSITE_MODE.AUTO } : {}),
       url: asset.url,
       thumbnail: asset.url, // For video clips
+      ...(clipMetadata ? { metadata: clipMetadata } : {}),
       ...(linkGroupId ? { linkGroupId } : {}),
       // 2D Transform properties (NLE-style)
       transform: {
@@ -822,18 +885,20 @@ export const useTimelineStore = create(
         ...(assetDefaultTransform || {}),
         blendMode: assetDefaultTransform?.blendMode ?? 'normal',
       },
-    }
+    }, fps)
     
     // Resolve overlaps with existing clips on the same track (NLE overwrite behavior)
     // Use finalDuration so split second-half doesn't push following clips (when options.duration set)
-    const { clips: updatedClips, addedCount } = get().resolveOverlaps(
-      trackId, 
-      newClip.id, 
-      calculatedStartTime, 
-      finalDuration,
-      undefined,
-      safeClipCounter + 1
-    )
+    const { clips: updatedClips, addedCount } = shouldResolveOverlaps
+      ? get().resolveOverlaps(
+        trackId,
+        newClip.id,
+        calculatedStartTime,
+        newClip.duration,
+        undefined,
+        safeClipCounter + 1
+      )
+      : { clips: state.clips, addedCount: 0 }
     
     set((state) => ({
       clips: [...updatedClips, newClip],
@@ -909,6 +974,7 @@ export const useTimelineStore = create(
       color: '#565C6B', // Muted blue for text clips
       type: 'text',
       enabled: textOptions?.enabled !== false,
+      compositeLowerLayers: CLIP_COMPOSITE_MODE.AUTO,
       url: null,
       thumbnail: null,
       // Text-specific properties
@@ -1343,7 +1409,7 @@ export const useTimelineStore = create(
         const isImage = template.type === 'image'
         const rawDuration = template.duration ?? (isImage ? 5 : sourceDuration)
         const duration = roundDurationToFrame(rawDuration, fps)
-        const newClip = {
+        const newClip = clampFiniteMediaClipToSource({
           id: `clip-${clipCounter}`,
           trackId,
           assetId: asset.id,
@@ -1370,9 +1436,9 @@ export const useTimelineStore = create(
           ...(pastedLinkGroupId ? { linkGroupId: pastedLinkGroupId } : {}),
           effects: template.effects ? [...template.effects] : undefined,
           keyframes: template.keyframes ? JSON.parse(JSON.stringify(template.keyframes)) : undefined,
-        }
+        }, fps)
         clipCounter += 1
-        const result = get().resolveOverlaps(trackId, newClip.id, clipStartTime, duration, clips, clipCounter)
+        const result = get().resolveOverlaps(trackId, newClip.id, clipStartTime, newClip.duration, clips, clipCounter)
         clips = [...result.clips, newClip]
         clipCounter += result.addedCount
         newIds.push(newClip.id)
@@ -1860,11 +1926,12 @@ export const useTimelineStore = create(
               const timeScale = getClipTimeScale(clip)
               const parsedSourceDuration = parseClipSourceDuration(clip.sourceDuration)
               const computedTrimEnd = (clip.trimStart || 0) + timelineToSourceTime(clip, nextDuration)
-              const isInfiniteSource = parsedSourceDuration === Infinity || (parsedSourceDuration === null && clip.type === 'image')
+              const isInfiniteSource = isInfinitelyExtendableClipType(clip)
+                || parsedSourceDuration === Infinity
               const nextTrimEnd = isInfiniteSource
                 ? computedTrimEnd
                 : (Number.isFinite(parsedSourceDuration) ? Math.min(computedTrimEnd, parsedSourceDuration) : computedTrimEnd)
-              return { ...clip, duration: nextDuration, trimEnd: nextTrimEnd }
+              return clampFiniteMediaClipToSource({ ...clip, duration: nextDuration, trimEnd: nextTrimEnd }, fps)
             })()
           : clip
       )
@@ -1973,10 +2040,10 @@ export const useTimelineStore = create(
                 : Math.max(0, Number(clip.trimStart) || 0)
 
               let sourceDuration = parseClipSourceDuration(next.sourceDuration)
-              if (sourceDuration === null) {
-                sourceDuration = next.type === 'image'
-                  ? Infinity
-                  : (parseClipSourceDuration(next.trimEnd) ?? Infinity)
+              if (isInfinitelyExtendableClipType(next)) {
+                sourceDuration = Infinity
+              } else if (sourceDuration === null) {
+                sourceDuration = parseClipSourceDuration(next.trimEnd) ?? Infinity
               }
               if (Number.isFinite(sourceDuration)) {
                 const maxTrimStart = Math.max(0, sourceDuration - minSourceSpan)
@@ -2040,23 +2107,23 @@ export const useTimelineStore = create(
               }
               alignedTrimEnd = Math.max(trimStart + (1 / fps) * timeScale, alignedTrimEnd)
 
-              const normalized = {
+              const normalized = clampFiniteMediaClipToSource({
                 ...next,
                 sourceDuration,
                 startTime: alignedStartTime,
                 duration: alignedDuration,
                 trimStart,
                 trimEnd: alignedTrimEnd,
-              }
+              }, fps)
 
               if (isTrimDebugEnabled()) {
                 const durationBefore = Number(next.duration)
                 const trimStartBefore = Number(next.trimStart)
                 const trimEndBefore = Number(next.trimEnd)
                 const changed = (
-                  (Number.isFinite(durationBefore) && Math.abs(durationBefore - alignedDuration) > 0.05)
+                  (Number.isFinite(durationBefore) && Math.abs(durationBefore - normalized.duration) > 0.05)
                   || (Number.isFinite(trimStartBefore) && Math.abs(trimStartBefore - trimStart) > 0.05)
-                  || (Number.isFinite(trimEndBefore) && Math.abs(trimEndBefore - alignedTrimEnd) > 0.05)
+                  || (Number.isFinite(trimEndBefore) && Math.abs(trimEndBefore - normalized.trimEnd) > 0.05)
                 )
                 if (changed) {
                   console.log('[TrimDebug] Normalized trim update', {
@@ -2071,10 +2138,10 @@ export const useTimelineStore = create(
                       sourceDuration: clip.sourceDuration,
                     },
                     after: {
-                      startTime: alignedStartTime,
-                      duration: alignedDuration,
-                      trimStart,
-                      trimEnd: alignedTrimEnd,
+                      startTime: normalized.startTime,
+                      duration: normalized.duration,
+                      trimStart: normalized.trimStart,
+                      trimEnd: normalized.trimEnd,
                       speed: normalized.speed,
                       sourceDuration: normalized.sourceDuration,
                     }
@@ -2131,6 +2198,27 @@ export const useTimelineStore = create(
             ...currentTransform,
             ...finalUpdates
           }
+        }
+      })
+    }))
+  },
+
+  updateClipCompositeMode: (clipId, compositeMode, saveHistory = true) => {
+    const normalizedMode = normalizeClipCompositeMode(compositeMode)
+    const currentClip = get().clips.find((clip) => clip.id === clipId)
+    if (!currentClip || !supportsLowerLayerCompositeMode(currentClip)) return
+    if (normalizeClipCompositeMode(currentClip.compositeLowerLayers) === normalizedMode) return
+
+    if (saveHistory) {
+      get().saveToHistory()
+    }
+
+    set((state) => ({
+      clips: state.clips.map((clip) => {
+        if (clip.id !== clipId || !supportsLowerLayerCompositeMode(clip)) return clip
+        return {
+          ...clip,
+          compositeLowerLayers: normalizedMode,
         }
       })
     }))
@@ -2712,7 +2800,7 @@ export const useTimelineStore = create(
     }
     
     if (nextTime !== Infinity) {
-      set({ playheadPosition: clip.startTime + nextTime })
+      set({ playheadPosition: roundToFrame(clip.startTime + nextTime, state.timelineFps || FRAME_RATE) })
     }
   },
 
@@ -2749,7 +2837,7 @@ export const useTimelineStore = create(
     }
     
     if (prevTime !== -Infinity) {
-      set({ playheadPosition: clip.startTime + prevTime })
+      set({ playheadPosition: roundToFrame(clip.startTime + prevTime, state.timelineFps || FRAME_RATE) })
     }
   },
 
@@ -2778,8 +2866,12 @@ export const useTimelineStore = create(
         if (clip.id !== clipId) return clip
         
         const effects = clip.effects || []
+        const infiniteTiming = isInfinitelyExtendableClipType(clip)
+          ? { sourceDuration: Infinity }
+          : {}
         return {
           ...clip,
+          ...infiniteTiming,
           effects: [...effects, newEffect],
           // Invalidate cache when effects change
           cacheStatus: clip.cacheStatus === 'cached' ? 'invalid' : clip.cacheStatus,
@@ -3041,6 +3133,27 @@ export const useTimelineStore = create(
       localStorage.setItem('comfystudio-use-playback-proxies', enabled ? 'true' : 'false')
     }
   },
+  setGlslPreviewQuality: (quality) => {
+    const normalized = ['full', 'half', 'quarter', 'eighth'].includes(quality) ? quality : 'full'
+    set({ glslPreviewQuality: normalized })
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('comfystudio-glsl-preview-quality', normalized)
+    }
+  },
+  setPreviewCompositorMode: (mode) => {
+    const normalized = ['canvas', 'dom'].includes(mode) ? mode : 'canvas'
+    set({ previewCompositorMode: normalized })
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('comfystudio-preview-compositor-mode', normalized)
+    }
+  },
+  setShowTimelineClipThumbnails: (enabled) => {
+    const next = Boolean(enabled)
+    set({ showTimelineClipThumbnails: next })
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('comfystudio-show-timeline-clip-thumbnails', next ? 'true' : 'false')
+    }
+  },
   setPreviewProxyInvalid: () => {
     set({
       previewProxyStatus: 'none',
@@ -3123,7 +3236,8 @@ export const useTimelineStore = create(
         // For video/audio, cap at source duration
         const timeScale = getClipTimeScale(clip)
         const parsedSourceDuration = parseClipSourceDuration(clip.sourceDuration)
-        const maxDuration = parsedSourceDuration === Infinity || (parsedSourceDuration === null && (clip.type === 'image' || clip.type === 'adjustment'))
+        const maxDuration = isInfinitelyExtendableClipType(clip)
+          || parsedSourceDuration === Infinity
           ? Infinity
           : (Number.isFinite(parsedSourceDuration) ? parsedSourceDuration : getClipTrimEnd(clip))
         const minSourceDuration = 0.5 * timeScale
@@ -3155,9 +3269,9 @@ export const useTimelineStore = create(
     
     const headHandle = sourceToTimelineTime(clip, clip.trimStart || 0)
     const parsedSourceDuration = parseClipSourceDuration(clip.sourceDuration)
-    const sourceDuration = parsedSourceDuration === null
-      ? ((clip.type === 'image' || clip.type === 'adjustment') ? Infinity : getClipTrimEnd(clip))
-      : parsedSourceDuration
+    const sourceDuration = isInfinitelyExtendableClipType(clip)
+      ? Infinity
+      : (parsedSourceDuration === null ? getClipTrimEnd(clip) : parsedSourceDuration)
     const trimEnd = getClipTrimEnd(clip)
     const tailHandle = sourceToTimelineTime(clip, sourceDuration - trimEnd)
     
@@ -3901,10 +4015,16 @@ export const useTimelineStore = create(
   },
 
   /**
-   * Set playhead position
+   * Set playhead position. Playback stays continuous; seek/scrub UI can request frame snapping.
    */
-  setPlayheadPosition: (position) => {
-    set({ playheadPosition: Math.max(0, position) })
+  setPlayheadPosition: (position, options = {}) => {
+    const state = get()
+    const fps = state.timelineFps || FRAME_RATE
+    const parsedPosition = Number(position)
+    const safePosition = Number.isFinite(parsedPosition) ? parsedPosition : 0
+    const clampedPosition = Math.max(0, safePosition)
+    const shouldSnap = options?.snap === true || options?.snapToFrame === true
+    set({ playheadPosition: shouldSnap ? roundToFrame(clampedPosition, fps) : clampedPosition })
   },
 
   /**
@@ -3926,9 +4046,12 @@ export const useTimelineStore = create(
       return {
         isPlaying: nextIsPlaying,
         // Restart from beginning when pressing play at the timeline end in normal mode.
-        playheadPosition: (!state.isPlaying && nextIsPlaying && state.loopMode === 'normal' && atOrPastEnd)
-          ? 0
-          : state.playheadPosition,
+        playheadPosition: roundToFrame(
+          (!state.isPlaying && nextIsPlaying && state.loopMode === 'normal' && atOrPastEnd)
+            ? 0
+            : state.playheadPosition,
+          state.timelineFps || FRAME_RATE
+        ),
         playbackRate: state.isPlaying ? state.playbackRate : 1, // Reset to 1x when starting
         shuttleMode: false
       }
@@ -4273,10 +4396,10 @@ export const useTimelineStore = create(
       const duration = roundDurationToFrame(clip.duration || 0.5, fps)
       const timeScale = getClipTimeScale(clip)
       let sourceDuration = parseClipSourceDuration(clip.sourceDuration)
-      if (sourceDuration === null) {
-        sourceDuration = (clip.type === 'image' || clip.type === 'adjustment')
-          ? Infinity
-          : (parseClipSourceDuration(clip.trimEnd) ?? Infinity)
+      if (isInfinitelyExtendableClipType(clip)) {
+        sourceDuration = Infinity
+      } else if (sourceDuration === null) {
+        sourceDuration = parseClipSourceDuration(clip.trimEnd) ?? Infinity
       }
       const trimStart = clip.trimStart ?? 0
       let trimEnd = trimStart + timelineToSourceTime(clip, duration)
@@ -4285,7 +4408,17 @@ export const useTimelineStore = create(
       const normalizedAdjustments = supportsClipAdjustments(clip)
         ? normalizeAdjustmentSettings(clip.adjustments || {})
         : clip.adjustments
-      return { ...clip, startTime, duration, trimEnd, sourceDuration, adjustments: normalizedAdjustments }
+      return clampFiniteMediaClipToSource({
+        ...clip,
+        startTime,
+        duration,
+        trimEnd,
+        sourceDuration,
+        adjustments: normalizedAdjustments,
+        ...(supportsLowerLayerCompositeMode(clip)
+          ? { compositeLowerLayers: normalizeClipCompositeMode(clip.compositeLowerLayers) }
+          : {}),
+      }, fps)
     })
     const restoredClipCounter = Number(timelineData.clipCounter) || 1
     const nextClipCounter = Math.max(restoredClipCounter, getNextClipCounter(frameAlignedClips, 1))
@@ -4356,7 +4489,18 @@ export const useTimelineStore = create(
    */
   setTimelineFps: (fps) => {
     const value = Number(fps)
-    if (Number.isFinite(value) && value > 0) set({ timelineFps: value })
+    if (Number.isFinite(value) && value > 0) {
+      set((state) => ({
+        timelineFps: value,
+        playheadPosition: roundToFrame(state.playheadPosition, value),
+        inPoint: state.inPoint !== null ? roundToFrame(state.inPoint, value) : null,
+        outPoint: state.outPoint !== null ? roundToFrame(state.outPoint, value) : null,
+        markers: (state.markers || []).map((marker) => ({
+          ...marker,
+          time: roundToFrame(marker.time, value),
+        })),
+      }))
+    }
   },
 
   /**
@@ -4430,7 +4574,7 @@ export const useTimelineStore = create(
    */
   setInPoint: (time = null) => {
     set((state) => ({ 
-      inPoint: time !== null ? time : state.playheadPosition 
+      inPoint: roundToFrame(time !== null ? time : state.playheadPosition, state.timelineFps || FRAME_RATE)
     }))
   },
 
@@ -4439,7 +4583,7 @@ export const useTimelineStore = create(
    */
   setOutPoint: (time = null) => {
     set((state) => ({ 
-      outPoint: time !== null ? time : state.playheadPosition 
+      outPoint: roundToFrame(time !== null ? time : state.playheadPosition, state.timelineFps || FRAME_RATE)
     }))
   },
 
@@ -4470,7 +4614,7 @@ export const useTimelineStore = create(
   goToInPoint: () => {
     const state = get()
     if (state.inPoint !== null) {
-      set({ playheadPosition: state.inPoint })
+      set({ playheadPosition: roundToFrame(state.inPoint, state.timelineFps || FRAME_RATE) })
     }
   },
 
@@ -4480,7 +4624,7 @@ export const useTimelineStore = create(
   goToOutPoint: () => {
     const state = get()
     if (state.outPoint !== null) {
-      set({ playheadPosition: state.outPoint })
+      set({ playheadPosition: roundToFrame(state.outPoint, state.timelineFps || FRAME_RATE) })
     }
   },
 
@@ -4489,7 +4633,10 @@ export const useTimelineStore = create(
    */
   addMarker: (time = null, label = '') => {
     const state = get()
-    const markerTime = Math.max(0, Math.min(state.duration, time !== null ? time : state.playheadPosition))
+    const markerTime = roundToFrame(
+      Math.max(0, Math.min(state.duration, time !== null ? time : state.playheadPosition)),
+      state.timelineFps || FRAME_RATE
+    )
     const marker = {
       id: `marker-${state.markerCounter}`,
       time: markerTime,

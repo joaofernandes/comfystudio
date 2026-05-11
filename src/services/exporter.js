@@ -24,6 +24,8 @@ import {
   hasPixelFilterEffect,
   hasVignetteEffect,
 } from '../utils/effects'
+import { applyGlslEffectsToCanvas, hasGlslEffect } from '../utils/glslEffects'
+import { cullVisualLayerEntries, getTransitionClipIds } from '../utils/layerCompositing'
 
 const DEFAULT_SAMPLE_RATE = 44100
 const AUDIO_FETCH_TIMEOUT_MS = 15000
@@ -39,6 +41,14 @@ const EXPORT_STATUS = {
 }
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
+
+const getLocalStorageFlag = (key) => {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem(key) === '1'
+  } catch {
+    return false
+  }
+}
 
 const withTimeout = (promise, timeoutMs, label = 'Operation') => {
   return Promise.race([
@@ -89,7 +99,14 @@ const getMediaErrorMessage = (err) => {
 }
 
 /** Yield to the event loop so the UI can repaint and avoid the window going black during export */
-const yieldToMain = () => new Promise(resolve => requestAnimationFrame(resolve))
+const yieldToMain = () => new Promise(resolve => {
+  const hiddenDocument = typeof document !== 'undefined' && document.visibilityState === 'hidden'
+  if (hiddenDocument || typeof requestAnimationFrame !== 'function') {
+    setTimeout(resolve, 0)
+    return
+  }
+  requestAnimationFrame(resolve)
+})
 
 /** Stronger yield: give the event loop a full time slice (helps prevent renderer crash under heavy export) */
 const yieldToEventLoop = () => new Promise(resolve => setTimeout(resolve, 0))
@@ -108,6 +125,20 @@ async function getExportAssetUrl(asset, projectHandle) {
     }
   }
   return asset.url
+}
+
+async function getExportProxyUrl(asset, projectHandle) {
+  if (!asset || asset.type !== 'video') return null
+  if (asset.proxyStatus !== 'ready' || !asset.proxyPath) return null
+  if (isElectron() && projectHandle && asset.proxyPath) {
+    try {
+      const filePath = await window.electronAPI.pathJoin(projectHandle, asset.proxyPath)
+      return await window.electronAPI.getFileUrlDirect(filePath)
+    } catch (e) {
+      console.warn('Export: could not resolve proxy URL, using original:', asset.name, e)
+    }
+  }
+  return asset.proxyUrl || null
 }
 
 const loadImage = async (url) => {
@@ -146,11 +177,7 @@ const loadVideo = async (url) => {
 // decoder actually confirmed a fresh presentation. Rate-limited so we don't
 // drown the console on large exports.
 const SEEK_DEBUG_ENABLED = (() => {
-  try {
-    return typeof localStorage !== 'undefined' && localStorage.getItem('exportSeekDebug') === '1'
-  } catch {
-    return false
-  }
+  return getLocalStorageFlag('exportSeekDebug')
 })()
 let seekDebugLogCount = 0
 const SEEK_DEBUG_LIMIT = 120
@@ -190,19 +217,34 @@ const seekDebug = (...args) => {
  * best-effort. That's worse than rVFC but strictly better than pausing
  * immediately.
  */
-const presentFreshFrame = async (video, { maxPlayMs = 600 } = {}) => {
+const presentFreshFrame = async (video, { maxPlayMs = 600, expectedTime = null } = {}) => {
   const hasRVFC = typeof video.requestVideoFrameCallback === 'function'
   let confirmed = false
   let rvfcHandle = null
+  const expected = Number(expectedTime)
+  const shouldConfirmMediaTime = Number.isFinite(expected)
+  const mediaTimeTolerance = Math.max(0.08, (1 / 24) * 2)
 
   const presentedPromise = hasRVFC
     ? new Promise((resolve) => {
         let done = false
-        const callback = () => {
+        const callback = (_now, metadata = {}) => {
           if (done) return
-          done = true
-          confirmed = true
-          resolve()
+          const mediaTime = Number(metadata.mediaTime)
+          const matchesExpected = !shouldConfirmMediaTime
+            || (Number.isFinite(mediaTime) && Math.abs(mediaTime - expected) <= mediaTimeTolerance)
+          if (matchesExpected) {
+            done = true
+            confirmed = true
+            resolve()
+            return
+          }
+          try {
+            rvfcHandle = video.requestVideoFrameCallback(callback)
+          } catch {
+            done = true
+            resolve()
+          }
         }
         try {
           rvfcHandle = video.requestVideoFrameCallback(callback)
@@ -302,7 +344,7 @@ const seekVideo = async (video, time, fastSeek = true) => {
   // Large seek: this is the condition that causes the cut-boundary flash.
   // Force and confirm a presentation so drawImage doesn't pull the previous
   // clip's frame out of the compositor buffer.
-  const confirmed = await presentFreshFrame(video, { maxPlayMs: 600 })
+  const confirmed = await presentFreshFrame(video, { maxPlayMs: 600, expectedTime: targetTime })
 
   if (!confirmed) {
     seekDebug('large-seek NO rVFC confirm, fallback delay', { targetTime, prevTime, currentTime: video.currentTime })
@@ -497,6 +539,7 @@ const hasManagedPixelOrVignetteEffect = (clip, clipTime) => {
   if (!clip) return false
   const effects = clip.effects || []
   return hasPixelFilterEffect(effects, clipTime)
+    || hasGlslEffect(effects)
     || hasVignetteEffect(effects, clipTime)
     || hasLetterboxEffect(effects, clipTime)
 }
@@ -508,15 +551,22 @@ const hasManagedPixelOrVignetteEffect = (clip, clipTime) => {
  * ImageData. Vignette is composited with `source-atop` so it only darkens
  * the clip's rendered pixels, keeping surrounding transparent areas clean.
  */
-const applyClipManagedEffectsToOffCanvas = (offCanvas, offCtx, width, height, clip, clipTime, frameIndex) => {
+const applyClipManagedEffectsToOffCanvas = (offCanvas, offCtx, width, height, clip, clipTime, frameIndex, glslQualityScale = 1) => {
   if (!clip) return
   const effects = clip.effects || []
-  // CA + film grain: ImageData pass. applyPixelEffectsToImageData silently
-  // skips glow, so this stays fast when only glow is enabled.
-  const hasCAorGrain = effects.some((e) => (
-    e && e.enabled !== false && (e.type === 'chromaticAberration' || e.type === 'filmGrain')
+  // Channel shifts, sharpening, grain, and analog damage are ImageData passes.
+  // Glow stays separate because it needs canvas blur + screen blending.
+  const hasImageDataEffects = effects.some((e) => (
+    e
+    && e.enabled !== false
+    && (
+      e.type === 'chromaticAberration'
+      || e.type === 'sharpen'
+      || e.type === 'filmGrain'
+      || e.type === 'vhsDamage'
+    )
   ))
-  if (hasCAorGrain) {
+  if (hasImageDataEffects) {
     const imageData = offCtx.getImageData(0, 0, width, height)
     applyPixelEffectsToImageData(imageData, effects, clipTime, frameIndex)
     offCtx.putImageData(imageData, 0, 0)
@@ -525,6 +575,9 @@ const applyClipManagedEffectsToOffCanvas = (offCanvas, offCtx, width, height, cl
   // filter API and globalCompositeOperation.
   if (hasGlowEffect(effects)) {
     applyGlowPassesToCanvas(offCanvas, offCtx, width, height, effects, clipTime)
+  }
+  if (hasGlslEffect(effects)) {
+    applyGlslEffectsToCanvas(offCanvas, offCtx, width, height, effects, clipTime, glslQualityScale)
   }
   const vignetteEffect = getActiveVignetteEffect(effects, clipTime)
   if (vignetteEffect) {
@@ -552,17 +605,18 @@ const applyTransitionClip = (ctx, rect, transitionStyle) => {
   ctx.clip()
 }
 
-export const drawText = (ctx, rect, clip) => {
+export const drawText = (ctx, rect, clip, textScale = 1) => {
   const textProps = clip.textProperties || {}
   const lines = String(textProps.text || '').split('\n')
-  const fontSize = textProps.fontSize || 48
+  const scale = Number.isFinite(textScale) && textScale > 0 ? textScale : 1
+  const fontSize = (textProps.fontSize || 48) * scale
   const fontFamily = textProps.fontFamily || 'Inter'
   const fontWeight = textProps.fontWeight || 'normal'
   const fontStyle = textProps.fontStyle || 'normal'
   const lineHeight = (textProps.lineHeight || 1.2) * fontSize
   const textAlign = textProps.textAlign || 'center'
   const verticalAlign = textProps.verticalAlign || 'center'
-  const padding = textProps.backgroundPadding || 20
+  const padding = (textProps.backgroundPadding || 20) * scale
   
   ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`
   ctx.textAlign = textAlign
@@ -584,9 +638,9 @@ export const drawText = (ctx, rect, clip) => {
   
   if (textProps.shadow) {
     ctx.shadowColor = textProps.shadowColor || 'rgba(0,0,0,0.5)'
-    ctx.shadowBlur = textProps.shadowBlur || 4
-    ctx.shadowOffsetX = textProps.shadowOffsetX || 2
-    ctx.shadowOffsetY = textProps.shadowOffsetY || 2
+    ctx.shadowBlur = (textProps.shadowBlur || 4) * scale
+    ctx.shadowOffsetX = (textProps.shadowOffsetX || 2) * scale
+    ctx.shadowOffsetY = (textProps.shadowOffsetY || 2) * scale
   } else {
     ctx.shadowColor = 'transparent'
     ctx.shadowBlur = 0
@@ -617,7 +671,7 @@ export const drawText = (ctx, rect, clip) => {
   ctx.globalAlpha = 1
   
   if (textProps.strokeWidth > 0) {
-    ctx.lineWidth = textProps.strokeWidth
+    ctx.lineWidth = textProps.strokeWidth * scale
     ctx.strokeStyle = textProps.strokeColor || '#000000'
   }
   
@@ -715,15 +769,37 @@ export const exportTimeline = async (options = {}, onProgress = () => {}) => {
     crf = 18,
     bitrateKbps = 8000,
     keyframeInterval = null,
+    sourceTimelineWidth = width,
+    sourceTimelineHeight = height,
     audioBitrateKbps = 192,
     audioSampleRate = DEFAULT_SAMPLE_RATE,
     audioChannels = 2,
     useCachedRenders = true,
+    useProxyMedia = false,
     fastSeek = true,
+    useDirectFramePipe = true,
+    glslQualityScale = 1,
+    signal = null,
   } = options
+  const throwIfCancelled = () => {
+    if (signal?.aborted) {
+      throw new Error('Export cancelled')
+    }
+  }
   
   const totalDuration = Math.max(0, rangeEnd - rangeStart)
   const totalFrames = Math.ceil(totalDuration * fps)
+  const transformScaleX = width / Math.max(1, Number(sourceTimelineWidth) || width)
+  const transformScaleY = height / Math.max(1, Number(sourceTimelineHeight) || height)
+  const textStyleScale = Math.min(transformScaleX, transformScaleY)
+  const scaleTransformToExport = (transform = {}) => ({
+    ...transform,
+    // Position is stored in timeline pixels. When exporting at half/quarter
+    // resolution, scale those offsets into the smaller export canvas so clips
+    // stay in the same visual location instead of moving off-frame.
+    positionX: (Number(transform.positionX) || 0) * transformScaleX,
+    positionY: (Number(transform.positionY) || 0) * transformScaleY,
+  })
   
   if (!projectState.currentProjectHandle || typeof projectState.currentProjectHandle !== 'string') {
     throw new Error('Project folder not available for export.')
@@ -758,6 +834,18 @@ export const exportTimeline = async (options = {}, onProgress = () => {}) => {
   }
   const framePattern = await window.electronAPI.pathJoin(framesFolder, 'frame_%06d.png')
   const audioPath = await window.electronAPI.pathJoin(tempFolder, 'audio.wav')
+  const canUseDirectFramePipe = Boolean(
+    useDirectFramePipe
+    && window.electronAPI?.startFramePipe
+    && window.electronAPI?.writeFrameToPipe
+    && window.electronAPI?.finishFramePipe
+    && window.electronAPI?.abortFramePipe
+  )
+  const pipedVideoPath = canUseDirectFramePipe && includeAudio
+    ? await window.electronAPI.pathJoin(tempFolder, `video_only.${outputExtension}`)
+    : outputPath
+  let framePipeSessionId = null
+  let framePipeEncoderUsed = null
   
   onProgress({ status: EXPORT_STATUS.preparing, progress: 2 })
   
@@ -833,7 +921,10 @@ export const exportTimeline = async (options = {}, onProgress = () => {}) => {
   for (const clip of [...videoClips, ...imageClips]) {
     const asset = assetsState.getAssetById(clip.assetId)
     if (!asset?.url) continue
-    const resolvedUrl = await getExportAssetUrl(asset, projectHandle)
+    const proxyUrl = clip.type === 'video' && useProxyMedia
+      ? await getExportProxyUrl(asset, projectHandle)
+      : null
+    const resolvedUrl = proxyUrl || await getExportAssetUrl(asset, projectHandle)
     if (!resolvedUrl) continue
     resolvedAssetUrls.set(clip.assetId, resolvedUrl)
     if (clip.type === 'video') {
@@ -876,14 +967,46 @@ export const exportTimeline = async (options = {}, onProgress = () => {}) => {
       maskElements.set(mask.id, images)
     }
   }
+
+  if (canUseDirectFramePipe) {
+    onProgress({ status: 'Starting fast FFmpeg pipe...', progress: 4 })
+    const pipeStart = await window.electronAPI.startFramePipe({
+      width,
+      height,
+      fps,
+      outputPath: pipedVideoPath,
+      format: outputExtension,
+      duration: totalDuration,
+      videoCodec,
+      proresProfile: format === 'prores' ? proresProfile : undefined,
+      useHardwareEncoder,
+      nvencPreset,
+      preset,
+      qualityMode,
+      crf,
+      bitrateKbps,
+      keyframeInterval,
+    })
+    if (pipeStart?.success && pipeStart.sessionId) {
+      framePipeSessionId = pipeStart.sessionId
+      framePipeEncoderUsed = pipeStart.encoderUsed || null
+      console.log(`Export frame pipe started with: ${framePipeEncoderUsed || 'unknown encoder'}`)
+    } else {
+      console.warn('[Export] Fast FFmpeg pipe unavailable; falling back to PNG frame sequence:', pipeStart?.error)
+      onProgress({ status: 'Fast pipe unavailable - using PNG frame sequence...', progress: 4 })
+    }
+  }
   
   onProgress({ status: EXPORT_STATUS.rendering, progress: 5 })
   
   const frameDuration = fps > 0 ? 1 / fps : 0
   const halfFrame = frameDuration / 2
 
+  try {
   for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
+    throwIfCancelled()
     await yieldToMain()
+    throwIfCancelled()
     const targetTime = rangeStart + frameIndex * frameDuration + halfFrame
     const safeEnd = Math.max(rangeStart, rangeEnd - halfFrame)
     const time = Math.min(targetTime, safeEnd)
@@ -893,13 +1016,20 @@ export const exportTimeline = async (options = {}, onProgress = () => {}) => {
     ctx.fillRect(0, 0, width, height)
     
     const activeClips = timelineState.getActiveClipsAtTime(time)
-    const visualLayerClips = activeClips
+    const rawVisualLayerClips = activeClips
       .filter(({ track }) => track.type === 'video')
       .sort((a, b) => {
         const indexA = timelineState.tracks.findIndex(t => t.id === a.track.id)
         const indexB = timelineState.tracks.findIndex(t => t.id === b.track.id)
         return indexB - indexA
       })
+    const visualLayerClips = cullVisualLayerEntries(rawVisualLayerClips, {
+      time,
+      getAssetById: assetsState.getAssetById,
+      transitionClipIds: getTransitionClipIds(transitionInfo),
+      timelineWidth: width,
+      timelineHeight: height,
+    })
     
     for (const { clip } of visualLayerClips) {
       if (clip.type === 'adjustment') {
@@ -910,7 +1040,7 @@ export const exportTimeline = async (options = {}, onProgress = () => {}) => {
         const baseClipTransform = getAnimatedTransform(clip, clipTime) || clip.transform || {}
         // Apply camera shake / transform-affecting effects to the adjustment
         // layer so shake propagates to every clip beneath.
-        const clipTransform = applyEffectsToTransform(baseClipTransform, clip.effects, clipTime)
+        const clipTransform = scaleTransformToExport(applyEffectsToTransform(baseClipTransform, clip.effects, clipTime))
         const usesManagedPixelEffects = hasManagedPixelOrVignetteEffect(clip, clipTime)
         const adjustmentIsActive = hasAdjustmentEffect(adjustmentSettings)
 
@@ -952,7 +1082,7 @@ export const exportTimeline = async (options = {}, onProgress = () => {}) => {
               managedCtx = managedCanvas.getContext('2d')
               managedCtx.drawImage(adjustmentOutputCanvas, 0, 0)
             }
-            applyClipManagedEffectsToOffCanvas(managedCanvas, managedCtx, width, height, clip, clipTime, frameIndex)
+            applyClipManagedEffectsToOffCanvas(managedCanvas, managedCtx, width, height, clip, clipTime, frameIndex, glslQualityScale)
             adjustmentOutputCanvas = managedCanvas
           }
 
@@ -980,7 +1110,7 @@ export const exportTimeline = async (options = {}, onProgress = () => {}) => {
       
       const clipTime = time - clip.startTime
       const baseClipTransform = getAnimatedTransform(clip, clipTime) || clip.transform || {}
-      const clipTransform = applyEffectsToTransform(baseClipTransform, clip.effects, clipTime)
+      const clipTransform = scaleTransformToExport(applyEffectsToTransform(baseClipTransform, clip.effects, clipTime))
       const clipAdjustmentSettings = normalizeAdjustmentSettings(
         getAnimatedAdjustmentSettings(clip, clipTime) || clip.adjustments || {}
       )
@@ -1019,14 +1149,14 @@ export const exportTimeline = async (options = {}, onProgress = () => {}) => {
           applyClipTransform(offCtx, rect, clipTransform, transitionStyle)
           applyClipCrop(offCtx, rect, clipTransform)
           applyTransitionClip(offCtx, rect, transitionStyle)
-          drawText(offCtx, rect, clip)
+          drawText(offCtx, rect, clip, textStyleScale)
           offCtx.restore()
 
           const processedCanvasForText = applyAdvancedAdjustmentsToCanvas(offCanvas, clipAdjustmentSettings, blurPx)
 
           if (usesManagedPixelEffects) {
             const outCtx = processedCanvasForText.getContext('2d')
-            applyClipManagedEffectsToOffCanvas(processedCanvasForText, outCtx, width, height, clip, clipTime, frameIndex)
+            applyClipManagedEffectsToOffCanvas(processedCanvasForText, outCtx, width, height, clip, clipTime, frameIndex, glslQualityScale)
           }
 
           ctx.save()
@@ -1058,10 +1188,10 @@ export const exportTimeline = async (options = {}, onProgress = () => {}) => {
           applyClipTransform(offCtx, rect, clipTransform, transitionStyle)
           applyClipCrop(offCtx, rect, clipTransform)
           applyTransitionClip(offCtx, rect, transitionStyle)
-          drawText(offCtx, rect, clip)
+          drawText(offCtx, rect, clip, textStyleScale)
           offCtx.restore()
 
-          applyClipManagedEffectsToOffCanvas(offCanvas, offCtx, width, height, clip, clipTime, frameIndex)
+          applyClipManagedEffectsToOffCanvas(offCanvas, offCtx, width, height, clip, clipTime, frameIndex, glslQualityScale)
 
           ctx.save()
           ctx.globalAlpha = clipOpacity
@@ -1082,7 +1212,7 @@ export const exportTimeline = async (options = {}, onProgress = () => {}) => {
         applyClipTransform(ctx, rect, clipTransform, transitionStyle)
         applyClipCrop(ctx, rect, clipTransform)
         applyTransitionClip(ctx, rect, transitionStyle)
-        drawText(ctx, rect, clip)
+        drawText(ctx, rect, clip, textStyleScale)
         ctx.restore()
         continue
       }
@@ -1257,7 +1387,7 @@ export const exportTimeline = async (options = {}, onProgress = () => {}) => {
 
         if (usesManagedPixelEffects) {
           const outCtx = advancedOutputCanvas.getContext('2d')
-          applyClipManagedEffectsToOffCanvas(advancedOutputCanvas, outCtx, width, height, clip, clipTime, frameIndex)
+          applyClipManagedEffectsToOffCanvas(advancedOutputCanvas, outCtx, width, height, clip, clipTime, frameIndex, glslQualityScale)
         }
 
         ctx.save()
@@ -1320,7 +1450,7 @@ export const exportTimeline = async (options = {}, onProgress = () => {}) => {
         }
         offCtx.restore()
 
-        applyClipManagedEffectsToOffCanvas(offCanvas, offCtx, width, height, clip, clipTime, frameIndex)
+        applyClipManagedEffectsToOffCanvas(offCanvas, offCtx, width, height, clip, clipTime, frameIndex, glslQualityScale)
 
         ctx.save()
         ctx.globalAlpha = clipOpacity
@@ -1431,7 +1561,7 @@ export const exportTimeline = async (options = {}, onProgress = () => {}) => {
           offCtx.putImageData(frameData, 0, 0)
 
           if (usesManagedPixelEffects) {
-            applyClipManagedEffectsToOffCanvas(offCanvas, offCtx, width, height, clip, clipTime, frameIndex)
+            applyClipManagedEffectsToOffCanvas(offCanvas, offCtx, width, height, clip, clipTime, frameIndex, glslQualityScale)
           }
 
           ctx.drawImage(offCanvas, 0, 0)
@@ -1454,10 +1584,22 @@ export const exportTimeline = async (options = {}, onProgress = () => {}) => {
       ctx.restore()
     }
     
-    const frameBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'))
-    const frameBuffer = await frameBlob.arrayBuffer()
-    const framePath = await window.electronAPI.pathJoin(framesFolder, `frame_${formatFrameNumber(frameIndex + 1)}.png`)
-    await window.electronAPI.writeFileFromArrayBuffer(framePath, frameBuffer)
+    if (framePipeSessionId) {
+      const frameData = ctx.getImageData(0, 0, width, height)
+      const pixelData = frameData.data
+      const frameBuffer = pixelData.byteOffset === 0 && pixelData.byteLength === pixelData.buffer.byteLength
+        ? pixelData.buffer
+        : pixelData.buffer.slice(pixelData.byteOffset, pixelData.byteOffset + pixelData.byteLength)
+      const writeResult = await window.electronAPI.writeFrameToPipe(framePipeSessionId, frameBuffer)
+      if (!writeResult?.success) {
+        throw new Error(writeResult?.error || 'Failed to write frame to FFmpeg pipe.')
+      }
+    } else {
+      const frameBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'))
+      const frameBuffer = await frameBlob.arrayBuffer()
+      const framePath = await window.electronAPI.pathJoin(framesFolder, `frame_${formatFrameNumber(frameIndex + 1)}.png`)
+      await window.electronAPI.writeFileFromArrayBuffer(framePath, frameBuffer)
+    }
     
     if (frameIndex % 5 === 0) {
       const progress = 5 + Math.floor((frameIndex / totalFrames) * 70)
@@ -1471,6 +1613,36 @@ export const exportTimeline = async (options = {}, onProgress = () => {}) => {
     if (frameIndex > 0 && frameIndex % 10 === 0) {
       await yieldToEventLoop()
     }
+  }
+  } catch (err) {
+    if (framePipeSessionId) {
+      try {
+        await window.electronAPI.abortFramePipe(framePipeSessionId)
+      } catch {
+        // ignore abort errors
+      }
+      framePipeSessionId = null
+    }
+    throw err
+  }
+
+  if (framePipeSessionId) {
+    if (signal?.aborted) {
+      try {
+        await window.electronAPI.abortFramePipe(framePipeSessionId)
+      } catch {
+        // ignore abort errors
+      }
+      framePipeSessionId = null
+      throw new Error('Export cancelled')
+    }
+    onProgress({ status: 'Finalizing fast FFmpeg pipe...', progress: 78 })
+    const pipeFinish = await window.electronAPI.finishFramePipe(framePipeSessionId)
+    framePipeSessionId = null
+    if (!pipeFinish?.success) {
+      throw new Error(pipeFinish?.error || 'Failed to finish FFmpeg frame pipe.')
+    }
+    framePipeEncoderUsed = pipeFinish.encoderUsed || framePipeEncoderUsed
   }
   
   let audioFilePath = null
@@ -1709,26 +1881,52 @@ export const exportTimeline = async (options = {}, onProgress = () => {}) => {
   onProgress({ status: EXPORT_STATUS.encoding, progress: 90 })
   await yieldToMain()
 
-  const encodeResult = await window.electronAPI.encodeVideo({
-    framePattern,
-    fps,
-    outputPath,
-    audioPath: audioFilePath,
-    format: outputExtension,
-    duration: totalDuration,
-    videoCodec,
-    audioCodec,
-    proresProfile: format === 'prores' ? proresProfile : undefined,
-    useHardwareEncoder,
-    nvencPreset,
-    preset,
-    qualityMode,
-    crf,
-    bitrateKbps,
-    keyframeInterval,
-    audioBitrateKbps,
-    audioSampleRate,
-  })
+  let encodeResult = null
+  if (framePipeEncoderUsed) {
+    if (audioFilePath && pipedVideoPath !== outputPath) {
+      onProgress({ status: 'Muxing fast-pipe video with audio...', progress: 92 })
+      const muxResult = await window.electronAPI.muxAudioVideo({
+        videoPath: pipedVideoPath,
+        audioPath: audioFilePath,
+        outputPath,
+        format: outputExtension,
+        duration: totalDuration,
+        audioCodec,
+        audioBitrateKbps,
+        audioSampleRate,
+      })
+      if (!muxResult?.success) {
+        throw new Error(muxResult?.error || 'Failed to mux audio onto fast-pipe export.')
+      }
+    } else if (pipedVideoPath !== outputPath) {
+      const copyResult = await window.electronAPI.copyFile(pipedVideoPath, outputPath)
+      if (!copyResult?.success) {
+        throw new Error(copyResult?.error || 'Failed to copy fast-pipe export to output path.')
+      }
+    }
+    encodeResult = { success: true, encoderUsed: framePipeEncoderUsed }
+  } else {
+    encodeResult = await window.electronAPI.encodeVideo({
+      framePattern,
+      fps,
+      outputPath,
+      audioPath: audioFilePath,
+      format: outputExtension,
+      duration: totalDuration,
+      videoCodec,
+      audioCodec,
+      proresProfile: format === 'prores' ? proresProfile : undefined,
+      useHardwareEncoder,
+      nvencPreset,
+      preset,
+      qualityMode,
+      crf,
+      bitrateKbps,
+      keyframeInterval,
+      audioBitrateKbps,
+      audioSampleRate,
+    })
+  }
   
   if (!encodeResult?.success) {
     throw new Error(encodeResult?.error || 'Failed to encode export.')
@@ -1738,10 +1936,14 @@ export const exportTimeline = async (options = {}, onProgress = () => {}) => {
   }
 
   // Cleanup temp render files
-  try {
-    await window.electronAPI.deleteDirectory(tempFolder, { recursive: true })
-  } catch (err) {
-    console.warn('Failed to clean export temp folder:', err)
+  if (getLocalStorageFlag('exportKeepFrames')) {
+    console.log('[Export] Keeping temp frame folder for diagnostics:', tempFolder)
+  } else {
+    try {
+      await window.electronAPI.deleteDirectory(tempFolder, { recursive: true })
+    } catch (err) {
+      console.warn('Failed to clean export temp folder:', err)
+    }
   }
   
   onProgress({ status: EXPORT_STATUS.done, progress: 100 })

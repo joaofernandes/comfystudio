@@ -207,7 +207,7 @@ function DopeSheet() {
   const setPlayheadFromClientX = useCallback((clientX) => {
     if (!selectedClip) return
     const clipTime = getClipTimeFromClientX(clientX)
-    setPlayheadPosition(selectedClip.startTime + clipTime)
+    setPlayheadPosition(selectedClip.startTime + clipTime, { snap: true })
   }, [getClipTimeFromClientX, selectedClip, setPlayheadPosition])
 
   const setPlayheadFromMouseEvent = useCallback((event) => {

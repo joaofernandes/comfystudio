@@ -9,17 +9,20 @@ import useViewportClampedPosition from '../hooks/useViewportClampedPosition'
 import { captureTimelineFrameAt, getTopmostVideoOrImageClipAtTime } from '../utils/captureTimelineFrame'
 import { getAnimatedTransform } from '../utils/keyframes'
 import VideoLayerRenderer from './VideoLayerRenderer'
+import CanvasPreviewRenderer from './CanvasPreviewRenderer'
 import AudioLayerRenderer from './AudioLayerRenderer'
 import PreviewTransformGizmo from './PreviewTransformGizmo'
 import {
   getPreviewProxyPath,
   computePreviewSignature,
   renderPreviewProxy,
+  renderPreviewChunk,
   getPreviewComplexity,
   shouldAutoGeneratePreviewProxy,
 } from '../services/previewCache'
 import { generateMissingProxiesForAllVideos, hasUsableProxy, isProxyableVideoAsset } from '../services/proxyCache'
 import { importAsset } from '../services/fileSystem'
+import { getGlslPreviewQualityScale } from '../utils/glslEffects'
 
 /**
  * MaskPreview - Component for previewing mask assets with frame-by-frame playback
@@ -198,6 +201,33 @@ const LETTERBOX_PRESETS = [
 ]
 const AUTO_SMOOTH_PREVIEW_KEY = 'comfystudio-auto-smooth-preview'
 const PREVIEW_TRANSFORM_CONTROLS_KEY = 'previewShowTransformControls'
+const PREVIEW_CHUNK_DURATION = 5
+const PREVIEW_CHUNK_COUNT = 4
+const PREVIEW_CHUNK_EPSILON = 0.03
+
+function isSamePreviewChunkRange(a, b) {
+  return Math.abs((Number(a?.rangeStart) || 0) - (Number(b?.rangeStart) || 0)) < 0.001
+    && Math.abs((Number(a?.rangeEnd) || 0) - (Number(b?.rangeEnd) || 0)) < 0.001
+}
+
+function upsertPreviewChunk(chunks, nextChunk) {
+  const filtered = (chunks || []).filter((chunk) => !(
+    chunk.signature === nextChunk.signature
+    && isSamePreviewChunkRange(chunk, nextChunk)
+  ))
+  return [...filtered, nextChunk].sort((a, b) => a.rangeStart - b.rangeStart)
+}
+
+function formatPreviewChunkTime(seconds) {
+  const totalSeconds = Math.max(0, Math.floor(Number(seconds) || 0))
+  const minutes = Math.floor(totalSeconds / 60)
+  const secs = String(totalSeconds % 60).padStart(2, '0')
+  return `${minutes}:${secs}`
+}
+
+function formatPreviewChunkRange(range) {
+  return `${formatPreviewChunkTime(range?.rangeStart)}-${formatPreviewChunkTime(range?.rangeEnd)}`
+}
 
 function PreviewPanel() {
   const videoRefA = useRef(null) // Used for asset preview mode
@@ -287,6 +317,10 @@ function PreviewPanel() {
     setPreviewProxyInvalid,
     useProxyPlaybackForAssets,
     setUseProxyPlaybackForAssets,
+    glslPreviewQuality,
+    setGlslPreviewQuality,
+    previewCompositorMode,
+    setPreviewCompositorMode,
   } = useTimelineStore()
   
   // Use timeline playback hook
@@ -582,6 +616,19 @@ function PreviewPanel() {
   const forceAutoProxyRefreshRef = useRef(false)
   const [proxyVideoUrl, setProxyVideoUrl] = useState(null)
   const proxyVideoRef = useRef(null)
+  const chunkVideoRef = useRef(null)
+  const chunkCacheAbortRef = useRef(null)
+  const [previewChunks, setPreviewChunks] = useState([])
+  const previewChunksRef = useRef([])
+  const [chunkCacheState, setChunkCacheState] = useState({
+    busy: false,
+    progress: 0,
+    status: '',
+    error: null,
+    cachedCount: 0,
+    totalCount: 0,
+    currentRangeLabel: '',
+  })
   const runSmoothPreviewRender = useCallback(async ({ force = true, reason = 'manual' } = {}) => {
     if (!currentProjectHandle || !currentTimelineId || !window.electronAPI) {
       return { error: 'Preview cache is unavailable.' }
@@ -616,6 +663,234 @@ function PreviewPanel() {
     }
     return result
   }, [currentProjectHandle, currentTimelineId, setPreviewProxyGenerating, setPreviewProxyReady])
+
+  useEffect(() => {
+    previewChunksRef.current = previewChunks
+  }, [previewChunks])
+
+  useEffect(() => {
+    setPreviewChunks((chunks) => chunks.filter((chunk) => chunk.signature === currentSignature))
+  }, [currentSignature])
+
+  const buildPreviewChunkRanges = useCallback(() => {
+    const timelineEnd = Math.max(0, Number(getTimelineEndTime?.()) || Number(timelineDuration) || 0)
+    if (timelineEnd <= 0) return []
+    const currentChunkStart = Math.floor((Number(playheadPosition) || 0) / PREVIEW_CHUNK_DURATION) * PREVIEW_CHUNK_DURATION
+    const firstStart = Math.max(0, currentChunkStart)
+    const ranges = []
+    for (let index = 0; index < PREVIEW_CHUNK_COUNT; index += 1) {
+      const rangeStart = firstStart + index * PREVIEW_CHUNK_DURATION
+      if (rangeStart >= timelineEnd - PREVIEW_CHUNK_EPSILON) break
+      const rangeEnd = Math.min(timelineEnd, rangeStart + PREVIEW_CHUNK_DURATION)
+      if (rangeEnd - rangeStart > PREVIEW_CHUNK_EPSILON) {
+        ranges.push({ rangeStart, rangeEnd })
+      }
+    }
+    return ranges
+  }, [getTimelineEndTime, playheadPosition, timelineDuration])
+
+  const previewChunkPlan = useMemo(() => {
+    const ranges = buildPreviewChunkRanges()
+    const totalSeconds = ranges.reduce((sum, range) => sum + Math.max(0, range.rangeEnd - range.rangeStart), 0)
+    return {
+      ranges,
+      totalSeconds,
+      label: totalSeconds > 0 ? `Cache nearby ${Math.round(totalSeconds)}s` : 'Cache nearby',
+    }
+  }, [buildPreviewChunkRanges])
+
+  const runPreviewChunkCache = useCallback(async () => {
+    if (chunkCacheState.busy) return
+    if (!currentProjectHandle || !currentTimelineId || !window.electronAPI) {
+      setChunkCacheState({
+        busy: false,
+        progress: 0,
+        status: '',
+        error: 'Preview chunks are available in the desktop app only.',
+        cachedCount: 0,
+        totalCount: 0,
+        currentRangeLabel: '',
+      })
+      return
+    }
+
+    const ranges = buildPreviewChunkRanges()
+    if (ranges.length === 0) {
+      setChunkCacheState({
+        busy: false,
+        progress: 0,
+        status: '',
+        error: 'No timeline range to cache.',
+        cachedCount: 0,
+        totalCount: 0,
+        currentRangeLabel: '',
+      })
+      return
+    }
+
+    const abortController = new AbortController()
+    chunkCacheAbortRef.current = abortController
+    setChunkCacheState({
+      busy: true,
+      progress: 0,
+      status: `Caching ${ranges.length} nearby preview chunk${ranges.length === 1 ? '' : 's'}...`,
+      error: null,
+      cachedCount: 0,
+      totalCount: ranges.length,
+      currentRangeLabel: formatPreviewChunkRange(ranges[0]),
+    })
+
+    let completed = 0
+    for (let index = 0; index < ranges.length; index += 1) {
+      if (abortController.signal.aborted) break
+      const range = ranges[index]
+      const rangeLabel = formatPreviewChunkRange(range)
+      const existing = previewChunksRef.current.find((chunk) => (
+        chunk.signature === currentSignature
+        && isSamePreviewChunkRange(chunk, range)
+        && chunk.url
+      ))
+      if (existing) {
+        completed += 1
+        setChunkCacheState({
+          busy: true,
+          progress: Math.round((completed / ranges.length) * 100),
+          status: `Preview chunk ${completed}/${ranges.length} already cached`,
+          error: null,
+          cachedCount: completed,
+          totalCount: ranges.length,
+          currentRangeLabel: rangeLabel,
+        })
+        continue
+      }
+
+      setChunkCacheState({
+        busy: true,
+        progress: Math.round((index / ranges.length) * 100),
+        status: `Caching preview chunk ${index + 1}/${ranges.length} (${rangeLabel})`,
+        error: null,
+        cachedCount: completed,
+        totalCount: ranges.length,
+        currentRangeLabel: rangeLabel,
+      })
+
+      const result = await renderPreviewChunk(
+        range.rangeStart,
+        range.rangeEnd,
+        ({ progress }) => {
+          const chunkProgress = Number.isFinite(progress) ? progress : 0
+          setChunkCacheState({
+            busy: true,
+            progress: Math.round(((index + chunkProgress / 100) / ranges.length) * 100),
+            status: `Caching preview chunk ${index + 1}/${ranges.length} (${rangeLabel})`,
+            error: null,
+            cachedCount: completed,
+            totalCount: ranges.length,
+            currentRangeLabel: rangeLabel,
+          })
+        },
+        {
+          force: false,
+          signal: abortController.signal,
+          useProxyMedia: useProxyPlaybackForAssets,
+          glslQualityScale: getGlslPreviewQualityScale(glslPreviewQuality),
+        }
+      )
+
+      if (!result?.path || !result?.url) {
+        const wasCancelled = abortController.signal.aborted || /cancel/i.test(result?.error || '')
+        setChunkCacheState({
+          busy: false,
+          progress: Math.round((completed / ranges.length) * 100),
+          status: wasCancelled ? `Stopped after ${completed}/${ranges.length} cached chunk${completed === 1 ? '' : 's'}.` : '',
+          error: wasCancelled ? null : (result?.error || 'Preview chunk render failed.'),
+          cachedCount: completed,
+          totalCount: ranges.length,
+          currentRangeLabel: rangeLabel,
+        })
+        if (chunkCacheAbortRef.current === abortController) chunkCacheAbortRef.current = null
+        return
+      }
+
+      const latestSignature = computePreviewSignature(currentTimelineId, useTimelineStore.getState())
+      if (result.signature !== latestSignature) {
+        setChunkCacheState({
+          busy: false,
+          progress: Math.round((completed / ranges.length) * 100),
+          status: '',
+          error: 'Timeline changed while caching. Cache those chunks again when ready.',
+          cachedCount: completed,
+          totalCount: ranges.length,
+          currentRangeLabel: rangeLabel,
+        })
+        if (chunkCacheAbortRef.current === abortController) chunkCacheAbortRef.current = null
+        return
+      }
+
+      const nextChunk = {
+        path: result.path,
+        url: result.url,
+        signature: result.signature,
+        rangeStart: result.rangeStart,
+        rangeEnd: result.rangeEnd,
+      }
+      setPreviewChunks((chunks) => upsertPreviewChunk(chunks, nextChunk))
+      completed += 1
+      setChunkCacheState({
+        busy: true,
+        progress: Math.round((completed / ranges.length) * 100),
+        status: `Cached preview chunk ${completed}/${ranges.length} (${rangeLabel})`,
+        error: null,
+        cachedCount: completed,
+        totalCount: ranges.length,
+        currentRangeLabel: rangeLabel,
+      })
+    }
+
+    if (chunkCacheAbortRef.current === abortController) chunkCacheAbortRef.current = null
+    setChunkCacheState({
+      busy: false,
+      progress: 100,
+      status: abortController.signal.aborted
+        ? `Stopped after ${completed}/${ranges.length} cached chunk${completed === 1 ? '' : 's'}.`
+        : `Cached ${completed} nearby preview chunk${completed === 1 ? '' : 's'}.`,
+      error: null,
+      cachedCount: completed,
+      totalCount: ranges.length,
+      currentRangeLabel: '',
+    })
+  }, [
+    buildPreviewChunkRanges,
+    chunkCacheState.busy,
+    currentProjectHandle,
+    currentSignature,
+    currentTimelineId,
+    glslPreviewQuality,
+    useProxyPlaybackForAssets,
+  ])
+
+  const activePreviewChunk = useMemo(() => {
+    if (useProxyPlayback) return null
+    return previewChunks.find((chunk) => (
+      chunk.signature === currentSignature
+      && chunk.url
+      && playheadPosition >= chunk.rangeStart - PREVIEW_CHUNK_EPSILON
+      && playheadPosition < chunk.rangeEnd - PREVIEW_CHUNK_EPSILON
+    )) || null
+  }, [currentSignature, playheadPosition, previewChunks, useProxyPlayback])
+
+  const stopPreviewChunkCache = useCallback(() => {
+    chunkCacheAbortRef.current?.abort()
+    setChunkCacheState((prev) => ({
+      ...prev,
+      status: 'Stopping preview chunk cache...',
+      error: null,
+    }))
+  }, [])
+
+  useEffect(() => () => {
+    chunkCacheAbortRef.current?.abort()
+  }, [])
 
   // If timeline changed, mark proxy state invalid so status stays accurate.
   useEffect(() => {
@@ -687,13 +962,27 @@ function PreviewPanel() {
       video.play().catch(() => {})
     } else {
       video.pause()
-      setPlayheadPosition(video.currentTime)
+      setPlayheadPosition(video.currentTime, { snap: true })
     }
   }, [timelineIsPlaying, proxyVideoUrl, setPlayheadPosition])
   useEffect(() => {
     if (!proxyVideoRef.current || !proxyVideoUrl || timelineIsPlaying) return
     proxyVideoRef.current.currentTime = playheadPosition
   }, [playheadPosition, proxyVideoUrl, timelineIsPlaying])
+
+  useEffect(() => {
+    if (!chunkVideoRef.current || !activePreviewChunk?.url) return
+    const video = chunkVideoRef.current
+    const chunkTime = Math.max(0, playheadPosition - activePreviewChunk.rangeStart)
+    if (Math.abs((video.currentTime || 0) - chunkTime) > 0.08) {
+      video.currentTime = chunkTime
+    }
+    if (timelineIsPlaying) {
+      video.play().catch(() => {})
+    } else {
+      video.pause()
+    }
+  }, [activePreviewChunk, playheadPosition, timelineIsPlaying])
   
   // Register video ref with store (for asset preview mode - only for video assets)
   // Use a timeout to ensure the video element is mounted after switching previews
@@ -1074,7 +1363,7 @@ function PreviewPanel() {
   const duration = previewMode === 'timeline' ? endTime : assetDuration
   const togglePlay = previewMode === 'timeline' ? timelineTogglePlay : assetTogglePlay
   const seekTo = previewMode === 'timeline' 
-    ? (time) => setPlayheadPosition(Math.max(0, Math.min(endTime, time)))
+    ? (time) => setPlayheadPosition(Math.max(0, Math.min(endTime, time)), { snap: true })
     : assetSeekTo
 
   // Check if we have content to show
@@ -1991,19 +2280,58 @@ function PreviewPanel() {
                     onEnded={() => timelineIsPlaying && timelineTogglePlay()}
                     onContextMenu={(e) => e.preventDefault()}
                   />
+                ) : activePreviewChunk ? (
+                  <>
+                    <AudioLayerRenderer />
+                    <video
+                      key={activePreviewChunk.path}
+                      ref={chunkVideoRef}
+                      src={activePreviewChunk.url}
+                      className="absolute inset-0 w-full h-full object-contain bg-black"
+                      muted
+                      playsInline
+                      onLoadedMetadata={() => {
+                        if (chunkVideoRef.current) {
+                          chunkVideoRef.current.currentTime = Math.max(0, playheadPosition - activePreviewChunk.rangeStart)
+                          if (timelineIsPlaying) chunkVideoRef.current.play().catch(() => {})
+                        }
+                      }}
+                      onTimeUpdate={() => {
+                        if (chunkVideoRef.current && timelineIsPlaying) {
+                          setPlayheadPosition(activePreviewChunk.rangeStart + chunkVideoRef.current.currentTime)
+                        }
+                      }}
+                      onEnded={() => {
+                        if (timelineIsPlaying) {
+                          setPlayheadPosition(activePreviewChunk.rangeEnd, { snap: true })
+                        }
+                      }}
+                      onContextMenu={(e) => e.preventDefault()}
+                    />
+                  </>
                 ) : (
                   <>
                     <AudioLayerRenderer />
-                    <VideoLayerRenderer
-                      buildVideoTransform={buildVideoTransform}
-                      getClipTransform={getClipTransform}
-                      transitionInfo={transitionInfo}
-                      getTransitionStyles={getTransitionStyles}
-                      getTransitionOverlay={getTransitionOverlay}
-                      onClipPointerDown={handlePreviewClipPointerDown}
-                      onClipDoubleClick={handlePreviewTextDoubleClick}
-                      previewScale={previewScale.uniform}
-                    />
+                    {previewCompositorMode === 'dom' ? (
+                      <VideoLayerRenderer
+                        buildVideoTransform={buildVideoTransform}
+                        getClipTransform={getClipTransform}
+                        transitionInfo={transitionInfo}
+                        getTransitionStyles={getTransitionStyles}
+                        getTransitionOverlay={getTransitionOverlay}
+                        onClipPointerDown={handlePreviewClipPointerDown}
+                        onClipDoubleClick={handlePreviewTextDoubleClick}
+                        previewScale={previewScale.uniform}
+                      />
+                    ) : (
+                      <CanvasPreviewRenderer
+                        timelineWidth={timelineWidth}
+                        timelineHeight={timelineHeight}
+                        timelineFps={timelineSettings?.fps || timelineFps || 30}
+                        onClipPointerDown={handlePreviewClipPointerDown}
+                        onClipDoubleClick={handlePreviewTextDoubleClick}
+                      />
+                    )}
                   </>
                 )}
                 
@@ -2041,6 +2369,21 @@ function PreviewPanel() {
                           Smooth preview
                         </div>
                       )}
+                      {activePreviewChunk && (
+                        <div className="px-2 py-1 bg-emerald-700/80 rounded text-xs text-white">
+                          Cached chunk {formatPreviewChunkRange(activePreviewChunk)}
+                        </div>
+                      )}
+                      {previewChunks.length > 0 && !activePreviewChunk && (
+                        <div className="px-2 py-1 bg-emerald-950/80 rounded text-xs text-emerald-200 border border-emerald-800/60">
+                          {previewChunks.length} cached chunk{previewChunks.length === 1 ? '' : 's'}
+                        </div>
+                      )}
+                      {!activePreviewChunk && !useProxyPlayback && previewCompositorMode === 'canvas' && (
+                        <div className="px-2 py-1 bg-blue-700/80 rounded text-xs text-white">
+                          Canvas preview
+                        </div>
+                      )}
                       {previewComplexity.maxConcurrentVideoLayers >= 2 && (
                         <div className="px-2 py-1 bg-sf-dark-900/80 rounded text-xs text-sf-text-muted">
                           Peak {previewComplexity.maxConcurrentVideoLayers} video layers
@@ -2059,6 +2402,20 @@ function PreviewPanel() {
                           <span>{Math.round(previewProxyProgress)}%</span>
                         </div>
                       )}
+                      {chunkCacheState.busy && (
+                        <div className="px-2 py-1 bg-sf-dark-800 rounded text-xs text-sf-text-muted flex items-center gap-2">
+                          <span>{chunkCacheState.status || 'Caching preview chunks...'}</span>
+                          <span>{Math.round(chunkCacheState.progress)}%</span>
+                          <button
+                            type="button"
+                            onClick={stopPreviewChunkCache}
+                            className="ml-1 rounded bg-sf-dark-700 px-1.5 py-0.5 text-[10px] text-sf-text-secondary hover:bg-sf-dark-600"
+                            title="Stop caching after the current frame"
+                          >
+                            Stop
+                          </button>
+                        </div>
+                      )}
                       {currentProjectHandle && window.electronAPI && (
                         <button
                           type="button"
@@ -2073,6 +2430,36 @@ function PreviewPanel() {
                             : 'Proxies: Off'}
                         </button>
                       )}
+                      <label
+                        className="flex items-center gap-1 rounded bg-sf-dark-700 px-2 py-1 text-xs text-sf-text-muted"
+                        title="Controls live GLSL shader preview resolution only. Export still renders at full quality."
+                      >
+                        <span>GLSL</span>
+                        <select
+                          value={glslPreviewQuality}
+                          onChange={(event) => setGlslPreviewQuality(event.target.value)}
+                          className="bg-sf-dark-800 text-sf-text-secondary outline-none"
+                        >
+                          <option value="full">Full</option>
+                          <option value="half">Half</option>
+                          <option value="quarter">Quarter</option>
+                          <option value="eighth">Eighth</option>
+                        </select>
+                      </label>
+                      <label
+                        className="flex items-center gap-1 rounded bg-sf-dark-700 px-2 py-1 text-xs text-sf-text-muted"
+                        title="Canvas preview avoids Windows cut-frame flashes. DOM keeps the old renderer as a fallback."
+                      >
+                        <span>Renderer</span>
+                        <select
+                          value={previewCompositorMode === 'dom' ? 'dom' : 'canvas'}
+                          onChange={(event) => setPreviewCompositorMode(event.target.value)}
+                          className="bg-sf-dark-800 text-sf-text-secondary outline-none"
+                        >
+                          <option value="canvas">Canvas</option>
+                          <option value="dom">DOM</option>
+                        </select>
+                      </label>
                       {useProxyPlaybackForAssets && currentProjectHandle && window.electronAPI && proxyCoverage.total > 0 && (
                         <button
                           type="button"
@@ -2117,6 +2504,23 @@ function PreviewPanel() {
                           {autoSmoothPreviewEnabled ? 'Auto smooth: On' : 'Auto smooth: Off'}
                         </button>
                       )}
+                      {currentProjectHandle && window.electronAPI && clips.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => { void runPreviewChunkCache() }}
+                          disabled={chunkCacheState.busy || previewProxyStatus === 'generating'}
+                          className={`px-2 py-1 rounded text-xs transition-colors ${
+                            chunkCacheState.busy || previewProxyStatus === 'generating'
+                              ? 'bg-sf-dark-700 text-sf-text-muted cursor-not-allowed'
+                              : 'bg-emerald-800/70 hover:bg-emerald-700 text-white'
+                          }`}
+                          title={`Render ${previewChunkPlan.ranges.length || 0} hidden preview-cache chunk${previewChunkPlan.ranges.length === 1 ? '' : 's'} around the playhead (${Math.round(previewChunkPlan.totalSeconds)}s total). Uses current proxy and GLSL preview-quality settings.`}
+                        >
+                          {chunkCacheState.busy
+                            ? `Caching ${chunkCacheState.cachedCount}/${chunkCacheState.totalCount || previewChunkPlan.ranges.length}`
+                            : previewChunkPlan.label}
+                        </button>
+                      )}
                       {previewProxyStatus !== 'generating' && currentProjectHandle && window.electronAPI && clips.length > 0 && (
                         <button
                           type="button"
@@ -2126,6 +2530,22 @@ function PreviewPanel() {
                         >
                           {previewProxyStatus === 'ready' && useProxyPlayback ? 'Re-generate smooth preview' : 'Generate smooth preview'}
                         </button>
+                      )}
+                      {chunkCacheState.error && (
+                        <span
+                          className="px-2 py-1 rounded text-xs bg-amber-900/50 text-amber-200 border border-amber-700/40"
+                          title={chunkCacheState.error}
+                        >
+                          Chunk cache warning
+                        </span>
+                      )}
+                      {!chunkCacheState.busy && !chunkCacheState.error && chunkCacheState.status && (
+                        <span
+                          className="px-2 py-1 rounded text-xs bg-emerald-950/60 text-emerald-200 border border-emerald-800/50"
+                          title={chunkCacheState.status}
+                        >
+                          {chunkCacheState.status}
+                        </span>
                       )}
                       {currentPreview && (
                         <button 
@@ -2221,7 +2641,7 @@ function PreviewPanel() {
                 
                 {/* Asset Info Overlay */}
                 {showInfoOverlay && (
-                  <div className="absolute top-2 left-2 right-2 flex items-start justify-between pointer-events-none">
+                  <div className="absolute top-2 left-2 right-2 z-50 flex items-start justify-between pointer-events-none">
                     <div className="flex items-center gap-2 flex-wrap">
                       {/* Type Badge */}
                       <div className={`px-2 py-1 rounded text-xs text-white flex items-center gap-1 ${
@@ -2316,7 +2736,7 @@ function PreviewPanel() {
 
                 {/* Prompt Overlay (bottom) - only for AI-generated assets */}
                 {showInfoOverlay && currentPreview.prompt && (
-                  <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent pointer-events-none">
+                  <div className="absolute bottom-0 left-0 right-0 z-50 p-3 bg-gradient-to-t from-black/80 to-transparent pointer-events-none">
                     <p className="text-xs text-white/80 line-clamp-2">
                       {currentPreview.prompt}
                     </p>
@@ -2335,7 +2755,7 @@ function PreviewPanel() {
                   <button 
                     onClick={() => {
                       setPreviewMode('timeline')
-                      setPlayheadPosition(0)
+            setPlayheadPosition(0, { snap: true })
                     }}
                     className="mt-3 px-3 py-1.5 bg-sf-blue hover:bg-sf-blue-hover rounded text-xs text-white flex items-center gap-1 transition-colors"
                   >

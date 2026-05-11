@@ -5,6 +5,7 @@ import {
   KeyRound, CheckCircle2, ExternalLink,
 } from 'lucide-react'
 import useProjectStore, { RESOLUTION_PRESETS, FPS_PRESETS } from '../stores/projectStore'
+import useTimelineStore from '../stores/timelineStore'
 import { THEMES, getStoredThemeId, applyTheme } from '../config/themes'
 import { getPexelsApiKey, setPexelsApiKey } from '../services/pexelsSettings'
 import WorkflowSetupSection from './WorkflowSetupSection'
@@ -37,8 +38,11 @@ import {
   saveLocalComfyConnectionPort,
 } from '../services/localComfyConnection'
 
-const SHOW_COMFYUI_TAB_KEY = 'comfystudio-show-comfyui-tab'
 const AUTO_IMPORT_KEY = 'comfystudio-auto-import-comfy-outputs'
+const OUTPUT_DIRECTORY_SETTING_KEY = 'outputDirectory'
+const WORKFLOWS_DIRECTORY_SETTING_KEY = 'workflowsDirectory'
+const OUTPUT_DIRECTORY_PLACEHOLDER = 'C:\\Users\\...\\ComfyStudio\\outputs'
+const WORKFLOWS_DIRECTORY_PLACEHOLDER = 'C:\\Users\\...\\ComfyUI\\workflow_API'
 
 const SETTINGS_SECTIONS = [
   {
@@ -140,8 +144,8 @@ function GeneralTab({ initialSection = null }) {
     status: 'idle',
     message: `Local endpoint: ${initialComfyConnection.httpBase}`,
   })
-  const [outputPath, setOutputPath] = useState('C:\\Users\\...\\ComfyStudio\\outputs')
-  const [workflowPath, setWorkflowPath] = useState('C:\\Users\\...\\ComfyUI\\workflow_API')
+  const [outputPath, setOutputPath] = useState('')
+  const [workflowPath, setWorkflowPath] = useState('')
   const [activeThemeId, setActiveThemeId] = useState(() => getStoredThemeId())
   const [pexelsApiKey, setPexelsApiKeyLocal] = useState('')
   const [comfyOrgApiKey, setComfyOrgApiKey] = useState('')
@@ -156,16 +160,6 @@ function GeneralTab({ initialSection = null }) {
     () => getEditorHotkeyPresetMatch(editorHotkeys),
     [editorHotkeys]
   )
-
-  const [showComfyUiTab, setShowComfyUiTab] = useState(() => {
-    try {
-      const stored = localStorage.getItem(SHOW_COMFYUI_TAB_KEY)
-      if (stored === null) return false
-      return stored === 'true'
-    } catch {
-      return false
-    }
-  })
 
   const [autoImportComfyOutputs, setAutoImportComfyOutputs] = useState(() => {
     try {
@@ -192,10 +186,24 @@ function GeneralTab({ initialSection = null }) {
     defaultFps,
     setDefaultProjectSettings,
   } = useProjectStore()
+  const showTimelineClipThumbnails = useTimelineStore((state) => state.showTimelineClipThumbnails)
+  const setShowTimelineClipThumbnails = useTimelineStore((state) => state.setShowTimelineClipThumbnails)
 
   useEffect(() => {
     getPexelsApiKey().then((key) => setPexelsApiKeyLocal(key || ''))
     ;(async () => {
+      try {
+        const [storedOutputPath, storedWorkflowPath] = await Promise.all([
+          window.electronAPI?.getSetting?.(OUTPUT_DIRECTORY_SETTING_KEY),
+          window.electronAPI?.getSetting?.(WORKFLOWS_DIRECTORY_SETTING_KEY),
+        ])
+        setOutputPath(String(storedOutputPath || ''))
+        setWorkflowPath(String(storedWorkflowPath || ''))
+      } catch {
+        setOutputPath('')
+        setWorkflowPath('')
+      }
+
       try {
         setEditorHotkeysState(await getEditorHotkeys())
       } catch {
@@ -288,15 +296,6 @@ function GeneralTab({ initialSection = null }) {
     return () => window.removeEventListener(COMFY_PARTNER_KEY_CHANGED_EVENT, handler)
   }, [])
 
-  const handleToggleShowComfyUiTab = () => {
-    const next = !showComfyUiTab
-    setShowComfyUiTab(next)
-    try {
-      localStorage.setItem(SHOW_COMFYUI_TAB_KEY, String(next))
-      window.dispatchEvent(new CustomEvent('comfystudio-show-comfyui-tab-changed', { detail: next }))
-    } catch (_) {}
-  }
-
   const handleToggleAutoImportComfyOutputs = () => {
     const next = !autoImportComfyOutputs
     setAutoImportComfyOutputs(next)
@@ -373,11 +372,45 @@ function GeneralTab({ initialSection = null }) {
     })
   }
 
+  const handleChooseDirectory = async ({ title, currentPath, onSelect }) => {
+    if (!window.electronAPI?.selectDirectory) {
+      console.warn('Directory picker is not available in this environment.')
+      return
+    }
+
+    try {
+      const selectedPath = await window.electronAPI.selectDirectory({
+        title,
+        defaultPath: currentPath || undefined,
+      })
+      if (selectedPath) onSelect(selectedPath)
+    } catch (error) {
+      console.error('Could not open directory picker:', error)
+    }
+  }
+
+  const handleSaveFilePathSettings = async () => {
+    try {
+      const [outputResult, workflowResult] = await Promise.all([
+        window.electronAPI?.setSetting?.(OUTPUT_DIRECTORY_SETTING_KEY, outputPath.trim()),
+        window.electronAPI?.setSetting?.(WORKFLOWS_DIRECTORY_SETTING_KEY, workflowPath.trim()),
+      ])
+
+      return outputResult?.success !== false && workflowResult?.success !== false
+    } catch (error) {
+      console.error('Could not save file path settings:', error)
+      return false
+    }
+  }
+
   const handleSaveAllSettings = async () => {
     await setPexelsApiKey(pexelsApiKey.trim())
     await setEditorHotkeys(editorHotkeys)
-    const connectionSaved = await handleSaveComfyConnection()
-    if (connectionSaved) {
+    const [connectionSaved, filePathsSaved] = await Promise.all([
+      handleSaveComfyConnection(),
+      handleSaveFilePathSettings(),
+    ])
+    if (connectionSaved && filePathsSaved) {
       setSettingsSaved(true)
       setTimeout(() => setSettingsSaved(false), 2000)
     } else {
@@ -592,30 +625,10 @@ function GeneralTab({ initialSection = null }) {
           </div>
 
           <div className="flex items-center justify-between rounded-lg border border-sf-dark-700 bg-sf-dark-900/60 px-3 py-3">
-            <div>
-              <label className="text-sm text-sf-text-primary">Show ComfyUI tab</label>
-              <p className="text-[10px] text-sf-text-muted">For advanced users. When off, the ComfyUI tab is hidden from the app bar.</p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={showComfyUiTab}
-              onClick={handleToggleShowComfyUiTab}
-              className={`w-10 h-5 rounded-full transition-colors flex-shrink-0 relative ${showComfyUiTab ? 'bg-sf-accent' : 'bg-sf-dark-600'}`}
-              title={showComfyUiTab ? 'Hide ComfyUI tab' : 'Show ComfyUI tab'}
-            >
-              <span
-                className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${showComfyUiTab ? 'left-[calc(100%-1.25rem)]' : 'left-0.5'}`}
-                aria-hidden
-              />
-            </button>
-          </div>
-
-          <div className="flex items-center justify-between rounded-lg border border-sf-dark-700 bg-sf-dark-900/60 px-3 py-3">
             <div className="pr-4">
               <label className="text-sm text-sf-text-primary">Auto-import ComfyUI tab generations</label>
               <p className="text-[10px] text-sf-text-muted">
-                When enabled, any successful prompt run on your ComfyUI instance (including custom workflows run from the ComfyUI tab) is automatically imported into the current project&apos;s <span className="text-sf-text-secondary">Imported from ComfyUI/</span> folder. Detected frame sequences are stitched into a single MP4 at the project&apos;s framerate.
+                When enabled, successful custom prompts observed while the embedded ComfyUI tab is active are imported into the current project&apos;s <span className="text-sf-text-secondary">Imported from ComfyUI/</span> folder. Detected frame sequences are stitched into a single MP4 at the project&apos;s framerate.
               </p>
             </div>
             <button
@@ -645,9 +658,20 @@ function GeneralTab({ initialSection = null }) {
                 type="text"
                 value={outputPath}
                 onChange={(e) => setOutputPath(e.target.value)}
+                placeholder={OUTPUT_DIRECTORY_PLACEHOLDER}
                 className="flex-1 min-w-0 bg-sf-dark-800 border border-sf-dark-600 rounded px-3 py-2 text-xs text-sf-text-primary focus:outline-none focus:border-sf-accent truncate"
               />
-              <button className="px-3 py-2 bg-sf-dark-700 hover:bg-sf-dark-600 rounded text-xs text-sf-text-secondary transition-colors flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  void handleChooseDirectory({
+                    title: 'Select Output Directory',
+                    currentPath: outputPath,
+                    onSelect: setOutputPath,
+                  })
+                }}
+                className="px-3 py-2 bg-sf-dark-700 hover:bg-sf-dark-600 rounded text-xs text-sf-text-secondary transition-colors flex-shrink-0"
+              >
                 ...
               </button>
             </div>
@@ -659,9 +683,20 @@ function GeneralTab({ initialSection = null }) {
                 type="text"
                 value={workflowPath}
                 onChange={(e) => setWorkflowPath(e.target.value)}
+                placeholder={WORKFLOWS_DIRECTORY_PLACEHOLDER}
                 className="flex-1 min-w-0 bg-sf-dark-800 border border-sf-dark-600 rounded px-3 py-2 text-xs text-sf-text-primary focus:outline-none focus:border-sf-accent truncate"
               />
-              <button className="px-3 py-2 bg-sf-dark-700 hover:bg-sf-dark-600 rounded text-xs text-sf-text-secondary transition-colors flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  void handleChooseDirectory({
+                    title: 'Select Workflows Directory',
+                    currentPath: workflowPath,
+                    onSelect: setWorkflowPath,
+                  })
+                }}
+                className="px-3 py-2 bg-sf-dark-700 hover:bg-sf-dark-600 rounded text-xs text-sf-text-secondary transition-colors flex-shrink-0"
+              >
                 ...
               </button>
             </div>
@@ -678,44 +713,60 @@ function GeneralTab({ initialSection = null }) {
     case 'appearance':
       activeSectionContent = (
         <div className="space-y-4">
-          <label className="block text-xs text-sf-text-muted">Theme</label>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {THEMES.map((theme) => {
-              const isActive = theme.id === activeThemeId
-              return (
-                <button
-                  key={theme.id}
-                  type="button"
-                  onClick={() => {
-                    setActiveThemeId(theme.id)
-                    applyTheme(theme.id)
-                  }}
-                  className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${
-                    isActive
-                      ? 'border-sf-accent bg-sf-accent/10'
-                      : 'border-sf-dark-700 bg-sf-dark-800 hover:bg-sf-dark-700'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex gap-0.5 flex-shrink-0">
-                      <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: theme.preview.bg }} />
-                      <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: theme.preview.surface }} />
-                      <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: theme.preview.accent }} />
-                      <div className="w-4 h-4 rounded-sm border border-white/10" style={{ backgroundColor: theme.preview.text }} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm text-sf-text-primary font-medium">{theme.label}</span>
-                        {isActive && (
-                          <span className="text-[10px] text-sf-accent font-medium">Active</span>
-                        )}
+          <div>
+            <label className="block text-xs text-sf-text-muted">Theme</label>
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {THEMES.map((theme) => {
+                const isActive = theme.id === activeThemeId
+                return (
+                  <button
+                    key={theme.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveThemeId(theme.id)
+                      applyTheme(theme.id)
+                    }}
+                    className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                      isActive
+                        ? 'border-sf-accent bg-sf-accent/10'
+                        : 'border-sf-dark-700 bg-sf-dark-800 hover:bg-sf-dark-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex gap-0.5 flex-shrink-0">
+                        <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: theme.preview.bg }} />
+                        <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: theme.preview.surface }} />
+                        <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: theme.preview.accent }} />
+                        <div className="w-4 h-4 rounded-sm border border-white/10" style={{ backgroundColor: theme.preview.text }} />
                       </div>
-                      <p className="text-[10px] text-sf-text-muted truncate">{theme.description}</p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm text-sf-text-primary font-medium">{theme.label}</span>
+                          {isActive && (
+                            <span className="text-[10px] text-sf-accent font-medium">Active</span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-sf-text-muted truncate">{theme.description}</p>
+                      </div>
                     </div>
-                  </div>
-                </button>
-              )
-            })}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-sf-dark-700 bg-sf-dark-900/60 px-3 py-3">
+            <div>
+              <label className="text-sm text-sf-text-primary">Timeline clip thumbnails</label>
+              <p className="text-[10px] text-sf-text-muted">Turn off for heavy edits so clips draw as lightweight colored blocks.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowTimelineClipThumbnails(!showTimelineClipThumbnails)}
+              className={`w-10 h-5 rounded-full transition-colors ${showTimelineClipThumbnails ? 'bg-sf-accent' : 'bg-sf-dark-600'}`}
+            >
+              <div className={`w-4 h-4 bg-white rounded-full transition-transform ${showTimelineClipThumbnails ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </button>
           </div>
         </div>
       )

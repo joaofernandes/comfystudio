@@ -5,10 +5,9 @@
  * The GenerateWorkspace owns the "managed workflow" path: it queues a
  * prompt, polls history, and imports the result into the project's
  * `Generated/` folder via `saveGenerationResult`. Meanwhile the new
- * ComfyUI-tab auto-import service listens for *every* `execution_success`
- * event and imports outputs into `Imported from ComfyUI/` — including
- * prompts queued by the embedded ComfyUI tab, an external browser, or a
- * CLI session on the same ComfyUI instance.
+ * ComfyUI-tab auto-import service listens for eligible unmanaged prompts and
+ * imports outputs into `Imported from ComfyUI/` when they were observed through
+ * the embedded ComfyUI tab.
  *
  * To prevent the same generation from being imported twice (once via
  * each path), GenerateWorkspace registers every prompt ID it queues in

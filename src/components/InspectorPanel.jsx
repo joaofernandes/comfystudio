@@ -45,11 +45,16 @@ import {
   MAX_AUDIO_CLIP_GAIN_DB,
   normalizeAudioClipGainDb,
 } from '../utils/audioClipGain'
+import {
+  CLIP_COMPOSITE_MODE_OPTIONS,
+  getClipLowerLayerCompositeStatus,
+  normalizeClipCompositeMode,
+} from '../utils/layerCompositing'
 
 const TRANSITION_DEFAULT_DURATION_KEY = 'comfystudio-transition-default-duration-frames'
 const INSPECTOR_EXPANDED_SECTIONS_KEY = 'comfystudio-inspector-expanded-sections-v1'
 const INSPECTOR_EXPANDED_ADJUSTMENT_GROUPS_KEY = 'comfystudio-inspector-expanded-adjustment-groups-v1'
-const DEFAULT_INSPECTOR_EXPANDED_SECTIONS = ['clipInfo', 'transform', 'crop', 'timing', 'effects', 'text', 'style', 'animation', 'adjustments', 'commit']
+const DEFAULT_INSPECTOR_EXPANDED_SECTIONS = ['clipInfo', 'transform', 'compositing', 'crop', 'timing', 'effects', 'text', 'style', 'animation', 'adjustments', 'commit']
 const DEFAULT_EXPANDED_ADJUSTMENT_GROUPS = ['global']
 const INSPECTOR_SETTINGS_SCOPE = {
   ALL: 'all',
@@ -469,6 +474,7 @@ function InspectorPanel({ isExpanded, onToggleExpanded }) {
     transitions,
     playheadPosition,
     updateClipTransform, 
+    updateClipCompositeMode,
     updateClipAdjustments,
     resetClipTransform,
     updateTextProperties,
@@ -510,6 +516,7 @@ function InspectorPanel({ isExpanded, onToggleExpanded }) {
   
   // Get assets store functions (needed for render cache)
   const { assets, getAssetById, getAllMasks, updateAsset } = useAssetsStore()
+  const timelineSettings = useProjectStore(state => state.getCurrentTimelineSettings?.())
   
   const selectedTransition = selectedTransitionId
     ? transitions.find(t => t.id === selectedTransitionId) || null
@@ -713,6 +720,22 @@ function InspectorPanel({ isExpanded, onToggleExpanded }) {
     if (!selectedClip) return transform
     return getAnimatedTransform(selectedClip, clipTime) || transform
   }, [selectedClip, clipTime, transform])
+
+  const compositeMode = normalizeClipCompositeMode(selectedClip?.compositeLowerLayers)
+  const compositeStatus = useMemo(() => (
+    getClipLowerLayerCompositeStatus(selectedClip, {
+      time: playheadPosition,
+      getAssetById,
+      timelineWidth: timelineSettings?.width || 1920,
+      timelineHeight: timelineSettings?.height || 1080,
+    })
+  ), [
+    getAssetById,
+    playheadPosition,
+    selectedClip,
+    timelineSettings?.height,
+    timelineSettings?.width,
+  ])
 
   const animatedAdjustments = useMemo(() => {
     if (!selectedClip || selectedClip.type !== 'adjustment') {
@@ -1011,6 +1034,11 @@ function InspectorPanel({ isExpanded, onToggleExpanded }) {
     if (!selectedClip) return
     resetClipTransform(selectedClip.id)
   }, [selectedClip, resetClipTransform])
+
+  const handleCompositeModeCommit = useCallback((mode) => {
+    if (!selectedClip) return
+    updateClipCompositeMode(selectedClip.id, mode, true)
+  }, [selectedClip, updateClipCompositeMode])
 
   // Shared clip adjustment handlers (video/image/text/adjustment)
   const buildAdjustmentUpdatePayload = useCallback((propertyPath, value) => {
@@ -1727,6 +1755,63 @@ function InspectorPanel({ isExpanded, onToggleExpanded }) {
     })
   }
 
+  const renderCompositingSection = () => {
+    if (!selectedClip || selectedTrack?.type !== 'video' || selectedClip.type === 'adjustment') {
+      return null
+    }
+
+    return (
+      <>
+        {renderSectionHeader('compositing', 'Compositing', Layers)}
+        {expandedSections.includes('compositing') && (
+          <div className="p-3 space-y-3 border-b border-sf-dark-700">
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-[10px] text-sf-text-muted uppercase tracking-wider">
+                  Look at lower layers
+                </label>
+                <span className={`px-1.5 py-0.5 rounded text-[9px] border ${
+                  compositeStatus.compositeLowerLayers
+                    ? 'bg-sky-950/70 text-sky-200 border-sky-800/60'
+                    : 'bg-emerald-950/70 text-emerald-200 border-emerald-800/60'
+                }`}>
+                  {compositeStatus.label}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-1">
+                {CLIP_COMPOSITE_MODE_OPTIONS.map((option) => {
+                  const isActive = compositeMode === option.value
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => handleCompositeModeCommit(option.value)}
+                      title={option.description}
+                      className={`py-1.5 rounded text-[10px] transition-colors ${
+                        isActive
+                          ? 'bg-sf-accent text-white'
+                          : 'bg-sf-dark-700 text-sf-text-muted hover:bg-sf-dark-600'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            <p className="text-[10px] text-sf-text-muted leading-relaxed">
+              {compositeStatus.description}
+            </p>
+            <p className="text-[10px] text-sf-text-secondary leading-relaxed">
+              Auto speeds up preview/cache/export when a clip safely covers everything below. Opacity, scale-down, crop,
+              masks, rotation, and blend modes automatically keep lower layers active.
+            </p>
+          </div>
+        )}
+      </>
+    )
+  }
+
   // Render Video Clip Inspector (with 2D transforms)
   const renderVideoClipInspector = () => {
     if (!selectedClip || !transform) return null
@@ -2106,6 +2191,8 @@ function InspectorPanel({ isExpanded, onToggleExpanded }) {
             </div>
           </div>
         )}
+
+        {renderCompositingSection()}
 
         {/* Crop Section */}
         {renderSectionHeader('crop', 'Crop', Crop, {
@@ -3712,6 +3799,8 @@ function InspectorPanel({ isExpanded, onToggleExpanded }) {
             </div>
           </div>
         )}
+
+        {renderCompositingSection()}
 
         {renderStandardClipAdjustmentsSection()}
 

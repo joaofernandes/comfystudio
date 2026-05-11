@@ -10,9 +10,11 @@ import useTimelineStore from '../stores/timelineStore'
 import useProjectStore from '../stores/projectStore'
 import useAssetsStore from '../stores/assetsStore'
 import { normalizeAdjustmentSettings } from '../utils/adjustments'
+import { normalizeClipCompositeMode } from '../utils/layerCompositing'
 
 const CACHE_DIR = 'cache'
 const PREFIX = 'preview_'
+const CHUNK_PREFIX = 'preview_chunk_'
 const EXT = '.mp4'
 const PREVIEW_RENDER_VERSION = 2
 const DEFAULT_AUTO_THRESHOLD = {
@@ -125,6 +127,7 @@ function buildClipSignature(clip) {
     trackId: clip.trackId || null,
     assetId: clip.assetId || null,
     type: clip.type || null,
+    compositeLowerLayers: normalizeClipCompositeMode(clip.compositeLowerLayers),
     enabled: clip.enabled !== false,
     startTime: roundNumber(clip.startTime),
     duration: roundNumber(clip.duration),
@@ -391,6 +394,19 @@ export function getPreviewProxyRelativePath(timelineId, signature) {
   return `${CACHE_DIR}/${PREFIX}${safeTimelineId(timelineId)}_${signature}${EXT}`
 }
 
+function getPreviewChunkFrameRange(rangeStart, rangeEnd, fps) {
+  const safeFps = Math.max(1, Number(fps) || 24)
+  const startFrame = Math.max(0, Math.round((Number(rangeStart) || 0) * safeFps))
+  const endFrame = Math.max(startFrame + 1, Math.round((Number(rangeEnd) || 0) * safeFps))
+  return { startFrame, endFrame, fps: safeFps }
+}
+
+export function getPreviewChunkRelativePath(timelineId, signature, rangeStart, rangeEnd, fps) {
+  if (!timelineId || !signature) return null
+  const { startFrame, endFrame } = getPreviewChunkFrameRange(rangeStart, rangeEnd, fps)
+  return `${CACHE_DIR}/${CHUNK_PREFIX}${safeTimelineId(timelineId)}_${signature}_${startFrame}_${endFrame}${EXT}`
+}
+
 /**
  * Check if a preview proxy file exists on disk for the current timeline state.
  * @returns {Promise<{ path: string, url?: string }|null>} Relative path and optional file URL, or null
@@ -407,6 +423,28 @@ export async function getPreviewProxyPath(projectHandle, timelineId, timelineSta
     if (!exists) return null
     const url = await window.electronAPI.getFileUrlDirect(fullPath)
     return { path: relativePath, fullPath, url }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Check if a chunked preview-cache file exists on disk for the current timeline state.
+ * @returns {Promise<{ path: string, url?: string, rangeStart: number, rangeEnd: number, signature: string }|null>}
+ */
+export async function getPreviewChunkPath(projectHandle, timelineId, rangeStart, rangeEnd, timelineStateOverride = null) {
+  if (!isElectron() || !projectHandle || !timelineId) return null
+  const timelineState = timelineStateOverride || useTimelineStore.getState()
+  const timelineSettings = useProjectStore.getState().getCurrentTimelineSettings?.() || { fps: 24 }
+  const signature = computePreviewSignature(timelineId, timelineState)
+  const relativePath = getPreviewChunkRelativePath(timelineId, signature, rangeStart, rangeEnd, timelineSettings.fps ?? 24)
+  if (!relativePath) return null
+  try {
+    const fullPath = await window.electronAPI.pathJoin(projectHandle, relativePath)
+    const exists = await window.electronAPI.exists(fullPath)
+    if (!exists) return null
+    const url = await window.electronAPI.getFileUrlDirect(fullPath)
+    return { path: relativePath, fullPath, url, rangeStart, rangeEnd, signature }
   } catch {
     return null
   }
@@ -448,9 +486,9 @@ export async function renderPreviewProxy(onProgress = () => {}, options = {}) {
       return { ...existing, signature, reused: true }
     }
   }
-
+  const renderKey = `proxy:${signature}`
   if (activeRenderPromise) {
-    if (activeRenderSignature === signature) {
+    if (activeRenderSignature === renderKey) {
       return await activeRenderPromise
     }
     return { error: 'A smooth preview render is already in progress.' }
@@ -486,7 +524,113 @@ export async function renderPreviewProxy(onProgress = () => {}, options = {}) {
   })().catch((err) => ({ error: err?.message || String(err) }))
 
   activeRenderPromise = renderPromise
-  activeRenderSignature = signature
+  activeRenderSignature = renderKey
+  try {
+    return await renderPromise
+  } finally {
+    if (activeRenderPromise === renderPromise) {
+      activeRenderPromise = null
+      activeRenderSignature = null
+    }
+  }
+}
+
+/**
+ * Render a short flattened timeline chunk for immediate smooth playback.
+ * The chunk intentionally omits audio; the preview panel keeps using live
+ * timeline audio so cached chunks can be swapped in and out without audio
+ * handoff glitches.
+ */
+export async function renderPreviewChunk(rangeStart, rangeEnd, onProgress = () => {}, options = {}) {
+  if (!isElectron() || !window.electronAPI?.pathJoin) {
+    return { error: 'Preview cache is only available in Electron. Run: npm run electron:dev' }
+  }
+
+  const safeStart = Math.max(0, Number(rangeStart) || 0)
+  const safeEnd = Math.max(safeStart, Number(rangeEnd) || 0)
+  if (safeEnd - safeStart <= 0.05) {
+    return { error: 'Preview chunk range is too short.' }
+  }
+
+  const projectState = useProjectStore.getState()
+  const projectHandle = projectState.currentProjectHandle
+  const currentTimelineId = projectState.currentTimelineId
+  if (!projectHandle || typeof projectHandle !== 'string') {
+    return { error: 'No project folder open.' }
+  }
+  if (!currentTimelineId) {
+    return { error: 'No timeline selected.' }
+  }
+
+  const timelineState = useTimelineStore.getState()
+  const timelineSettings = projectState.getCurrentTimelineSettings?.() || { width: 1920, height: 1080, fps: 24 }
+  const signature = computePreviewSignature(currentTimelineId, timelineState)
+  const relativePath = getPreviewChunkRelativePath(
+    currentTimelineId,
+    signature,
+    safeStart,
+    safeEnd,
+    timelineSettings.fps ?? 24
+  )
+  const force = Boolean(options?.force)
+  if (!relativePath) {
+    return { error: 'Could not compute preview chunk path.' }
+  }
+
+  if (!force) {
+    const existing = await getPreviewChunkPath(projectHandle, currentTimelineId, safeStart, safeEnd, timelineState)
+    if (existing?.path && existing?.url) {
+      return { ...existing, signature, reused: true }
+    }
+  }
+  const renderKey = `chunk:${signature}:${safeStart}:${safeEnd}`
+  if (activeRenderPromise) {
+    if (activeRenderSignature === renderKey) {
+      return await activeRenderPromise
+    }
+    return { error: 'A smooth preview render is already in progress.' }
+  }
+
+  const cacheDir = await window.electronAPI.pathJoin(projectHandle, CACHE_DIR)
+  await window.electronAPI.createDirectory(cacheDir)
+  const outputPath = await window.electronAPI.pathJoin(projectHandle, relativePath)
+
+  const renderPromise = (async () => {
+    await exportTimeline(
+      {
+        outputPath,
+        width: timelineSettings.width ?? 1920,
+        height: timelineSettings.height ?? 1080,
+        fps: timelineSettings.fps ?? 24,
+        rangeStart: safeStart,
+        rangeEnd: safeEnd,
+        format: 'mp4',
+        includeAudio: false,
+        videoCodec: 'h264',
+        keyframeInterval: 6,
+        preset: 'fast',
+        crf: 23,
+        useCachedRenders: true,
+        useProxyMedia: Boolean(options?.useProxyMedia),
+        glslQualityScale: Math.max(0.05, Math.min(1, Number(options?.glslQualityScale) || 1)),
+        fastSeek: true,
+        signal: options?.signal || null,
+      },
+      onProgress
+    )
+    const url = await window.electronAPI.getFileUrlDirect(outputPath)
+    return {
+      path: relativePath,
+      fullPath: outputPath,
+      url,
+      signature,
+      rangeStart: safeStart,
+      rangeEnd: safeEnd,
+    }
+  })().catch((err) => ({ error: err?.message || String(err) }))
+
+  activeRenderPromise = renderPromise
+  activeRenderSignature = renderKey
   try {
     return await renderPromise
   } finally {

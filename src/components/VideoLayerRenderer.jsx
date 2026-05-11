@@ -28,62 +28,10 @@ import {
   hasPixelFilterEffect,
   hasVignetteEffect,
 } from '../utils/effects'
+import { canUseGlslEffects, hasGlslEffect, snapshotAdjustmentGlslEffectsForOverlay } from '../utils/glslEffects'
+import { cullVisualLayerEntries } from '../utils/layerCompositing'
 import ClipEffectSvgFilter from './effects/ClipEffectSvgFilter'
-
-/**
- * Returns true if this layer fully obscures all layers below it (opaque, normal blend, covers frame).
- * When true, we can skip decoding/rendering all layers underneath for performance.
- */
-function isLayerFullyObscuring(clip, playheadPosition, getAssetById) {
-  if (!clip) return false
-  // Images may contain transparency (PNG overlays like letterbox/vignette),
-  // so they cannot be safely treated as fully occluding.
-  if (clip.type !== 'video') return false
-  const asset = clip.assetId && typeof getAssetById === 'function'
-    ? getAssetById(clip.assetId)
-    : null
-  // Alpha overlays must not cull lower layers.
-  if (asset?.settings?.hasAlpha === true) {
-    return false
-  }
-  // A clip with an enabled mask effect punches transparency into itself via
-  // MaskedVideoCanvas, so layers below it must keep rendering. Without this
-  // guard the culler thinks an untransformed, full-opacity masked clip fully
-  // covers the frame and drops the background layer -- the hole the mask
-  // carves out then shows nothing (black preview backdrop) instead of the
-  // layer the user composed underneath.
-  if (Array.isArray(clip.effects) && clip.effects.some(e => e?.type === 'mask' && e?.enabled)) {
-    return false
-  }
-  // Camera shake or vignette mean the clip no longer fully covers the frame.
-  if (Array.isArray(clip.effects) && clip.effects.some(e => (
-    e?.enabled !== false && (e?.type === 'cameraShake' || e?.type === 'vignette')
-  ))) {
-    return false
-  }
-  const clipTime = playheadPosition - (clip.startTime || 0)
-  const t = getAnimatedTransform(clip, clipTime)
-  if (!t) return false
-  const opacity = Number(t.opacity)
-  const blendMode = t.blendMode || 'normal'
-  const positionX = Number(t.positionX) || 0
-  const positionY = Number(t.positionY) || 0
-  const scaleX = Number(t.scaleX)
-  const scaleY = Number(t.scaleY)
-  const rotation = Number(t.rotation)
-  const cropTop = Number(t.cropTop) || 0
-  const cropBottom = Number(t.cropBottom) || 0
-  const cropLeft = Number(t.cropLeft) || 0
-  const cropRight = Number(t.cropRight) || 0
-  if (opacity < 99.5 || blendMode !== 'normal') return false
-  // Any translation means the clip no longer reliably covers the full frame,
-  // so lower layers may become visible and must keep rendering.
-  if (positionX !== 0 || positionY !== 0) return false
-  if (scaleX < 100 || scaleY < 100) return false
-  if (rotation !== 0) return false
-  if (cropTop > 0 || cropBottom > 0 || cropLeft > 0 || cropRight > 0) return false
-  return true
-}
+import GlslEffectCanvas from './effects/GlslEffectCanvas'
 
 function sanitizeAdjustmentFilterId(value) {
   return String(value || 'adjustment-filter').replace(/[^a-zA-Z0-9_-]/g, '_')
@@ -264,6 +212,110 @@ function getCenteredMediaFitStyle() {
     display: 'block',
     backgroundColor: 'transparent',
   }
+}
+
+function getClipPlaybackTimeAtTimeline(clip, timelineTime, endOffset = 0.01) {
+  if (!clip) return 0
+  const baseScale = clip.sourceTimeScale || (clip.timelineFps && clip.sourceFps
+    ? clip.timelineFps / clip.sourceFps
+    : 1)
+  const speed = Number(clip.speed)
+  const speedScale = Number.isFinite(speed) && speed > 0 ? speed : 1
+  const timeScale = baseScale * speedScale
+  const reverse = !!clip.reverse
+  const trimStart = clip.trimStart || 0
+  const rawTrimEnd = clip.trimEnd ?? clip.sourceDuration ?? (trimStart + (clip.duration || 0) * timeScale)
+  const trimEnd = Number.isFinite(rawTrimEnd) ? rawTrimEnd : trimStart
+  const minTime = Math.min(trimStart, trimEnd)
+  const maxTime = Math.max(trimStart, trimEnd)
+  const sourceTime = reverse
+    ? trimEnd - (timelineTime - (clip.startTime || 0)) * timeScale
+    : trimStart + (timelineTime - (clip.startTime || 0)) * timeScale
+  return Math.max(minTime, Math.min(sourceTime, Math.max(minTime, maxTime - endOffset)))
+}
+
+const CUT_FRAME_CACHE_LIMIT = 64
+const CUT_FRAME_TIME_TOLERANCE = 0.04
+const cutFrameCanvasCache = new Map()
+
+function getCutFrameKey(clip, url) {
+  if (!clip?.id || !url) return null
+  return `${clip.id}|${url}`
+}
+
+function cloneVideoFrameToCanvas(video) {
+  if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return null
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    return canvas
+  } catch (_) {
+    return null
+  }
+}
+
+function storeCutFrameCanvas(clip, url, video) {
+  const key = getCutFrameKey(clip, url)
+  if (!key) return false
+  const canvas = cloneVideoFrameToCanvas(video)
+  if (!canvas) return false
+  cutFrameCanvasCache.set(key, { canvas, lastUsed: Date.now() })
+  if (cutFrameCanvasCache.size > CUT_FRAME_CACHE_LIMIT) {
+    const oldest = [...cutFrameCanvasCache.entries()]
+      .sort((a, b) => (a[1]?.lastUsed || 0) - (b[1]?.lastUsed || 0))[0]?.[0]
+    if (oldest) cutFrameCanvasCache.delete(oldest)
+  }
+  return true
+}
+
+function getCutFrameCanvas(clip, url) {
+  const key = getCutFrameKey(clip, url)
+  if (!key) return null
+  const entry = cutFrameCanvasCache.get(key)
+  if (!entry?.canvas) return null
+  entry.lastUsed = Date.now()
+  return entry.canvas
+}
+
+function drawCutFrameToCanvas(targetCanvas, sourceCanvas) {
+  if (!targetCanvas || !sourceCanvas) return false
+  const ctx = targetCanvas.getContext('2d')
+  if (!ctx) return false
+  targetCanvas.width = sourceCanvas.width
+  targetCanvas.height = sourceCanvas.height
+  ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height)
+  ctx.drawImage(sourceCanvas, 0, 0, targetCanvas.width, targetCanvas.height)
+  return true
+}
+
+function scheduleCutFrameCapture(clip, url, video, targetTime) {
+  if (!clip || !url || !video) return
+  const capture = () => {
+    if (Math.abs((video.currentTime || 0) - targetTime) > CUT_FRAME_TIME_TOLERANCE) return
+    storeCutFrameCanvas(clip, url, video)
+  }
+  const captureAfterDecodedFrame = () => {
+    if (typeof video.requestVideoFrameCallback === 'function') {
+      video.requestVideoFrameCallback(capture)
+    } else if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(capture)
+    } else {
+      setTimeout(capture, 16)
+    }
+  }
+  if (video.readyState >= 2 && !video.seeking && Math.abs((video.currentTime || 0) - targetTime) <= CUT_FRAME_TIME_TOLERANCE) {
+    captureAfterDecodedFrame()
+    return
+  }
+  const onSeeked = () => {
+    video.removeEventListener('seeked', onSeeked)
+    captureAfterDecodedFrame()
+  }
+  video.addEventListener('seeked', onSeeked, { once: true })
 }
 
 /**
@@ -1033,6 +1085,7 @@ const VideoLayer = memo(function VideoLayer({
   const [showHoldFrame, setShowHoldFrame] = useState(false)
   const [showSprite, setShowSprite] = useState(false)
   const [spriteContainerSize, setSpriteContainerSize] = useState({ width: 0, height: 0 })
+  const [glslRendered, setGlslRendered] = useState(false)
   const lastSyncTime = useRef(0)
   const lastSeekTime = useRef(0)
   const seekDebounceRef = useRef(null)
@@ -1090,13 +1143,9 @@ const VideoLayer = memo(function VideoLayer({
     ? trimEnd - clipTime * timeScale
     : trimStart + clipTime * timeScale
 
-  const getClampedTimeForPlayhead = useCallback((timelineTime) => {
-    const startTime = Number(clip?.startTime) || 0
-    const sourceTimelineTime = reverse
-      ? trimEnd - (timelineTime - startTime) * timeScale
-      : trimStart + (timelineTime - startTime) * timeScale
-    return Math.max(minTime, Math.min(sourceTimelineTime, maxTime - 0.01))
-  }, [clip?.startTime, reverse, trimEnd, timeScale, trimStart, minTime, maxTime])
+  const getClampedTimeForPlayhead = useCallback((timelineTime) => (
+    getClipPlaybackTimeAtTimeline(clip, timelineTime)
+  ), [clip])
 
   const logLayerDiag = useCallback((event, payload = {}, throttleMs = 0) => {
     if (!isPlaybackDiagEnabled()) return
@@ -1304,44 +1353,108 @@ const VideoLayer = memo(function VideoLayer({
       objectFit: 'contain',
     })
 
+    let pendingPreciseSeek = false
+    let revealFrameRequest = 0
+    let revealRaf = 0
+    let cutFrameReleaseFrameRequest = 0
+    let cutFrameReleaseTimeout = 0
+
+    const releaseCutFrameOverlay = () => {
+      cutFrameReleaseFrameRequest = 0
+      cutFrameReleaseTimeout = 0
+      setShowHoldFrame(false)
+    }
+
+    const scheduleCutFrameOverlayRelease = () => {
+      if (cutFrameReleaseFrameRequest || cutFrameReleaseTimeout) return
+      if (typeof cachedVideo.requestVideoFrameCallback === 'function') {
+        cutFrameReleaseFrameRequest = cachedVideo.requestVideoFrameCallback(() => {
+          cutFrameReleaseTimeout = setTimeout(releaseCutFrameOverlay, 24)
+        })
+      } else {
+        cutFrameReleaseTimeout = setTimeout(releaseCutFrameOverlay, 80)
+      }
+    }
+
+    const maybeShowCachedCutFrameOverlay = () => {
+      const cutFrameCanvas = getCutFrameCanvas(clip, clipUrl)
+      if (!cutFrameCanvas) return false
+      if (!drawCutFrameToCanvas(holdFrameRef.current, cutFrameCanvas)) return false
+      setShowHoldFrame(true)
+      scheduleCutFrameOverlayRelease()
+      return true
+    }
+
+    const revealReadyFrame = (reason) => {
+      setIsReady(true)
+      if (!cutFrameReleaseFrameRequest && !cutFrameReleaseTimeout) {
+        setShowHoldFrame(false)
+      }
+      logLayerDiag('layer:ready', {
+        reason,
+        readyState: cachedVideo.readyState,
+        networkState: cachedVideo.networkState,
+        currentTime: Number((cachedVideo.currentTime || 0).toFixed(3)),
+      })
+    }
+
+    const revealAfterDecodedFrame = (reason) => {
+      if (typeof cachedVideo.requestVideoFrameCallback === 'function') {
+        revealFrameRequest = cachedVideo.requestVideoFrameCallback(() => {
+          revealFrameRequest = 0
+          revealReadyFrame(reason)
+        })
+        return
+      }
+      revealRaf = requestAnimationFrame(() => {
+        revealRaf = 0
+        revealReadyFrame(reason)
+      })
+    }
+
     const syncVideoToCurrentPlayhead = (reason) => {
       const livePlayhead = useTimelineStore.getState().playheadPosition
       const targetTime = getClampedTimeForPlayhead(livePlayhead)
       const beforeTime = cachedVideo.currentTime || 0
-      if (Math.abs(beforeTime - targetTime) > 0.001) {
-        cachedVideo.currentTime = targetTime
+      const timeDelta = Math.abs(beforeTime - targetTime)
+      const seekNeeded = timeDelta > 0.001
+      if (seekNeeded) {
+        pendingPreciseSeek = true
+        setIsReady(false)
+        if (cachedVideo.readyState >= 1) {
+          cachedVideo.currentTime = targetTime
+        }
+      } else if (cachedVideo.readyState >= 2) {
+        pendingPreciseSeek = false
+        revealReadyFrame(`${reason}-within-frame`)
       }
       logLayerDiag('layer:seek', {
         reason,
         livePlayhead: Number(livePlayhead.toFixed(3)),
         from: Number(beforeTime.toFixed(3)),
         to: Number(targetTime.toFixed(3)),
+        delta: Number(timeDelta.toFixed(3)),
         readyState: cachedVideo.readyState,
       }, reason === 'sync' ? 180 : 0)
+      return { targetTime, seekNeeded }
     }
 
-    syncVideoToCurrentPlayhead('attach')
+    let attachSync = { targetTime: 0, seekNeeded: false }
 
     const markReady = (reason) => {
       if (cachedVideo.readyState >= 2) {
-        setIsReady(true)
-        setShowHoldFrame(false)
-        logLayerDiag('layer:ready', {
-          reason,
-          readyState: cachedVideo.readyState,
-          networkState: cachedVideo.networkState,
-          currentTime: Number((cachedVideo.currentTime || 0).toFixed(3)),
-        })
+        if (pendingPreciseSeek) return
+        revealReadyFrame(reason)
       }
     }
 
     const onLoadedData = () => {
-      syncVideoToCurrentPlayhead('loadeddata')
-      markReady('loadeddata')
+      const sync = syncVideoToCurrentPlayhead('loadeddata')
+      if (!sync.seekNeeded) markReady('loadeddata')
     }
     const onCanPlay = () => {
-      syncVideoToCurrentPlayhead('canplay')
-      markReady('canplay')
+      const sync = syncVideoToCurrentPlayhead('canplay')
+      if (!sync.seekNeeded) markReady('canplay')
     }
     const onWaiting = () => {
       logLayerDiag('video:waiting', { readyState: cachedVideo.readyState, networkState: cachedVideo.networkState }, 220)
@@ -1354,7 +1467,13 @@ const VideoLayer = memo(function VideoLayer({
     }
     const onStalled = () => logLayerDiag('video:stalled', { readyState: cachedVideo.readyState, networkState: cachedVideo.networkState }, 220)
     const onSeeking = () => logLayerDiag('video:seeking', { currentTime: Number((cachedVideo.currentTime || 0).toFixed(3)) }, 160)
-    const onSeeked = () => logLayerDiag('video:seeked', { currentTime: Number((cachedVideo.currentTime || 0).toFixed(3)) }, 160)
+    const onSeeked = () => {
+      logLayerDiag('video:seeked', { currentTime: Number((cachedVideo.currentTime || 0).toFixed(3)) }, 160)
+      if (pendingPreciseSeek && cachedVideo.readyState >= 2) {
+        pendingPreciseSeek = false
+        revealAfterDecodedFrame('seeked')
+      }
+    }
     const onPlaying = () => logLayerDiag('video:playing', { currentTime: Number((cachedVideo.currentTime || 0).toFixed(3)) }, 220)
     const onPaused = () => logLayerDiag('video:pause', { currentTime: Number((cachedVideo.currentTime || 0).toFixed(3)) }, 220)
     const onError = () => {
@@ -1374,7 +1493,15 @@ const VideoLayer = memo(function VideoLayer({
     cachedVideo.addEventListener('pause', onPaused)
     cachedVideo.addEventListener('error', onError)
 
-    if (cachedVideo.readyState >= 2) {
+    const showedCutFrameOverlay = maybeShowCachedCutFrameOverlay()
+    attachSync = syncVideoToCurrentPlayhead('attach')
+    if (attachSync.seekNeeded) {
+      scheduleCutFrameCapture(clip, clipUrl, cachedVideo, attachSync.targetTime)
+    } else if (!showedCutFrameOverlay && cachedVideo.readyState >= 2) {
+      scheduleCutFrameCapture(clip, clipUrl, cachedVideo, attachSync.targetTime)
+    }
+
+    if (cachedVideo.readyState >= 2 && !attachSync.seekNeeded) {
       markReady('already-ready')
     } else {
       setIsReady(false)
@@ -1398,6 +1525,14 @@ const VideoLayer = memo(function VideoLayer({
       cachedVideo.removeEventListener('playing', onPlaying)
       cachedVideo.removeEventListener('pause', onPaused)
       cachedVideo.removeEventListener('error', onError)
+      if (revealFrameRequest && typeof cachedVideo.cancelVideoFrameCallback === 'function') {
+        cachedVideo.cancelVideoFrameCallback(revealFrameRequest)
+      }
+      if (cutFrameReleaseFrameRequest && typeof cachedVideo.cancelVideoFrameCallback === 'function') {
+        cachedVideo.cancelVideoFrameCallback(cutFrameReleaseFrameRequest)
+      }
+      if (revealRaf) cancelAnimationFrame(revealRaf)
+      if (cutFrameReleaseTimeout) clearTimeout(cutFrameReleaseTimeout)
       logLayerDiag('layer:detach', {
         readyState: cachedVideo.readyState,
         currentTime: Number((cachedVideo.currentTime || 0).toFixed(3)),
@@ -1657,6 +1792,7 @@ const VideoLayer = memo(function VideoLayer({
     return filterValue !== 'none' ? filterValue : undefined
   }, [adjustmentFilterId, adjustmentSettings, hasTonalAdjustments])
   const hasClipPixelEffects = hasPixelFilterEffect(clip?.effects)
+  const hasClipGlslEffects = hasGlslEffect(clip?.effects)
   const clipEffectsFilterId = useMemo(
     () => getClipEffectFilterId(clip?.id, 'video'),
     [clip?.id]
@@ -1690,9 +1826,14 @@ const VideoLayer = memo(function VideoLayer({
   // a brief frame of unmasked content rather than try to apply the mask
   // to the hold-frame layer (render cache covers that use case better).
   const maskActive = maskSelection.isActive
+  const glslPreviewActive = hasClipGlslEffects && !maskActive && canUseGlslEffects()
   const containerOpacity = maskActive
     ? 0
-    : ((showSprite && spriteInfo) || showHoldFrame ? 0 : 1)
+    : (glslRendered || (showSprite && spriteInfo) || showHoldFrame ? 0 : 1)
+
+  useEffect(() => {
+    if (!glslPreviewActive) setGlslRendered(false)
+  }, [glslPreviewActive])
 
   return (
     <>
@@ -1737,6 +1878,43 @@ const VideoLayer = memo(function VideoLayer({
           </div>
         )}
       </div>
+
+      {glslPreviewActive && (
+        <div
+          className="pointer-events-none"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: layerIndex + 2,
+            overflow: 'hidden',
+            ...transformStyle,
+            ...maskStyles,
+            filter: combinedFilter,
+          }}
+        >
+          <GlslEffectCanvas
+            sourceRef={videoElementRef}
+            effects={clip?.effects}
+            clipTime={clipTime}
+            onRenderState={setGlslRendered}
+            style={{
+              ...getCenteredMediaFitStyle(),
+              objectFit: 'contain',
+            }}
+          />
+          {vignetteOverlayStyle && (
+            <div aria-hidden style={vignetteOverlayStyle} />
+          )}
+          {letterboxOverlayStyles && (
+            <div aria-hidden style={letterboxOverlayStyles.wrapper}>
+              <div style={letterboxOverlayStyles.inner} />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Masked video compositor. Rendered only when a mask effect is
           active on this clip; reads the same video element as the
@@ -1813,6 +1991,8 @@ const ImageLayer = memo(function ImageLayer({
   getClipTransform,
   onClipPointerDown,
 }) {
+  const imageElementRef = useRef(null)
+  const [glslRendered, setGlslRendered] = useState(false)
   // Get the current valid URL (may be cached render or original)
   const { url: clipUrl, isCached: isCachedRender } = useClipUrl(clip)
   
@@ -1850,6 +2030,11 @@ const ImageLayer = memo(function ImageLayer({
     return filterValue !== 'none' ? filterValue : undefined
   }, [adjustmentFilterId, adjustmentSettings, hasTonalAdjustments])
   const hasClipPixelEffects = hasPixelFilterEffect(clip?.effects)
+  const hasClipGlslEffects = hasGlslEffect(clip?.effects)
+  const glslPreviewActive = hasClipGlslEffects && canUseGlslEffects()
+  useEffect(() => {
+    if (!glslPreviewActive) setGlslRendered(false)
+  }, [glslPreviewActive])
   const clipEffectsFilterId = useMemo(
     () => getClipEffectFilterId(clip?.id, 'image'),
     [clip?.id]
@@ -1905,16 +2090,33 @@ const ImageLayer = memo(function ImageLayer({
         }}
       >
         <img
+          ref={imageElementRef}
           src={clipUrl}
           alt={clip.name || 'Image'}
           className="bg-transparent"
           style={{
             ...getCenteredMediaFitStyle(),
             objectFit: 'contain',
+            opacity: glslRendered ? 0 : 1,
+            zIndex: 1,
           }}
           onContextMenu={(e) => e.preventDefault()}
           draggable={false}
         />
+        {glslPreviewActive && (
+          <GlslEffectCanvas
+            sourceRef={imageElementRef}
+            sourceUrl={clipUrl}
+            effects={clip?.effects}
+            clipTime={clipTime}
+            onRenderState={setGlslRendered}
+            style={{
+              ...getCenteredMediaFitStyle(),
+              objectFit: 'contain',
+              zIndex: 2,
+            }}
+          />
+        )}
         {vignetteOverlayStyle && (
           <div aria-hidden style={vignetteOverlayStyle} />
         )}
@@ -2286,7 +2488,8 @@ function VideoLayerRenderer({
   } = useTimelineStore()
 
   const getAssetById = useAssetsStore(state => state.getAssetById)
-  const { currentProjectHandle } = useProjectStore()
+  const currentProjectHandle = useProjectStore(state => state.currentProjectHandle)
+  const timelineSettings = useProjectStore(state => state.getCurrentTimelineSettings?.())
   // Subscribe to the proxy-preference toggle so preload/pre-seek effects
   // re-run when the user flips it, which refreshes the video-cache URLs
   // keyed to `resolvePlaybackUrl`. Included in dep arrays below.
@@ -2419,12 +2622,24 @@ function VideoLayerRenderer({
         playhead: Number(playheadPosition.toFixed(3)),
         url: shortPlaybackUrl(resolvedUrl),
       })
-      videoCache.getVideoElement({ ...clip, url: resolvedUrl }, true)
+      const cachedVideo = videoCache.getVideoElement({ ...clip, url: resolvedUrl }, true)
+      const clipEnd = (Number(clip.startTime) || 0) + (Number(clip.duration) || 0)
+      const isActiveNow = playheadPosition >= (Number(clip.startTime) || 0) && playheadPosition < clipEnd
+      if (cachedVideo && !isActiveNow && cachedVideo.readyState >= 1) {
+        const targetTimelineTime = playbackRate >= 0
+          ? (Number(clip.startTime) || 0)
+          : clipEnd
+        const targetTime = getClipPlaybackTimeAtTimeline(clip, targetTimelineTime)
+        if (Math.abs((cachedVideo.currentTime || 0) - targetTime) > 0.03) {
+          cachedVideo.currentTime = targetTime
+        }
+        scheduleCutFrameCapture(clip, resolvedUrl, cachedVideo, targetTime)
+      }
       preloadedClips.current.set(clip.id, preloadKey)
     })
     
     lastPreloadPosition.current = playheadPosition
-  }, [playheadPosition, getClipsToPreload, getAssetById, useProxyPlaybackForAssets])
+  }, [playheadPosition, playbackRate, getClipsToPreload, getAssetById, useProxyPlaybackForAssets])
 
   // Auto-render cache for clips with mask effects (smooth playback)
   useEffect(() => {
@@ -2608,33 +2823,78 @@ function VideoLayerRenderer({
     return styleMap
   }, [allMediaClips, transitionInfo, getTransitionStyles])
   
-  // Occlusion culling: if a layer is fully opaque and covers the frame, nothing below is visible.
-  // IMPORTANT: allMediaClips is ordered bottom -> top for rendering, so culling must scan top -> bottom.
-  // IMPORTANT: never cull transition participants, or transitions become "fade to black + hard cut."
-  const mediaClips = (() => {
-    const visible = []
-    for (let i = allMediaClips.length - 1; i >= 0; i -= 1) {
-      const entry = allMediaClips[i]
-      // Preserve render order (bottom -> top) while scanning from top.
-      visible.unshift(entry)
-      const inTransition = transitionStyleByClipId.has(entry.clip.id)
-      if (!inTransition && isLayerFullyObscuring(entry.clip, playheadPosition, getAssetById)) break
+  // Per-clip lower-layer compositing. Active clips are ordered bottom -> top,
+  // so the shared culler scans from the top and drops anything underneath a
+  // clip that either fully covers the frame in Auto mode or has compositing
+  // forced Off in the Inspector.
+  const transitionClipIds = useMemo(
+    () => new Set(transitionStyleByClipId.keys()),
+    [transitionStyleByClipId]
+  )
+  const compositedVisualClips = useMemo(() => cullVisualLayerEntries(activeLayerClips, {
+    time: playheadPosition,
+    getAssetById,
+    transitionClipIds,
+    timelineWidth: timelineSettings?.width || 1920,
+    timelineHeight: timelineSettings?.height || 1080,
+  }), [
+    activeLayerClips,
+    getAssetById,
+    playheadPosition,
+    timelineSettings?.height,
+    timelineSettings?.width,
+    transitionClipIds,
+  ])
+
+  // Push adjustment-layer GLSL effects down onto each underlying media clip
+  // for the preview pipeline. The export path runs these on the composited
+  // canvas via `applyClipManagedEffectsToOffCanvas`, but the live preview
+  // composes layers via CSS, so there is no canvas to sample. As a
+  // pragmatic preview, we snapshot each adjustment's GLSL settings at the
+  // current playhead and append them to the effects list of every video/
+  // image clip beneath that adjustment. This is preview-only — it never
+  // mutates timeline state — so adjustments remain a single source of truth.
+  // For single-layer scenes the result matches export; multi-layer scenes
+  // get a per-layer approximation rather than a true post-composite pass.
+  const previewVisualClips = useMemo(() => {
+    if (!Array.isArray(compositedVisualClips) || compositedVisualClips.length === 0) {
+      return compositedVisualClips
     }
-    return visible
-  })()
-  const visibleMediaClipIds = useMemo(
-    () => new Set(mediaClips.map(({ clip }) => clip.id)),
-    [mediaClips]
-  )
-  const compositedVisualClips = useMemo(
-    () => activeLayerClips.filter(({ clip }) => {
-      if (clip.type === 'adjustment') return true
-      if (clip.type === 'text') return true
-      if (clip.type === 'video' || clip.type === 'image') return visibleMediaClipIds.has(clip.id)
-      return false
-    }),
-    [activeLayerClips, visibleMediaClipIds]
-  )
+    const list = compositedVisualClips
+    // compositedVisualClips is ordered bottom -> top, so adjustments
+    // affecting a media clip appear AFTER it in the array. Walk top-to-
+    // bottom and accumulate snapshots; flush onto media clips as we go.
+    const accumulatedOverlays = []
+    const overlaysByIndex = new Array(list.length)
+    for (let i = list.length - 1; i >= 0; i -= 1) {
+      const { clip } = list[i]
+      if (!clip) continue
+      if (clip.type === 'adjustment') {
+        if (hasGlslEffect(clip.effects)) {
+          const adjClipTime = playheadPosition - (clip.startTime || 0)
+          const snaps = snapshotAdjustmentGlslEffectsForOverlay(clip.effects, adjClipTime)
+          if (snaps.length > 0) accumulatedOverlays.push(...snaps)
+        }
+      } else if (clip.type === 'video' || clip.type === 'image') {
+        if (accumulatedOverlays.length > 0) {
+          overlaysByIndex[i] = accumulatedOverlays.slice()
+        }
+      }
+    }
+    if (overlaysByIndex.every((entry) => !entry)) return list
+    return list.map((entry, index) => {
+      const overlays = overlaysByIndex[index]
+      if (!overlays || overlays.length === 0) return entry
+      const baseEffects = Array.isArray(entry.clip.effects) ? entry.clip.effects : []
+      return {
+        ...entry,
+        clip: {
+          ...entry.clip,
+          effects: [...baseEffects, ...overlays],
+        },
+      }
+    })
+  }, [compositedVisualClips, playheadPosition])
 
   // Build the layer tree. Adjustment layers wrap all content below them so
   // that CSS filter + transform apply to the composited result.
@@ -2701,7 +2961,7 @@ function VideoLayerRenderer({
       )
     }
 
-    compositedVisualClips.forEach(({ clip, track }, visualIndex) => {
+    previewVisualClips.forEach(({ clip, track }, visualIndex) => {
       if (clip.type === 'adjustment') {
         accumulated = [
           <AdjustmentWrapper
@@ -2719,7 +2979,7 @@ function VideoLayerRenderer({
     })
 
     return accumulated
-  }, [compositedVisualClips, playheadPosition, isPlaying, buildVideoTransform, getClipTransform, onClipPointerDown, onClipDoubleClick, previewScale, transitionStyleByClipId])
+  }, [previewVisualClips, playheadPosition, isPlaying, buildVideoTransform, getClipTransform, onClipPointerDown, onClipDoubleClick, previewScale, transitionStyleByClipId])
 
   // Render multi-layer composition (including transitions)
   return (

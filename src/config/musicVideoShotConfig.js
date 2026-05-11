@@ -27,6 +27,7 @@ export const MUSIC_VIDEO_SHOT_TYPE_OPTIONS = Object.freeze([
     talkingHeadLoraStrength: 0.5,
     cameraLoraOn: false,
     cameraLoraStrength: 0.3,
+    defaultImageStrength: 0.8,
     promptSuffix: 'The artist performs, lip-syncing naturally to the attached vocals. Believable facial performance.',
     needsVocalAlignment: true,
   },
@@ -38,6 +39,7 @@ export const MUSIC_VIDEO_SHOT_TYPE_OPTIONS = Object.freeze([
     talkingHeadLoraStrength: 0.3,
     cameraLoraOn: false,
     cameraLoraStrength: 0.3,
+    defaultImageStrength: 0.82,
     promptSuffix: 'The artist performs in a wider shot, natural body motion, lip-sync present but not emphasized.',
     needsVocalAlignment: true,
   },
@@ -49,7 +51,8 @@ export const MUSIC_VIDEO_SHOT_TYPE_OPTIONS = Object.freeze([
     talkingHeadLoraStrength: 0,
     cameraLoraOn: false,
     cameraLoraStrength: 0.3,
-    promptSuffix: 'No performers singing on camera, no close-up faces. Focus on environment, action, or objects.',
+    defaultImageStrength: 0.92,
+    promptSuffix: 'B-roll cutaway. Focus on the environment, action, or objects described in the director script.',
     needsVocalAlignment: false,
   },
 ])
@@ -101,6 +104,59 @@ export const MUSIC_VIDEO_CREATIVE_PRESETS = Object.freeze([
   },
 ])
 
+export const MUSIC_VIDEO_CAMERA_MOVE_OPTIONS = Object.freeze([
+  { id: 'locked', label: 'Locked-off', scriptLine: 'Camera: Locked-off tripod frame, minimal movement.' },
+  { id: 'push-in', label: 'Push in', scriptLine: 'Camera: Slow push-in toward the subject, shallow focus.' },
+  { id: 'pull-out', label: 'Pull out', scriptLine: 'Camera: Slow pull-out, revealing more of the environment.' },
+  { id: 'pan-left', label: 'Pan left', scriptLine: 'Camera: Smooth pan left following the action.' },
+  { id: 'tilt-up', label: 'Tilt up', scriptLine: 'Camera: Slow tilt up from detail to face or skyline.' },
+  { id: 'orbit', label: 'Orbit', scriptLine: 'Camera: Gentle orbit around the subject with cinematic parallax.' },
+  { id: 'handheld', label: 'Handheld', scriptLine: 'Camera: Subtle handheld drift, natural documentary energy.' },
+])
+
+export const MUSIC_VIDEO_SHOT_SIZE_OPTIONS = Object.freeze([
+  { id: 'wide', label: 'Wide', scriptLine: 'Keyframe prompt: Wide establishing composition with the performer or subject clearly placed in the environment.' },
+  { id: 'medium', label: 'Medium', scriptLine: 'Keyframe prompt: Medium shot, waist-up framing, expressive body language and readable setting.' },
+  { id: 'close-up', label: 'Close-up', scriptLine: 'Keyframe prompt: Close-up portrait framing with strong facial expression and shallow depth of field.' },
+  { id: 'detail', label: 'Detail', scriptLine: 'Keyframe prompt: Tight insert detail shot of hands, object, texture, instrument, or symbolic visual motif.' },
+])
+
+export const MUSIC_VIDEO_ENERGY_OPTIONS = Object.freeze([
+  { id: 'calm', label: 'Calm', scriptLine: 'Motion prompt: Calm restrained movement, slow breathing pace, minimal camera energy.' },
+  { id: 'building', label: 'Building', scriptLine: 'Motion prompt: Building emotional intensity, slightly stronger gesture and camera motion on the beat.' },
+  { id: 'intense', label: 'Intense', scriptLine: 'Motion prompt: High emotional intensity, urgent performance energy, sharper movement accents on the music.' },
+])
+
+export const MUSIC_VIDEO_PERFORMANCE_MODE_OPTIONS = Object.freeze([
+  { id: 'lip-sync', label: 'Lip sync', scriptLine: 'Shot type: performance\nMotion prompt: The artist lip-syncs naturally to the vocal line with believable facial performance.' },
+  { id: 'wide-performance', label: 'Wide performance', scriptLine: 'Shot type: performance_wide\nMotion prompt: The artist performs in a wider frame with body movement and looser lip-sync.' },
+  { id: 'b-roll', label: 'B-roll', scriptLine: 'Shot type: b_roll\nMotion prompt: No performer singing on camera. Focus on environment, action, symbolic detail, or texture.' },
+  { id: 'narrative', label: 'Narrative', scriptLine: 'Motion prompt: Story-driven action that illustrates the lyric without literal lip-sync.' },
+])
+
+export const MUSIC_VIDEO_STYLE_CARD_OPTIONS = Object.freeze([
+  {
+    id: 'neon-noir',
+    label: 'Neon noir',
+    notes: 'Neon noir: rain-slick streets, cyan/magenta practical light, high contrast, shallow focus, reflective glass, moody night interiors.',
+  },
+  {
+    id: 'tour-diary',
+    label: 'Handheld tour diary',
+    notes: 'Handheld tour diary: candid observational footage, imperfect framing, backstage textures, natural grain, fast venue-to-van transitions.',
+  },
+  {
+    id: 'warm-35mm',
+    label: 'Warm 35mm film',
+    notes: 'Warm 35mm film: golden practical light, soft halation, gentle grain, warm skin tones, classic music-video lensing.',
+  },
+  {
+    id: 'dream-pop',
+    label: 'Dream pop haze',
+    notes: 'Dream pop haze: pastel color wash, soft bloom, slow floating camera, abstract light leaks, surreal reflective environments.',
+  },
+])
+
 export const MUSIC_VIDEO_SHOT_DEFAULTS = Object.freeze({
   shotType: 'performance',
   creativePreset: 'performance',
@@ -114,7 +170,7 @@ export const MUSIC_VIDEO_SHOT_DEFAULTS = Object.freeze({
   enablePromptEnhancer: false,
   lipSyncIllustrateLyrics: false,
   minShotLengthSeconds: 1.5,
-  maxShotLengthSeconds: 15,  // Allow longer shots for music videos (was 8)
+  maxShotLengthSeconds: 15,
 })
 
 /**
@@ -126,16 +182,16 @@ export const MUSIC_VIDEO_SHOT_DEFAULTS = Object.freeze({
  */
 export const MUSIC_VIDEO_AUDIO_KIND_OPTIONS = Object.freeze([
   {
+    id: 'mixed_track',
+    label: 'Finished song (full mix)',
+    description: 'Full song with music and vocals together. We will run vocal isolation once.',
+    requiresVocalExtraction: true,
+  },
+  {
     id: 'vocal_stem',
     label: 'Vocal stem (isolated vocals)',
     description: 'A clean vocal-only file. No preprocessing needed.',
     requiresVocalExtraction: false,
-  },
-  {
-    id: 'mixed_track',
-    label: 'Mixed track (full song)',
-    description: 'Full mix with music and vocals together. We will run vocal isolation once.',
-    requiresVocalExtraction: true,
   },
   {
     id: 'instrumental',
@@ -223,6 +279,9 @@ Length: 2
 # Tip: "Start at:" is authoritative — if you paste an SRT, use the real
 # timing from it. "Artist:" matches your Cast roster by slug ("rose",
 # "jake") or by "both" / "all" / "band" to feature every cast member.
+# The script is the creative source of truth: put story, setting, wardrobe,
+# lighting, color palette, continuity, and camera style directly in each
+# Keyframe prompt and Motion prompt.
 # You can also drop [Rose] / [Jake] / [Rose, Jake] tag lines above verses
 # in the lyrics and shots pick up the nearest tag automatically.`
 

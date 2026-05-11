@@ -100,6 +100,42 @@ export function parseCaptionSubtitles(rawText) {
   return parseLegacyQwenSubtitles(text)
 }
 
+function formatSecondsAsSrtTimestamp(seconds) {
+  const totalMs = Math.max(0, Math.round(Number(seconds || 0) * 1000))
+  const ms = totalMs % 1000
+  const totalSeconds = Math.floor(totalMs / 1000)
+  const ss = totalSeconds % 60
+  const totalMinutes = Math.floor(totalSeconds / 60)
+  const mm = totalMinutes % 60
+  const hh = Math.floor(totalMinutes / 60)
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')},${String(ms).padStart(3, '0')}`
+}
+
+export function formatCaptionCuesAsSrt(cues = []) {
+  if (!Array.isArray(cues) || cues.length === 0) return ''
+  return cues
+    .map((cue, index) => {
+      const start = Number(cue?.start) || 0
+      const endRaw = Number(cue?.end)
+      const end = Number.isFinite(endRaw) && endRaw > start ? endRaw : start + 0.4
+      const text = String(cue?.text || '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .join('\n')
+      if (!text) return null
+      return [
+        String(index + 1),
+        `${formatSecondsAsSrtTimestamp(start)} --> ${formatSecondsAsSrtTimestamp(end)}`,
+        text,
+      ].join('\n')
+    })
+    .filter(Boolean)
+    .join('\n\n')
+}
+
 async function loadCaptionWorkflow() {
   const response = await fetch(CAPTION_WORKFLOW_PATH)
   if (!response.ok) {
@@ -226,7 +262,7 @@ function extractSubtitleTextFromHistory(history, promptId) {
   return null
 }
 
-async function uploadVideoToComfy(asset) {
+async function uploadMediaToComfy(asset) {
   let fileToUpload = null
   const safeName = String(asset.name || `caption_source_${Date.now()}`)
     .replace(/[^a-zA-Z0-9_\-.\s]/g, '_')
@@ -248,7 +284,7 @@ async function uploadVideoToComfy(asset) {
   }
 
   if (!fileToUpload) {
-    throw new Error('Could not read the source video for upload to ComfyUI.')
+    throw new Error('Could not read the source media for upload to ComfyUI.')
   }
 
   const uploadResult = await comfyui.uploadFile(fileToUpload, safeName)
@@ -370,7 +406,7 @@ async function pollForCompletion(promptId, onProgress) {
 
 export async function transcribeWithComfyUI(asset, { onProgress } = {}) {
   if (!asset) {
-    throw new Error('A source video is required to generate captions.')
+    throw new Error('A source audio or video asset is required to generate captions.')
   }
 
   const connected = await comfyui.checkConnection()
@@ -379,10 +415,10 @@ export async function transcribeWithComfyUI(asset, { onProgress } = {}) {
   }
 
   if (typeof onProgress === 'function') {
-    onProgress({ stage: 'upload', message: 'Uploading video to ComfyUI...' })
+    onProgress({ stage: 'upload', message: 'Uploading media to ComfyUI...' })
   }
 
-  const uploadedFilename = await uploadVideoToComfy(asset)
+  const uploadedFilename = await uploadMediaToComfy(asset)
 
   if (typeof onProgress === 'function') {
     onProgress({ stage: 'workflow', message: 'Loading caption workflow...' })

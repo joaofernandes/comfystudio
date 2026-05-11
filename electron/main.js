@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, protocol, net } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, protocol, net, shell, screen } = require('electron')
 const crypto = require('crypto')
 const path = require('path')
 const fs = require('fs').promises
@@ -28,11 +28,15 @@ const COMFYUI_CHECK_MS = 2500        // Max wait for ComfyUI
 const STEP_DELAY_MS = 400            // Delay between status messages
 const COMFY_CONNECTION_SETTING_KEY = 'comfyConnection'
 const DEFAULT_LOCAL_COMFY_PORT = 8188
+const MAIN_WINDOW_STATE_SETTING_KEY = 'mainWindowState'
+const DEFAULT_MAIN_WINDOW_BOUNDS = Object.freeze({ width: 1600, height: 1000 })
 
 let mainWindow = null
 let splashWindow = null
 let exportWorkerWindow = null
+const activeFramePipeExports = new Map()
 let restoreFullscreenAfterMinimize = false
+let mainWindowStateSaveTimer = null
 const settingsPath = path.join(app.getPath('userData'), 'settings.json')
 
 function resolvePackagedBinaryPath(binaryPath) {
@@ -104,6 +108,129 @@ function getWindowState() {
 function sendWindowState() {
   if (!mainWindow || mainWindow.isDestroyed()) return
   mainWindow.webContents.send('window:stateChanged', getWindowState())
+}
+
+function sanitizeWindowBounds(bounds) {
+  if (!bounds || typeof bounds !== 'object') return null
+  const x = Number(bounds.x)
+  const y = Number(bounds.y)
+  const width = Number(bounds.width)
+  const height = Number(bounds.height)
+  if (![x, y, width, height].every(Number.isFinite)) return null
+  return {
+    x: Math.round(x),
+    y: Math.round(y),
+    width: Math.max(1200, Math.round(width)),
+    height: Math.max(800, Math.round(height)),
+  }
+}
+
+function getBoundsIntersectionArea(bounds, area) {
+  if (!bounds || !area) return 0
+  const left = Math.max(bounds.x, area.x)
+  const top = Math.max(bounds.y, area.y)
+  const right = Math.min(bounds.x + bounds.width, area.x + area.width)
+  const bottom = Math.min(bounds.y + bounds.height, area.y + area.height)
+  return Math.max(0, right - left) * Math.max(0, bottom - top)
+}
+
+function getDisplayForSavedWindowState(savedState, bounds) {
+  const displays = screen.getAllDisplays()
+  if (!displays.length) return null
+
+  const savedDisplayId = savedState?.displayId
+  if (savedDisplayId != null) {
+    const display = displays.find((candidate) => String(candidate.id) === String(savedDisplayId))
+    if (display) return display
+  }
+
+  let bestDisplay = null
+  let bestArea = 0
+  for (const display of displays) {
+    const area = getBoundsIntersectionArea(bounds, display.workArea)
+    if (area > bestArea) {
+      bestArea = area
+      bestDisplay = display
+    }
+  }
+
+  return bestDisplay || screen.getPrimaryDisplay()
+}
+
+function clampWindowBoundsToDisplay(bounds, display) {
+  const workArea = display?.workArea || screen.getPrimaryDisplay().workArea
+  const width = Math.min(Math.max(1200, bounds?.width || DEFAULT_MAIN_WINDOW_BOUNDS.width), workArea.width)
+  const height = Math.min(Math.max(800, bounds?.height || DEFAULT_MAIN_WINDOW_BOUNDS.height), workArea.height)
+  const requestedX = Number(bounds?.x)
+  const requestedY = Number(bounds?.y)
+  const centeredX = workArea.x + Math.round((workArea.width - width) / 2)
+  const centeredY = workArea.y + Math.round((workArea.height - height) / 2)
+  const x = Math.min(
+    Math.max(workArea.x, Number.isFinite(requestedX) ? requestedX : centeredX),
+    workArea.x + Math.max(0, workArea.width - width)
+  )
+  const y = Math.min(
+    Math.max(workArea.y, Number.isFinite(requestedY) ? requestedY : centeredY),
+    workArea.y + Math.max(0, workArea.height - height)
+  )
+  return {
+    x: Math.round(x),
+    y: Math.round(y),
+    width: Math.round(width),
+    height: Math.round(height),
+  }
+}
+
+async function getRestoredMainWindowState() {
+  const settings = await readSettingsRaw()
+  const savedState = settings?.[MAIN_WINDOW_STATE_SETTING_KEY] || {}
+  const savedBounds = sanitizeWindowBounds(savedState.bounds)
+  const primaryDisplay = screen.getPrimaryDisplay()
+
+  if (!savedBounds) {
+    return {
+      bounds: clampWindowBoundsToDisplay(DEFAULT_MAIN_WINDOW_BOUNDS, primaryDisplay),
+      isMaximized: true,
+    }
+  }
+
+  const display = getDisplayForSavedWindowState(savedState, savedBounds) || primaryDisplay
+  return {
+    bounds: clampWindowBoundsToDisplay(savedBounds, display),
+    isMaximized: savedState.isMaximized !== false,
+  }
+}
+
+async function saveMainWindowStateNow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) return
+
+  try {
+    const currentBounds = mainWindow.getBounds()
+    const normalBounds = sanitizeWindowBounds(mainWindow.getNormalBounds?.() || currentBounds)
+    const display = screen.getDisplayMatching(currentBounds)
+    await writeSettingsRaw((settings) => ({
+      ...settings,
+      [MAIN_WINDOW_STATE_SETTING_KEY]: {
+        bounds: normalBounds || sanitizeWindowBounds(currentBounds),
+        displayId: display?.id ?? null,
+        isMaximized: mainWindow.isMaximized(),
+        updatedAt: new Date().toISOString(),
+      },
+    }))
+  } catch (error) {
+    console.warn('[mainWindowState] save failed:', error?.message || error)
+  }
+}
+
+function scheduleSaveMainWindowState() {
+  if (mainWindowStateSaveTimer) {
+    clearTimeout(mainWindowStateSaveTimer)
+  }
+  mainWindowStateSaveTimer = setTimeout(() => {
+    mainWindowStateSaveTimer = null
+    saveMainWindowStateNow()
+  }, 350)
 }
 
 function setSplashStatus(text) {
@@ -1090,9 +1217,9 @@ function createSplashWindow() {
 }
 
 async function createWindow() {
+  const restoredWindowState = await getRestoredMainWindowState()
   mainWindow = new BrowserWindow({
-    width: 1600,
-    height: 1000,
+    ...restoredWindowState.bounds,
     minWidth: 1200,
     minHeight: 800,
     icon: iconPath,
@@ -1117,7 +1244,9 @@ async function createWindow() {
   // too intrusive for a window they're not actively playing back from.
   // Users who want edge-to-edge can still toggle fullscreen via the
   // title-bar control or the window:toggleFullScreen IPC.
-  mainWindow.maximize()
+  if (restoredWindowState.isMaximized) {
+    mainWindow.maximize()
+  }
 
   // Route every external link to the user's default browser instead of
   // letting Electron spawn an in-app BrowserWindow. This covers:
@@ -1266,6 +1395,10 @@ async function createWindow() {
   })
 
   mainWindow.on('closed', () => {
+    if (mainWindowStateSaveTimer) {
+      clearTimeout(mainWindowStateSaveTimer)
+      mainWindowStateSaveTimer = null
+    }
     mainWindow = null
   })
 
@@ -1278,10 +1411,25 @@ async function createWindow() {
     }, 0)
   })
 
-  mainWindow.on('maximize', sendWindowState)
-  mainWindow.on('unmaximize', sendWindowState)
+  mainWindow.on('move', scheduleSaveMainWindowState)
+  mainWindow.on('resize', scheduleSaveMainWindowState)
+  mainWindow.on('maximize', () => {
+    sendWindowState()
+    scheduleSaveMainWindowState()
+  })
+  mainWindow.on('unmaximize', () => {
+    sendWindowState()
+    scheduleSaveMainWindowState()
+  })
   mainWindow.on('enter-full-screen', sendWindowState)
   mainWindow.on('leave-full-screen', sendWindowState)
+  mainWindow.on('close', () => {
+    if (mainWindowStateSaveTimer) {
+      clearTimeout(mainWindowStateSaveTimer)
+      mainWindowStateSaveTimer = null
+    }
+    saveMainWindowStateNow()
+  })
   
   // Register keyboard shortcut for DevTools (F12 or Ctrl+Shift+I)
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -1445,6 +1593,18 @@ ipcMain.handle('fs:deleteFile', async (event, filePath) => {
 ipcMain.handle('fs:deleteDirectory', async (event, dirPath, options = {}) => {
   try {
     await fs.rm(dirPath, { recursive: options.recursive !== false, force: true })
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('fs:trashItem', async (event, itemPath) => {
+  try {
+    if (!itemPath || typeof itemPath !== 'string') {
+      return { success: false, error: 'No path provided' }
+    }
+    await shell.trashItem(itemPath)
     return { success: true }
   } catch (err) {
     return { success: false, error: err.message }
@@ -2460,6 +2620,9 @@ ipcMain.handle('export:runInWorker', async (event, payload) => {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
+      // Export renders inside a hidden window. Keep timers/rAF/video callbacks
+      // unthrottled so frame export speed is not limited by background mode.
+      backgroundThrottling: false,
       // Allow loading file:// URLs for video/image elements during export (otherwise "Media load rejected by URL safety check")
       webSecurity: false,
     },
@@ -2779,16 +2942,10 @@ ipcMain.handle('export:mixAudio', async (event, options = {}) => {
   })
 })
 
-ipcMain.handle('export:encodeVideo', async (event, options = {}) => {
+function appendExportVideoEncoderArgs(args, options = {}) {
   const {
-    framePattern,
-    fps = 24,
-    outputPath,
-    audioPath = null,
     format = 'mp4',
-    duration = null,
     videoCodec = 'h264',
-    audioCodec = 'aac',
     proresProfile = '3',
     useHardwareEncoder = false,
     nvencPreset = 'p5',
@@ -2797,26 +2954,9 @@ ipcMain.handle('export:encodeVideo', async (event, options = {}) => {
     crf = 18,
     bitrateKbps = 8000,
     keyframeInterval = null,
-    audioBitrateKbps = 192,
-    audioSampleRate = 44100
   } = options
 
-  if (!ffmpegPath) {
-    return { success: false, error: 'FFmpeg binary not available.' }
-  }
-  if (!framePattern || !outputPath) {
-    return { success: false, error: 'Missing export inputs.' }
-  }
-
   let encoderUsed = null
-  const args = ['-y', '-framerate', String(fps), '-i', framePattern]
-  if (audioPath) {
-    args.push('-i', audioPath)
-  }
-  if (duration) {
-    args.push('-t', String(duration))
-  }
-
   const isProRes = videoCodec === 'prores' || (format === 'mov' && options.proresProfile != null)
   const normalizedCodec = isProRes
     ? 'prores'
@@ -2922,11 +3062,60 @@ ipcMain.handle('export:encodeVideo', async (event, options = {}) => {
     args.push('-movflags', '+faststart')
   }
 
+  return encoderUsed
+}
+
+function appendExportAudioEncoderArgs(args, options = {}) {
+  const {
+    format = 'mp4',
+    audioCodec = 'aac',
+    audioBitrateKbps = 192,
+    audioSampleRate = 44100,
+  } = options
+
+  const useOpus = format === 'webm' || audioCodec === 'opus'
+  args.push('-c:a', useOpus ? 'libopus' : 'aac')
+  args.push('-b:a', `${audioBitrateKbps}k`)
+  args.push('-ar', String(audioSampleRate))
+}
+
+const appendLimitedStderr = (current, data) => {
+  const next = `${current}${data.toString()}`
+  return next.length > 24000 ? next.slice(-24000) : next
+}
+
+ipcMain.handle('export:encodeVideo', async (event, options = {}) => {
+  const {
+    framePattern,
+    fps = 24,
+    outputPath,
+    audioPath = null,
+    format = 'mp4',
+    duration = null,
+    audioCodec = 'aac',
+    audioBitrateKbps = 192,
+    audioSampleRate = 44100
+  } = options
+
+  if (!ffmpegPath) {
+    return { success: false, error: 'FFmpeg binary not available.' }
+  }
+  if (!framePattern || !outputPath) {
+    return { success: false, error: 'Missing export inputs.' }
+  }
+
+  const args = ['-y', '-framerate', String(fps), '-i', framePattern]
   if (audioPath) {
-    const useOpus = format === 'webm' || audioCodec === 'opus'
-    args.push('-c:a', useOpus ? 'libopus' : 'aac')
-    args.push('-b:a', `${audioBitrateKbps}k`)
-    args.push('-ar', String(audioSampleRate))
+    args.push('-i', audioPath)
+  }
+  if (duration) {
+    args.push('-t', String(duration))
+  }
+
+  const encoderUsed = appendExportVideoEncoderArgs(args, options)
+
+  if (audioPath) {
+    appendExportAudioEncoderArgs(args, { format, audioCodec, audioBitrateKbps, audioSampleRate })
   }
 
   args.push(outputPath)
@@ -2937,7 +3126,7 @@ ipcMain.handle('export:encodeVideo', async (event, options = {}) => {
     let stderr = ''
 
     ffmpeg.stderr.on('data', (data) => {
-      stderr += data.toString()
+      stderr = appendLimitedStderr(stderr, data)
     })
 
     ffmpeg.on('error', (err) => {
@@ -2949,6 +3138,219 @@ ipcMain.handle('export:encodeVideo', async (event, options = {}) => {
         resolve({ success: true, encoderUsed })
       } else {
         resolve({ success: false, error: stderr || `FFmpeg exited with code ${code}`, encoderUsed })
+      }
+    })
+  })
+})
+
+ipcMain.handle('export:startFramePipe', async (event, options = {}) => {
+  const {
+    width,
+    height,
+    fps = 24,
+    outputPath,
+    format = 'mp4',
+    duration = null,
+  } = options
+
+  if (!ffmpegPath) {
+    return { success: false, error: 'FFmpeg binary not available.' }
+  }
+  if (!width || !height || !outputPath) {
+    return { success: false, error: 'Missing frame pipe inputs.' }
+  }
+
+  const args = [
+    '-y',
+    '-f', 'rawvideo',
+    '-pix_fmt', 'rgba',
+    '-video_size', `${Math.round(Number(width))}x${Math.round(Number(height))}`,
+    '-framerate', String(fps),
+    '-i', 'pipe:0',
+  ]
+  if (duration) {
+    args.push('-t', String(duration))
+  }
+
+  const encoderUsed = appendExportVideoEncoderArgs(args, options)
+  args.push(outputPath)
+
+  const sessionId = crypto.randomUUID()
+  const ffmpeg = spawn(ffmpegPath, args, { windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'] })
+  let stderr = ''
+  let closed = false
+  let closeCode = null
+  let spawnError = null
+
+  const closePromise = new Promise((resolve) => {
+    ffmpeg.stderr.on('data', (data) => {
+      stderr = appendLimitedStderr(stderr, data)
+    })
+    ffmpeg.on('error', (err) => {
+      spawnError = err
+    })
+    ffmpeg.on('close', (code) => {
+      closed = true
+      closeCode = code
+      resolve({ code })
+    })
+  })
+
+  activeFramePipeExports.set(sessionId, {
+    ffmpeg,
+    closePromise,
+    encoderUsed,
+    getClosed: () => closed,
+    getCloseCode: () => closeCode,
+    getError: () => spawnError,
+    getStderr: () => stderr,
+  })
+
+  console.log(`[Export] Frame pipe started with ${encoderUsed} (${options.useHardwareEncoder ? 'NVENC' : 'software'})`)
+  return { success: true, sessionId, encoderUsed }
+})
+
+ipcMain.handle('export:writeFrameToPipe', async (event, sessionId, frameBuffer) => {
+  const session = activeFramePipeExports.get(sessionId)
+  if (!session) {
+    return { success: false, error: 'Frame pipe session not found.' }
+  }
+  if (session.getClosed()) {
+    return {
+      success: false,
+      error: session.getStderr() || `Frame pipe closed with code ${session.getCloseCode()}`,
+    }
+  }
+  if (!frameBuffer) {
+    return { success: false, error: 'Missing frame buffer.' }
+  }
+
+  try {
+    const buffer = Buffer.from(frameBuffer)
+    const stream = session.ffmpeg.stdin
+    const canContinue = stream.write(buffer)
+    if (!canContinue) {
+      await new Promise((resolve, reject) => {
+        const cleanup = () => {
+          stream.removeListener('drain', onDrain)
+          stream.removeListener('error', onError)
+        }
+        const onDrain = () => {
+          cleanup()
+          resolve()
+        }
+        const onError = (err) => {
+          cleanup()
+          reject(err)
+        }
+        stream.once('drain', onDrain)
+        stream.once('error', onError)
+      })
+    }
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err.message || String(err) }
+  }
+})
+
+ipcMain.handle('export:finishFramePipe', async (event, sessionId) => {
+  const session = activeFramePipeExports.get(sessionId)
+  if (!session) {
+    return { success: false, error: 'Frame pipe session not found.' }
+  }
+
+  try {
+    if (!session.getClosed()) {
+      session.ffmpeg.stdin.end()
+    }
+    await session.closePromise
+    activeFramePipeExports.delete(sessionId)
+    if (session.getError()) {
+      return { success: false, error: session.getError().message || String(session.getError()), encoderUsed: session.encoderUsed }
+    }
+    if (session.getCloseCode() !== 0) {
+      return {
+        success: false,
+        error: session.getStderr() || `FFmpeg exited with code ${session.getCloseCode()}`,
+        encoderUsed: session.encoderUsed,
+      }
+    }
+    return { success: true, encoderUsed: session.encoderUsed }
+  } catch (err) {
+    activeFramePipeExports.delete(sessionId)
+    return { success: false, error: err.message || String(err), encoderUsed: session.encoderUsed }
+  }
+})
+
+ipcMain.handle('export:abortFramePipe', async (event, sessionId) => {
+  const session = activeFramePipeExports.get(sessionId)
+  if (!session) return { success: true }
+  activeFramePipeExports.delete(sessionId)
+  try {
+    if (!session.ffmpeg.killed) {
+      session.ffmpeg.kill('SIGKILL')
+    }
+  } catch {
+    // ignore abort errors
+  }
+  return { success: true }
+})
+
+ipcMain.handle('export:muxAudioVideo', async (event, options = {}) => {
+  const {
+    videoPath,
+    audioPath,
+    outputPath,
+    format = 'mp4',
+    duration = null,
+    audioCodec = 'aac',
+    audioBitrateKbps = 192,
+    audioSampleRate = 44100,
+  } = options
+
+  if (!ffmpegPath) {
+    return { success: false, error: 'FFmpeg binary not available.' }
+  }
+  if (!videoPath || !outputPath) {
+    return { success: false, error: 'Missing mux inputs.' }
+  }
+
+  const args = ['-y', '-i', videoPath]
+  if (audioPath) {
+    args.push('-i', audioPath)
+  }
+  if (duration) {
+    args.push('-t', String(duration))
+  }
+  args.push('-map', '0:v:0')
+  if (audioPath) {
+    args.push('-map', '1:a:0', '-c:v', 'copy')
+    appendExportAudioEncoderArgs(args, { format, audioCodec, audioBitrateKbps, audioSampleRate })
+  } else {
+    args.push('-c:v', 'copy')
+  }
+  if (format === 'mp4') {
+    args.push('-movflags', '+faststart')
+  }
+  args.push(outputPath)
+
+  return await new Promise((resolve) => {
+    const ffmpeg = spawn(ffmpegPath, args, { windowsHide: true })
+    let stderr = ''
+
+    ffmpeg.stderr.on('data', (data) => {
+      stderr = appendLimitedStderr(stderr, data)
+    })
+
+    ffmpeg.on('error', (err) => {
+      resolve({ success: false, error: err.message })
+    })
+
+    ffmpeg.on('close', (code) => {
+      if (code === 0) {
+        resolve({ success: true })
+      } else {
+        resolve({ success: false, error: stderr || `FFmpeg exited with code ${code}` })
       }
     })
   })
@@ -3114,16 +3516,16 @@ app.whenReady().then(() => {
   const splash = createSplashWindow()
   splash.webContents.once('did-finish-load', () => {
     runStartupChecks()
-      .then(() => {
-        createWindow()
+      .then(async () => {
+        await createWindow()
         if (splashWindow && !splashWindow.isDestroyed()) {
           splashWindow.close()
           splashWindow = null
         }
       })
-      .catch((err) => {
+      .catch(async (err) => {
         console.error('Startup checks failed:', err)
-        createWindow()
+        await createWindow()
         if (splashWindow && !splashWindow.isDestroyed()) {
           splashWindow.close()
           splashWindow = null
@@ -3133,7 +3535,9 @@ app.whenReady().then(() => {
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
+      createWindow().catch((error) => {
+        console.error('Failed to create window:', error)
+      })
     }
   })
 })

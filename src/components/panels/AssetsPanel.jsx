@@ -3,10 +3,11 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import useAssetsStore from '../../stores/assetsStore'
 import useProjectStore from '../../stores/projectStore'
 import useTimelineStore from '../../stores/timelineStore'
-import { importAsset, isElectron, writeGeneratedOverlayToProject } from '../../services/fileSystem'
+import { importAsset, isElectron, writeGeneratedOverlayToProject, deleteProjectFile } from '../../services/fileSystem'
 import { enqueuePlaybackTranscode } from '../../services/playbackCache'
 import { enqueueProxyTranscode, isProxyPlaybackEnabled } from '../../services/proxyCache'
 import { unstitchSequenceAsset } from '../../services/comfyAutoImport'
+import { deleteSpriteFromProject } from '../../services/thumbnailSprites'
 import MaskGenerationDialog from '../MaskGenerationDialog'
 import OverlayGeneratorModal from '../OverlayGeneratorModal'
 import TopazVideoUpscaleDialog from '../TopazVideoUpscaleDialog'
@@ -20,6 +21,9 @@ const THUMBNAIL_SIZES = {
   large: { cols: 1, iconSize: 'w-8 h-8', playSize: 'w-8 h-8', badgeSize: 'text-[8px]', nameSize: 'text-[11px]', infoSize: 'text-[10px]' },
 }
 const THUMBNAIL_SIZE_ORDER = ['xs', 'small', 'medium', 'large']
+const ASSET_DELETE_MODE_KEY = 'assetsDeleteMode'
+const ASSET_DELETE_MODE_DISK = 'disk'
+const ASSET_DELETE_MODE_PROJECT_ONLY = 'project-only'
 const FOLDER_TILE_ICON_SIZES = {
   xs: 'w-10 h-10',
   small: 'w-12 h-12',
@@ -39,9 +43,24 @@ const getTransparentAssetDragImage = () => {
   return transparentAssetDragImage
 }
 
+const normalizeSearchText = (value) => String(value ?? '').toLowerCase()
+
+const assetMatchesSearch = (asset, normalizedQuery) => {
+  if (!normalizedQuery) return true
+  return normalizeSearchText(asset?.name).includes(normalizedQuery)
+    || normalizeSearchText(asset?.prompt).includes(normalizedQuery)
+}
+
 function AssetsPanel() {
   const [viewMode, setViewMode] = useState('grid')
   const [thumbnailSize, setThumbnailSize] = useState('medium')
+  const [assetDeleteMode, setAssetDeleteMode] = useState(() => {
+    try {
+      const saved = localStorage.getItem(ASSET_DELETE_MODE_KEY)
+      if (saved === ASSET_DELETE_MODE_DISK || saved === ASSET_DELETE_MODE_PROJECT_ONLY) return saved
+    } catch (_) {}
+    return ASSET_DELETE_MODE_DISK
+  })
   const [searchQuery, setSearchQuery] = useState('')
   const [editingId, setEditingId] = useState(null)
   const [editingType, setEditingType] = useState(null)
@@ -111,6 +130,7 @@ function AssetsPanel() {
   }
 
   const ASSET_DRAG_TYPE = 'application/x-comfystudio-asset-ids'
+  const SEQUENCE_DRAG_TYPE = 'application/x-comfystudio-sequence-ids'
 
   const notifyAssetDragStart = (assetId, assetIds) => {
     if (typeof window === 'undefined') return
@@ -189,6 +209,15 @@ function AssetsPanel() {
     notifyAssetDragStart(assetId, orderedAssetIds)
   }, [updateAssetDragPreviewPosition])
 
+  const startSequenceDrag = useCallback((e, sequenceId) => {
+    if (!sequenceId) return
+    const ids = [sequenceId]
+    const data = JSON.stringify(ids)
+    e.dataTransfer.setData(SEQUENCE_DRAG_TYPE, data)
+    e.dataTransfer.setData('text/plain', data)
+    e.dataTransfer.effectAllowed = 'move'
+  }, [SEQUENCE_DRAG_TYPE])
+
   const endAssetDrag = useCallback(() => {
     clearAssetDragPreview()
     notifyAssetDragEnd()
@@ -223,8 +252,8 @@ function AssetsPanel() {
     getAssetSprite,
     setAssetAudioEnabled,
   } = useAssetsStore()
-  const { currentProject, currentProjectHandle, currentTimelineId, switchTimeline, renameTimeline, setTimelineColor, duplicateTimeline, deleteTimeline, getCurrentTimelineSettings } = useProjectStore()
-  const { isPlaying: timelineIsPlaying, togglePlay: timelineTogglePlay, removeAudioClipsForAsset } = useTimelineStore()
+  const { currentProject, currentProjectHandle, currentTimelineId, switchTimeline, renameTimeline, setTimelineColor, moveTimelineToFolder, duplicateTimeline, deleteTimeline, getCurrentTimelineSettings } = useProjectStore()
+  const { isPlaying: timelineIsPlaying, togglePlay: timelineTogglePlay, removeAudioClipsForAsset, clearSelection: clearTimelineSelection } = useTimelineStore()
   
   // Load thumbnail size from localStorage
   useEffect(() => {
@@ -239,6 +268,18 @@ function AssetsPanel() {
     setThumbnailSize(size)
     localStorage.setItem('assetsThumbnailSize', size)
   }
+
+  const setAndSaveAssetDeleteMode = useCallback((mode) => {
+    const normalized = mode === ASSET_DELETE_MODE_PROJECT_ONLY
+      ? ASSET_DELETE_MODE_PROJECT_ONLY
+      : ASSET_DELETE_MODE_DISK
+    setAssetDeleteMode(normalized)
+    try {
+      localStorage.setItem(ASSET_DELETE_MODE_KEY, normalized)
+    } catch (_) {}
+  }, [])
+
+  const shouldDeleteFromDisk = assetDeleteMode === ASSET_DELETE_MODE_DISK
   
   // Supported file types
   const SUPPORTED_VIDEO = ['.mp4', '.webm', '.mov']
@@ -321,9 +362,12 @@ function AssetsPanel() {
   const handleDragOver = (e) => {
     e.preventDefault()
     const isInternalAssetDrag = e.dataTransfer?.types?.includes(ASSET_DRAG_TYPE)
-    if (isInternalAssetDrag) {
+    const isInternalSequenceDrag = e.dataTransfer?.types?.includes(SEQUENCE_DRAG_TYPE)
+    if (isInternalAssetDrag || isInternalSequenceDrag) {
       setIsDragOver(false)
-      updateAssetDragPreviewPosition(e.clientX, e.clientY)
+      if (isInternalAssetDrag) {
+        updateAssetDragPreviewPosition(e.clientX, e.clientY)
+      }
       return
     }
     e.stopPropagation()
@@ -333,7 +377,8 @@ function AssetsPanel() {
   const handleDragLeave = (e) => {
     e.preventDefault()
     const isInternalAssetDrag = e.dataTransfer?.types?.includes(ASSET_DRAG_TYPE)
-    if (!isInternalAssetDrag) {
+    const isInternalSequenceDrag = e.dataTransfer?.types?.includes(SEQUENCE_DRAG_TYPE)
+    if (!isInternalAssetDrag && !isInternalSequenceDrag) {
       e.stopPropagation()
     }
     setIsDragOver(false)
@@ -343,14 +388,15 @@ function AssetsPanel() {
   const handleDrop = (e) => {
     e.preventDefault()
     const isInternalAssetDrag = e.dataTransfer?.types?.includes(ASSET_DRAG_TYPE)
-    if (!isInternalAssetDrag) {
+    const isInternalSequenceDrag = e.dataTransfer?.types?.includes(SEQUENCE_DRAG_TYPE)
+    if (!isInternalAssetDrag && !isInternalSequenceDrag) {
       e.stopPropagation()
     }
     setIsDragOver(false)
     setDragOverFolderId(null)
 
     // Ignore internal asset drag (handled by folder drop targets)
-    if (isInternalAssetDrag) return
+    if (isInternalAssetDrag || isInternalSequenceDrag) return
 
     const files = Array.from(e.dataTransfer.files || [])
     const validFiles = files.filter(f => {
@@ -381,34 +427,39 @@ function AssetsPanel() {
   const currentFolder = currentFolderId ? folders?.find(f => f.id === currentFolderId) : null
   const subFolders = (folders || []).filter(f => f.parentId === currentFolderId)
   const projectTimelines = currentProject?.timelines || []
-  const showRootSequences = currentFolderId == null && projectTimelines.length > 0
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase()
   
   // Filter assets by current folder and search query
   const filteredAssets = assets.filter(asset => {
     const matchesFolder = (asset.folderId || null) === currentFolderId
-    const matchesSearch = searchQuery === '' || 
-      asset.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      asset.prompt?.toLowerCase().includes(searchQuery.toLowerCase())
-    return matchesFolder && matchesSearch
+    return matchesFolder && assetMatchesSearch(asset, normalizedSearchQuery)
   })
 
   const filteredTimelines = useMemo(() => {
-    if (!showRootSequences) return []
-    const normalizedQuery = searchQuery.trim().toLowerCase()
-    if (!normalizedQuery) return projectTimelines
-    return projectTimelines.filter((timeline) => (
-      timeline?.name?.toLowerCase().includes(normalizedQuery)
-    ))
-  }, [projectTimelines, searchQuery, showRootSequences])
+    return projectTimelines.filter((timeline) => {
+      const timelineFolderId = timeline?.folderId || null
+      const matchesFolder = timelineFolderId === currentFolderId
+      if (!matchesFolder) return false
+      if (!normalizedSearchQuery) return true
+      return normalizeSearchText(timeline?.name).includes(normalizedSearchQuery)
+    })
+  }, [currentFolderId, normalizedSearchQuery, projectTimelines])
   
   // Get subfolders by parent (for list view expand)
   const getSubfoldersOf = (parentId) => (folders || []).filter(f => f.parentId === parentId)
   // Get assets in folder, optionally filtered by search
   const getAssetsInFolder = (folderId, search = '') => {
+    const normalizedQuery = String(search || '').trim().toLowerCase()
     return assets.filter(a => {
       const inFolder = (a.folderId || null) === folderId
-      const matchesSearch = !search || a.name.toLowerCase().includes(search.toLowerCase()) || a.prompt?.toLowerCase().includes(search.toLowerCase())
-      return inFolder && matchesSearch
+      return inFolder && assetMatchesSearch(a, normalizedQuery)
+    })
+  }
+  const getTimelinesInFolder = (folderId, search = '') => {
+    const normalizedQuery = String(search || '').trim().toLowerCase()
+    return projectTimelines.filter((timeline) => {
+      const inFolder = (timeline?.folderId || null) === folderId
+      return inFolder && (!normalizedQuery || normalizeSearchText(timeline?.name).includes(normalizedQuery))
     })
   }
 
@@ -444,10 +495,87 @@ function AssetsPanel() {
   const getFolderItemCount = useCallback((folderId) => {
     const descendants = folderDescendantIdsByFolderId.get(folderId)
     if (!descendants || descendants.size === 0) return 0
-    return assets.reduce((count, asset) => (
+    const assetCount = assets.reduce((count, asset) => (
       descendants.has(asset.folderId || null) ? count + 1 : count
     ), 0)
-  }, [assets, folderDescendantIdsByFolderId])
+    const timelineCount = projectTimelines.reduce((count, timeline) => (
+      descendants.has(timeline?.folderId || null) ? count + 1 : count
+    ), 0)
+    return assetCount + timelineCount
+  }, [assets, folderDescendantIdsByFolderId, projectTimelines])
+
+  const deleteAssetFilesOnly = useCallback(async (assetIds = []) => {
+    const ids = Array.from(new Set((assetIds || []).filter(Boolean)))
+    if (ids.length === 0) return
+    const deleteSet = new Set(ids)
+    const assetsToDelete = assets.filter((asset) => deleteSet.has(asset.id))
+    if (assetsToDelete.length === 0) return
+
+    const remainingAssets = assets.filter((asset) => !deleteSet.has(asset.id))
+    const remainingRelativePaths = new Set()
+    const remainingAbsolutePaths = new Set()
+    const addPath = (setRef, value) => {
+      if (typeof value !== 'string') return
+      const normalized = value.trim()
+      if (!normalized) return
+      setRef.add(normalized)
+    }
+
+    for (const asset of remainingAssets) {
+      addPath(remainingRelativePaths, asset?.path)
+      addPath(remainingRelativePaths, asset?.playbackCachePath)
+      addPath(remainingRelativePaths, asset?.proxyPath)
+      if (!asset?.path) addPath(remainingAbsolutePaths, asset?.absolutePath)
+      addPath(remainingAbsolutePaths, asset?.sprite?.spritePath)
+    }
+
+    const deleteRelativePath = async (relativePath) => {
+      const normalized = typeof relativePath === 'string' ? relativePath.trim() : ''
+      if (!normalized || !currentProjectHandle) return
+      if (remainingRelativePaths.has(normalized)) return
+      try {
+        await deleteProjectFile(currentProjectHandle, normalized)
+      } catch (_) {
+        // Best effort: file may have already been removed or moved.
+      }
+    }
+
+    const deleteAbsolutePath = async (absolutePath) => {
+      const normalized = typeof absolutePath === 'string' ? absolutePath.trim() : ''
+      if (!normalized || !isElectron() || !window.electronAPI?.deleteFile) return
+      if (remainingAbsolutePaths.has(normalized)) return
+      try {
+        await window.electronAPI.deleteFile(normalized)
+      } catch (_) {
+        // Best effort for external/derived files.
+      }
+    }
+
+    for (const asset of assetsToDelete) {
+      const relativeCandidates = new Set([
+        asset?.path,
+        asset?.playbackCachePath,
+        asset?.proxyPath,
+      ].filter(Boolean))
+      for (const relativePath of relativeCandidates) {
+        await deleteRelativePath(relativePath)
+      }
+
+      if (!asset?.path && asset?.absolutePath) {
+        await deleteAbsolutePath(asset.absolutePath)
+      }
+
+      if (isElectron() && typeof currentProjectHandle === 'string' && asset?.sprite) {
+        try {
+          await deleteSpriteFromProject(currentProjectHandle, asset.id)
+        } catch (_) {
+          // Ignore sprite cleanup failures.
+        }
+      } else if (asset?.sprite?.spritePath) {
+        await deleteAbsolutePath(asset.sprite.spritePath)
+      }
+    }
+  }, [assets, currentProjectHandle])
 
   // Get folder breadcrumb path
   const getFolderPath = () => {
@@ -629,6 +757,8 @@ function AssetsPanel() {
   
   // Handle single-click to select and preview (with multi-select: Ctrl/Cmd toggle, Shift range)
   const handleClick = (e, asset) => {
+    panelRef.current?.focus?.()
+    clearTimelineSelection()
     setSelectedSequenceId(null)
     if (timelineIsPlaying) {
       timelineTogglePlay()
@@ -657,6 +787,8 @@ function AssetsPanel() {
 
   const handleSequenceClick = (timeline) => {
     if (!timeline?.id) return
+    panelRef.current?.focus?.()
+    clearTimelineSelection()
     setSelectedSequenceId(timeline.id)
     setSelectedAssetIds([])
   }
@@ -719,35 +851,49 @@ function AssetsPanel() {
       if (editingId || (active && (['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName) || active.isContentEditable))) return
 
       if (e.key === 'Escape') {
+        clearTimelineSelection()
         setSelectedAssetIds([])
         return
       }
-      // Don't delete assets when timeline has selected clips — let the timeline handle Delete (clip removal)
-      const timelineSelectedClipIds = useTimelineStore.getState().selectedClipIds
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedAssetIds.length > 0) {
-        if (timelineSelectedClipIds?.length > 0) return
         e.preventDefault()
         e.stopPropagation()
+        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation()
         const count = selectedAssetIds.length
         const confirmed = await requestConfirm({
           title: count === 1 ? 'Delete asset?' : 'Delete selected assets?',
-          message: count === 1 ? 'Delete this asset?' : `Delete ${count} selected assets?`,
+          message: shouldDeleteFromDisk
+            ? (
+                count === 1
+                  ? 'Delete this asset?\n\nThis also deletes its local file from the project folder (when available). This cannot be undone.'
+                  : `Delete ${count} selected assets?\n\nThis also deletes their local files from the project folder (when available). This cannot be undone.`
+              )
+            : (
+                count === 1
+                  ? 'Delete this asset from the project?\n\nThe source file on disk will be kept.'
+                  : `Delete ${count} selected assets from the project?\n\nSource files on disk will be kept.`
+              ),
           confirmLabel: count === 1 ? 'Delete asset' : 'Delete assets',
           cancelLabel: 'Keep',
           tone: 'danger',
         })
         if (confirmed) {
+          if (shouldDeleteFromDisk) {
+            await deleteAssetFilesOnly(selectedAssetIds)
+          }
           selectedAssetIds.forEach(id => removeAsset(id))
           setSelectedAssetIds([])
         }
       }
     }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedAssetIds, editingId, removeAsset, requestConfirm, confirmDialog])
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => window.removeEventListener('keydown', handleKeyDown, true)
+  }, [selectedAssetIds, editingId, removeAsset, requestConfirm, confirmDialog, clearTimelineSelection, deleteAssetFilesOnly, shouldDeleteFromDisk])
   
   // Handle folder click
   const handleFolderClick = (folderId) => {
+    panelRef.current?.focus?.()
+    clearTimelineSelection()
     setSelectedSequenceId(null)
     setCurrentFolderId(folderId)
   }
@@ -755,9 +901,10 @@ function AssetsPanel() {
   // Start editing name
   const startEditing = (e, asset) => {
     e.stopPropagation()
+    setContextMenu(null)
     setEditingType('asset')
     setEditingId(asset.id)
-    setEditName(asset.name)
+    setEditName(asset.name || '')
   }
 
   const startSequenceEditing = (e, timeline) => {
@@ -771,12 +918,23 @@ function AssetsPanel() {
     setSelectedAssetIds([])
   }
 
+  const startFolderEditing = (e, folder) => {
+    e?.stopPropagation?.()
+    if (!folder?.id) return
+    setContextMenu(null)
+    setEditingType('folder')
+    setEditingId(folder.id)
+    setEditName(folder.name || '')
+  }
+
   // Save edited name
   const saveEdit = (e) => {
     e.preventDefault()
     if (editName.trim() && editingId) {
       if (editingType === 'sequence') {
         renameTimeline(editingId, editName.trim())
+      } else if (editingType === 'folder') {
+        renameFolder(editingId, editName.trim())
       } else {
         renameAsset(editingId, editName.trim())
       }
@@ -791,28 +949,52 @@ function AssetsPanel() {
     e.stopPropagation()
     const confirmed = await requestConfirm({
       title: 'Delete asset?',
-      message: 'Delete this asset?',
+      message: shouldDeleteFromDisk
+        ? 'Delete this asset?\n\nThis also deletes its local file from the project folder (when available). This cannot be undone.'
+        : 'Delete this asset from the project?\n\nThe source file on disk will be kept.',
       confirmLabel: 'Delete asset',
       cancelLabel: 'Keep',
       tone: 'danger',
     })
     if (confirmed) {
+      if (shouldDeleteFromDisk) {
+        await deleteAssetFilesOnly([id])
+      }
       removeAsset(id)
     }
   }
 
   const handleDeleteFolder = useCallback(async (folderId, folderName) => {
+    const folder = (folders || []).find((entry) => entry.id === folderId) || null
+    const parentFolderId = folder?.parentId || null
+    const descendantIds = folderDescendantIdsByFolderId.get(folderId) || new Set([folderId])
+    const folderIds = new Set(descendantIds)
+    const assetIdsInFolderTree = assets
+      .filter((asset) => folderIds.has(asset.folderId || null))
+      .map((asset) => asset.id)
+    const timelineIdsInFolderTree = projectTimelines
+      .filter((timeline) => folderIds.has(timeline?.folderId || null))
+      .map((timeline) => timeline.id)
+    const assetCount = assetIdsInFolderTree.length
     const confirmed = await requestConfirm({
       title: 'Delete folder?',
-      message: `Delete folder "${folderName}"?`,
+      message: shouldDeleteFromDisk
+        ? `Delete folder "${folderName}" and all its contents?\n\n${assetCount} asset${assetCount === 1 ? '' : 's'} will be removed from the project and deleted from local disk (when available). This cannot be undone.`
+        : `Delete folder "${folderName}" and all its contents from the project?\n\n${assetCount} asset${assetCount === 1 ? '' : 's'} will be removed from the project. Source files on disk will be kept.`,
       confirmLabel: 'Delete folder',
       cancelLabel: 'Keep',
       tone: 'danger',
     })
     if (!confirmed) return false
+    if (shouldDeleteFromDisk) {
+      await deleteAssetFilesOnly(assetIdsInFolderTree)
+    }
+    timelineIdsInFolderTree.forEach((timelineId) => {
+      moveTimelineToFolder(timelineId, parentFolderId)
+    })
     removeFolder(folderId)
     return true
-  }, [removeFolder, requestConfirm])
+  }, [assets, deleteAssetFilesOnly, folderDescendantIdsByFolderId, folders, moveTimelineToFolder, projectTimelines, removeFolder, requestConfirm, shouldDeleteFromDisk])
 
   // Toggle audio on a video asset
   const handleToggleVideoAudio = (assetId) => {
@@ -992,12 +1174,17 @@ function AssetsPanel() {
 
   // Drop target handlers for dragging assets onto folders
   const handleFolderDragOver = (e, folderId) => {
-    if (!e.dataTransfer.types.includes(ASSET_DRAG_TYPE)) return
+    const types = e.dataTransfer?.types || []
+    const hasAssetDrag = types.includes(ASSET_DRAG_TYPE)
+    const hasSequenceDrag = types.includes(SEQUENCE_DRAG_TYPE)
+    if (!hasAssetDrag && !hasSequenceDrag) return
     e.preventDefault()
     e.stopPropagation()
     e.dataTransfer.dropEffect = 'move'
     setIsDragOver(false)
-    updateAssetDragPreviewPosition(e.clientX, e.clientY)
+    if (hasAssetDrag) {
+      updateAssetDragPreviewPosition(e.clientX, e.clientY)
+    }
     setDragOverFolderId(folderId)
   }
   const handleFolderDragLeave = (e) => {
@@ -1007,13 +1194,27 @@ function AssetsPanel() {
     e.preventDefault()
     e.stopPropagation()
     setDragOverFolderId(null)
+    const targetFolderId = folderId === 'root' ? null : folderId
+
+    const sequenceRaw = e.dataTransfer.getData(SEQUENCE_DRAG_TYPE)
+    if (sequenceRaw) {
+      try {
+        const sequenceIds = JSON.parse(sequenceRaw)
+        if (Array.isArray(sequenceIds) && sequenceIds.length > 0) {
+          sequenceIds.forEach((sequenceId) => moveTimelineToFolder(sequenceId, targetFolderId))
+          setSelectedSequenceId(sequenceIds[0] || null)
+          return
+        }
+      } catch (_) { /* ignore parse errors */ }
+    }
+
     // Some browsers don't expose custom MIME type on drop; fallback to text/plain
     const raw = e.dataTransfer.getData(ASSET_DRAG_TYPE) || e.dataTransfer.getData('text/plain')
     if (!raw) return
     try {
       const assetIds = JSON.parse(raw)
       if (Array.isArray(assetIds) && assetIds.length > 0) {
-        moveAssetsToFolder(assetIds, folderId === 'root' ? null : folderId)
+        moveAssetsToFolder(assetIds, targetFolderId)
         setSelectedAssetIds([])
       }
     } catch (_) {}
@@ -1058,6 +1259,8 @@ function AssetsPanel() {
       <div
         key={timeline.id}
         data-is-sequence
+        draggable
+        onDragStart={(e) => startSequenceDrag(e, timeline.id)}
         onClick={() => handleSequenceClick(timeline)}
         onDoubleClick={() => handleSequenceDoubleClick(timeline)}
         onContextMenu={(e) => handleSequenceContextMenu(e, timeline)}
@@ -1150,6 +1353,8 @@ function AssetsPanel() {
       <div
         key={timeline.id}
         data-is-sequence
+        draggable
+        onDragStart={(e) => startSequenceDrag(e, timeline.id)}
         onClick={() => handleSequenceClick(timeline)}
         onDoubleClick={() => handleSequenceDoubleClick(timeline)}
         onContextMenu={(e) => handleSequenceContextMenu(e, timeline)}
@@ -1213,8 +1418,14 @@ function AssetsPanel() {
   // List view: recursive folder row with expand arrow and inline contents
   const ListFolderRow = ({ folder, depth }) => {
     const isExpanded = expandedFolderIds.has(folder.id)
+    const isEditingFolder = editingType === 'folder' && editingId === folder.id
     const childFolders = getSubfoldersOf(folder.id)
     const childAssets = getAssetsInFolder(folder.id, searchQuery)
+    const childTimelines = getTimelinesInFolder(folder.id, searchQuery)
+    const childEntries = sortBrowserItems([
+      ...childTimelines.map((timeline) => ({ kind: 'sequence', item: timeline })),
+      ...childAssets.map((asset) => ({ kind: 'asset', item: asset })),
+    ])
     return (
       <>
         <div
@@ -1239,9 +1450,29 @@ function AssetsPanel() {
           </button>
           <FolderOpen className="w-3.5 h-3.5 text-sf-accent flex-shrink-0" />
           <div className="flex-1 min-w-0">
-            <p className="text-[11px] text-sf-text-primary truncate">{folder.name}</p>
+            {isEditingFolder ? (
+              <form onSubmit={saveEdit} className="min-w-0" onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  onBlur={saveEdit}
+                  autoFocus
+                  className="w-full bg-sf-dark-700 border border-sf-accent rounded px-1 py-0.5 text-[10px] text-sf-text-primary focus:outline-none"
+                />
+              </form>
+            ) : (
+              <p className="text-[11px] text-sf-text-primary truncate">{folder.name}</p>
+            )}
             <p className="text-[9px] text-sf-text-muted">{getFolderItemCount(folder.id)} items</p>
           </div>
+          <button
+            onClick={(e) => startFolderEditing(e, folder)}
+            className="p-0.5 opacity-0 group-hover:opacity-100 hover:bg-sf-dark-700 rounded transition-opacity"
+            title="Rename folder"
+          >
+            <Edit3 className="w-2.5 h-2.5 text-sf-text-muted" />
+          </button>
           <button
             onClick={async (e) => {
               e.stopPropagation()
@@ -1255,9 +1486,20 @@ function AssetsPanel() {
         {isExpanded && (
           <div className="space-y-0.5">
             {childFolders.map(f => <ListFolderRow key={f.id} folder={f} depth={depth + 1} />)}
-            {sortAssets(childAssets).map((asset) => {
+            {childEntries.map((entry) => {
+              if (entry.kind === 'sequence') {
+                const timeline = entry.item
+                return (
+                  <div key={timeline.id} style={{ paddingLeft: (depth + 1) * 14 }}>
+                    {renderSequenceListRow(timeline)}
+                  </div>
+                )
+              }
+
+              const asset = entry.item
               const Icon = getIcon(asset.type)
               const isSelected = selectedAssetIds.includes(asset.id) || currentPreview?.id === asset.id
+              const isEditingAsset = editingType === 'asset' && editingId === asset.id
               const idsToMove = selectedAssetIds.includes(asset.id) ? selectedAssetIds : [asset.id]
               return (
                 <div
@@ -1285,8 +1527,8 @@ function AssetsPanel() {
                         <Icon className="w-3.5 h-3.5 text-sf-text-muted" />
                       )}
                     </div>
-                    {editingId === asset.id ? (
-                      <form onSubmit={saveEdit} className="min-w-0 flex-1">
+                    {isEditingAsset ? (
+                      <form onSubmit={saveEdit} className="min-w-0 flex-1" onClick={(e) => e.stopPropagation()}>
                         <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} onBlur={saveEdit} autoFocus className="w-full bg-sf-dark-700 border border-sf-accent rounded px-1 py-0.5 text-[10px] text-sf-text-primary focus:outline-none" />
                       </form>
                     ) : (
@@ -1401,6 +1643,31 @@ function AssetsPanel() {
             </button>
           </div>
         )}
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-sf-text-muted">Delete:</span>
+          <div className="flex items-center gap-0.5 bg-sf-dark-800 rounded p-0.5">
+            <button
+              type="button"
+              onClick={() => setAndSaveAssetDeleteMode(ASSET_DELETE_MODE_DISK)}
+              className={`px-2 py-1 rounded text-[10px] transition-colors ${
+                shouldDeleteFromDisk ? 'bg-sf-dark-600 text-sf-text-primary' : 'text-sf-text-muted hover:text-sf-text-primary'
+              }`}
+              title="Delete from project and local disk"
+            >
+              Delete Disk
+            </button>
+            <button
+              type="button"
+              onClick={() => setAndSaveAssetDeleteMode(ASSET_DELETE_MODE_PROJECT_ONLY)}
+              className={`px-2 py-1 rounded text-[10px] transition-colors ${
+                !shouldDeleteFromDisk ? 'bg-sf-dark-600 text-sf-text-primary' : 'text-sf-text-muted hover:text-sf-text-primary'
+              }`}
+              title="Remove from project only (keep local files)"
+            >
+              Project Only
+            </button>
+          </div>
+        </div>
         
         {/* Folder breadcrumb navigation */}
         {(currentFolderId || subFolders.length > 0 || folders?.length > 0) && (
@@ -1546,36 +1813,60 @@ function AssetsPanel() {
             )}
             
             {/* Subfolders */}
-            {subFolders.map((folder) => (
-              <div
-                key={folder.id}
-                data-is-folder
-                onClick={() => handleFolderClick(folder.id)}
-                onDragOver={(e) => handleFolderDragOver(e, folder.id)}
-                onDragLeave={handleFolderDragLeave}
-                onDrop={(e) => handleFolderDrop(e, folder.id)}
-                onContextMenu={(e) => handleFolderContextMenu(e, folder.id)}
-                className={`bg-sf-dark-800 border rounded cursor-pointer transition-colors group overflow-hidden ${
-                  dragOverFolderId === folder.id ? 'border-sf-accent ring-2 ring-sf-accent ring-offset-1 ring-offset-sf-dark-900' : 'border-sf-dark-600 hover:border-sf-dark-500'
-                }`}
-                style={folder.color ? { borderLeftWidth: '4px', borderLeftColor: folder.color } : {}}
-              >
-                <div className="aspect-video bg-gradient-to-b from-sf-dark-700/25 to-sf-dark-900/75 flex items-center justify-center">
-                  <FolderOpen className={`${folderTileIconSize} text-sf-accent/80`} strokeWidth={1.6} />
+            {subFolders.map((folder) => {
+              const isEditingFolder = editingType === 'folder' && editingId === folder.id
+              return (
+                <div
+                  key={folder.id}
+                  data-is-folder
+                  onClick={() => handleFolderClick(folder.id)}
+                  onDragOver={(e) => handleFolderDragOver(e, folder.id)}
+                  onDragLeave={handleFolderDragLeave}
+                  onDrop={(e) => handleFolderDrop(e, folder.id)}
+                  onContextMenu={(e) => handleFolderContextMenu(e, folder.id)}
+                  className={`bg-sf-dark-800 border rounded cursor-pointer transition-colors group overflow-hidden ${
+                    dragOverFolderId === folder.id ? 'border-sf-accent ring-2 ring-sf-accent ring-offset-1 ring-offset-sf-dark-900' : 'border-sf-dark-600 hover:border-sf-dark-500'
+                  }`}
+                  style={folder.color ? { borderLeftWidth: '4px', borderLeftColor: folder.color } : {}}
+                >
+                  <div className="aspect-video bg-gradient-to-b from-sf-dark-700/25 to-sf-dark-900/75 flex items-center justify-center relative">
+                    <FolderOpen className={`${folderTileIconSize} text-sf-accent/80`} strokeWidth={1.6} />
+                    <button
+                      type="button"
+                      onClick={(e) => startFolderEditing(e, folder)}
+                      className="absolute top-1 right-1 p-0.5 rounded bg-sf-dark-900/70 opacity-0 group-hover:opacity-100 hover:bg-sf-dark-700 transition-opacity"
+                      title="Rename folder"
+                    >
+                      <Edit3 className="w-2.5 h-2.5 text-sf-text-muted" />
+                    </button>
+                  </div>
+                  <div className="px-1.5 py-1 border-t border-sf-dark-700/80 bg-sf-dark-900/85 text-center leading-tight">
+                    {isEditingFolder ? (
+                      <form onSubmit={saveEdit} className="mb-0.5" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          onBlur={saveEdit}
+                          autoFocus
+                          className="w-full bg-sf-dark-700 border border-sf-accent rounded px-1 py-0.5 text-[10px] text-sf-text-primary text-center focus:outline-none"
+                        />
+                      </form>
+                    ) : (
+                      <span className={`${sizeConfig.nameSize} block text-sf-text-primary truncate`}>
+                        {folder.name}
+                      </span>
+                    )}
+                    <span className={`${sizeConfig.infoSize} text-sf-text-muted`}>
+                      {getFolderItemCount(folder.id)} items
+                    </span>
+                  </div>
                 </div>
-                <div className="px-1.5 py-1 border-t border-sf-dark-700/80 bg-sf-dark-900/85 text-center leading-tight">
-                  <span className={`${sizeConfig.nameSize} block text-sf-text-primary truncate`}>
-                    {folder.name}
-                  </span>
-                  <span className={`${sizeConfig.infoSize} text-sf-text-muted`}>
-                    {getFolderItemCount(folder.id)} items
-                  </span>
-                </div>
-              </div>
-            ))}
+              )
+            })}
             
-            {/* Root items: sequences mixed with assets */}
-            {(currentFolderId == null ? rootBrowserItems : filteredAssets.map((asset) => ({ kind: 'asset', item: asset }))).map((entry) => {
+            {/* Items in the current folder: sequences mixed with assets */}
+            {rootBrowserItems.map((entry) => {
               if (entry.kind === 'sequence') {
                 return renderSequenceGridItem(entry.item)
               }
@@ -1583,6 +1874,7 @@ function AssetsPanel() {
               const asset = entry.item
               const Icon = getIcon(asset.type)
               const isSelected = selectedAssetIds.includes(asset.id) || currentPreview?.id === asset.id
+              const isEditingAsset = editingType === 'asset' && editingId === asset.id
               const idsToMove = selectedAssetIds.includes(asset.id) ? selectedAssetIds : [asset.id]
 
               return (
@@ -1682,8 +1974,8 @@ function AssetsPanel() {
                   
                   {/* Info */}
                   <div className="p-1.5">
-                    {editingId === asset.id ? (
-                      <form onSubmit={saveEdit}>
+                    {isEditingAsset ? (
+                      <form onSubmit={saveEdit} onClick={(e) => e.stopPropagation()}>
                         <input
                           type="text"
                           value={editName}
@@ -1767,8 +2059,8 @@ function AssetsPanel() {
               <ListFolderRow key={folder.id} folder={folder} depth={0} />
             ))}
             
-            {/* Root items: sequences mixed with assets */}
-            {(currentFolderId == null ? sortedRootBrowserItems : sortAssets(filteredAssets).map((asset) => ({ kind: 'asset', item: asset }))).map((entry) => {
+            {/* Items in the current folder: sequences mixed with assets */}
+            {sortedRootBrowserItems.map((entry) => {
               if (entry.kind === 'sequence') {
                 return renderSequenceListRow(entry.item)
               }
@@ -1776,6 +2068,7 @@ function AssetsPanel() {
               const asset = entry.item
               const Icon = getIcon(asset.type)
               const isSelected = selectedAssetIds.includes(asset.id) || currentPreview?.id === asset.id
+              const isEditingAsset = editingType === 'asset' && editingId === asset.id
               const idsToMove = selectedAssetIds.includes(asset.id) ? selectedAssetIds : [asset.id]
 
               return (
@@ -1804,8 +2097,8 @@ function AssetsPanel() {
                         <Icon className="w-3.5 h-3.5 text-sf-text-muted" />
                       )}
                     </div>
-                    {editingId === asset.id ? (
-                      <form onSubmit={saveEdit} className="min-w-0 flex-1">
+                    {isEditingAsset ? (
+                      <form onSubmit={saveEdit} className="min-w-0 flex-1" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="text"
                           value={editName}
@@ -1903,6 +2196,16 @@ function AssetsPanel() {
                 <span className="w-4 text-center">▬</span>
                 Create overlay in this folder…
               </button>
+              <button
+                onClick={(e) => {
+                  const folder = folders?.find((f) => f.id === contextMenu.folderId)
+                  if (folder) startFolderEditing(e, folder)
+                }}
+                className="w-full px-3 py-1.5 text-left text-xs text-sf-text-primary hover:bg-sf-dark-700 flex items-center gap-2"
+              >
+                <Edit3 className="w-3 h-3 text-sf-accent" />
+                Rename folder
+              </button>
               <div className="border-t border-sf-dark-600 my-1" />
               <button
                 onClick={async () => {
@@ -1967,6 +2270,32 @@ function AssetsPanel() {
                       <Copy className="w-3 h-3 text-sf-accent" />
                       Duplicate
                     </button>
+                    <div className="px-3 py-1 text-[10px] text-sf-text-muted uppercase tracking-wider">
+                      Move to folder
+                    </div>
+                    <button
+                      onClick={() => {
+                        moveTimelineToFolder(timeline.id, null)
+                        setContextMenu(null)
+                      }}
+                      className="w-full px-3 py-1.5 text-left text-xs text-sf-text-primary hover:bg-sf-dark-700 flex items-center gap-2"
+                    >
+                      <Home className="w-3 h-3" />
+                      Root
+                    </button>
+                    {(folders || []).map((folderOption) => (
+                      <button
+                        key={folderOption.id}
+                        onClick={() => {
+                          moveTimelineToFolder(timeline.id, folderOption.id)
+                          setContextMenu(null)
+                        }}
+                        className="w-full px-3 py-1.5 text-left text-xs text-sf-text-primary hover:bg-sf-dark-700 flex items-center gap-2"
+                      >
+                        <FolderOpen className="w-3 h-3 text-sf-accent" />
+                        {folderOption.name}
+                      </button>
+                    ))}
                     <div className="border-t border-sf-dark-600 my-1" />
                     <button
                       onClick={() => handleDeleteSequence(timeline)}
