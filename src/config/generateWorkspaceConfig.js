@@ -112,7 +112,7 @@ export const YOLO_MUSIC_PROFILES = Object.freeze({
     videoWorkflowId: MUSIC_VIDEO_SHOT_WORKFLOW_ID,
   }),
   '16gb': Object.freeze({
-    storyboardWorkflowId: 'image-edit-model-product',
+    storyboardWorkflowId: 'image-edit-model-product',  // Qwen Image Edit - better scene composition + cast identity
     videoWorkflowId: 'music-video-shot-ltx23-16gb',
   }),
 })

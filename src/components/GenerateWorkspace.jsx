@@ -6103,6 +6103,117 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
   }, [])
 
   /**
+   * Import a music video package from audio-pipeline ZIP file.
+   * Extracts and populates audio, lyrics, cast, concept, and style notes.
+   */
+  const handleImportAudioPipelineZip = useCallback(async (file) => {
+    try {
+      const JSZip = (await import('jszip')).default
+      const zip = await JSZip.loadAsync(file)
+
+      let importedCount = { audio: 0, lyrics: 0, cast: 0, concept: 0, styleNotes: 0, images: 0 }
+
+      // 1. Import audio file
+      const audioFiles = zip.file(/audio\.(mp3|wav|flac|m4a|ogg)$/i)
+      if (audioFiles.length > 0) {
+        const audioFile = audioFiles[0]
+        const audioBlob = await audioFile.async('blob')
+        const audioAsset = await importAsset(new File([audioBlob], audioFile.name, { type: 'audio/mpeg' }))
+        setYoloMusicAudioAssetId(audioAsset.id)
+        importedCount.audio = 1
+      }
+
+      // 2. Import lyrics (SRT format)
+      const lyricsFile = zip.file('lyrics.srt')
+      if (lyricsFile) {
+        const srtContent = await lyricsFile.async('text')
+        setYoloMusicLyrics(srtContent)
+        importedCount.lyrics = 1
+      }
+
+      // 3. Import cast members
+      const castFile = zip.file('cast_members.json')
+      if (castFile) {
+        const castData = JSON.parse(await castFile.async('text'))
+        const newCast = []
+
+        for (const member of castData.cast || []) {
+          let assetId = null
+
+          // Upload cast reference image if present in ZIP
+          if (member.imagePath) {
+            const imageFile = zip.file(member.imagePath)
+            if (imageFile) {
+              const imageBlob = await imageFile.async('blob')
+              const imageName = member.imagePath.split('/').pop()
+              const imageAsset = await importAsset(new File([imageBlob], imageName, { type: 'image/jpeg' }))
+              assetId = imageAsset.id
+              importedCount.images++
+            }
+          }
+
+          newCast.push({
+            id: member.id || `cast-${Date.now()}-${newCast.length}`,
+            slug: member.slug || '',
+            label: member.label || '',
+            role: member.role || 'other',
+            assetId: assetId
+          })
+        }
+
+        setYoloMusicCast(newCast)
+        importedCount.cast = newCast.length
+      }
+
+      // 4. Import concept
+      const conceptFile = zip.file('concept.txt')
+      if (conceptFile) {
+        const concept = await conceptFile.async('text')
+        setYoloMusicConcept(concept.trim())
+        importedCount.concept = 1
+      }
+
+      // 5. Import style notes
+      const styleFile = zip.file('style_notes.txt')
+      if (styleFile) {
+        const styleNotes = await styleFile.async('text')
+        setYoloMusicStyleNotes(styleNotes.trim())
+        importedCount.styleNotes = 1
+      }
+
+      // 6. Import metadata (duration, BPM, etc.)
+      const metadataFile = zip.file('metadata.json')
+      if (metadataFile) {
+        const metadata = JSON.parse(await metadataFile.async('text'))
+
+        // Set target duration based on song length
+        if (metadata.duration && Number.isFinite(metadata.duration) && metadata.duration > 0) {
+          const durationSeconds = Math.ceil(metadata.duration)
+          // Set target duration (capped at 60 seconds or full song, whichever is less)
+          const targetDuration = Math.min(durationSeconds, 60)
+          setYoloMusicTargetDuration(targetDuration)
+          importedCount.duration = durationSeconds
+        }
+      }
+
+      // Show success message
+      const parts = []
+      if (importedCount.audio) parts.push('audio file')
+      if (importedCount.duration) parts.push(`${Math.floor(importedCount.duration)}s duration`)
+      if (importedCount.lyrics) parts.push(`lyrics (SRT)`)
+      if (importedCount.cast) parts.push(`${importedCount.cast} cast member${importedCount.cast > 1 ? 's' : ''}`)
+      if (importedCount.images) parts.push(`${importedCount.images} reference image${importedCount.images > 1 ? 's' : ''}`)
+      if (importedCount.concept) parts.push('concept')
+      if (importedCount.styleNotes) parts.push('style notes')
+
+      alert(`✅ Audio pipeline package imported successfully!\n\nImported: ${parts.join(', ')}`)
+    } catch (error) {
+      console.error('Import failed:', error)
+      alert(`❌ Import failed: ${error.message}`)
+    }
+  }, [importAsset, setYoloMusicAudioAssetId, setYoloMusicLyrics, setYoloMusicCast, setYoloMusicConcept, setYoloMusicStyleNotes, setYoloMusicTargetDuration])
+
+  /**
    * Build the LLM prompt for a given pass configuration using the current
    * song/cast/concept context plus the current master script. Shared by
    * "create a new alt slot" and "re-copy this existing alt slot's prompt".
@@ -8748,6 +8859,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         job.workflowId === 'image-edit' ||
         job.workflowId === 'image-edit-model-product' ||
         job.workflowId === 'seedream-5-lite-image-edit' ||
+        job.workflowId === 'z-image-turbo-16gb-ipadapter' ||
         job.workflowId === 'nano-banana-2' ||
         job.workflowId === 'nano-banana-pro'
       )
@@ -9104,6 +9216,25 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       }
 
       updateJob(job.id, { status: 'queuing', progress: 40 })
+
+      // Debug: Log the ENTIRE final workflow being sent
+      console.log('[WORKFLOW] ==== COMPLETE WORKFLOW JSON BEING SENT TO COMFYUI ====')
+      console.log(JSON.stringify(modifiedWorkflow, null, 2))
+      console.log('[WORKFLOW] ==== END OF WORKFLOW JSON ====')
+
+      // Free GPU memory before queuing video workflows (especially 16GB VRAM variants)
+      if (job.workflowId === 'music-video-shot-ltx23-16gb' ||
+          job.workflowId === MUSIC_VIDEO_SHOT_WORKFLOW_ID ||
+          job.workflowId === 'ltx23-i2v' ||
+          job.workflowId === 'wan22-i2v') {
+        try {
+          await comfyui.freeMemory()
+          console.log('[VRAM] Freed GPU memory before video workflow')
+        } catch (err) {
+          console.warn('[VRAM] Failed to free memory:', err)
+        }
+      }
+
       const promptId = await comfyui.queuePrompt(modifiedWorkflow)
       if (!promptId) throw new Error('Failed to queue prompt')
 
@@ -10087,6 +10218,32 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                           Quality picker in Setup only affects the storyboard/still
                           pass, not the video pass.
                         */}
+                        <div className="mb-4 p-3 rounded-lg border border-sf-dark-700 bg-sf-dark-800/30">
+                          <label className="block text-[10px] text-sf-text-muted uppercase tracking-wider mb-2">
+                            Quick Import
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const input = document.createElement('input')
+                              input.type = 'file'
+                              input.accept = '.zip'
+                              input.onchange = (e) => {
+                                const file = e.target.files?.[0]
+                                if (file) handleImportAudioPipelineZip(file)
+                              }
+                              input.click()
+                            }}
+                            className="w-full px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                          >
+                            <Upload size={16} />
+                            Import from Audio Pipeline ZIP
+                          </button>
+                          <p className="mt-2 text-[10px] text-sf-text-muted">
+                            Import a complete package with audio, timestamped lyrics, cast members with reference images, concept, and style notes
+                          </p>
+                        </div>
+
                         <div>
                           <label className="text-[10px] text-sf-text-muted uppercase tracking-wider">Audio Type</label>
                           <div className="mt-1 grid grid-cols-3 gap-1">

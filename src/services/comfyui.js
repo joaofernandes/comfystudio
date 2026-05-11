@@ -588,6 +588,26 @@ class ComfyUIService {
   }
 
   /**
+   * Free GPU memory by unloading all models from VRAM.
+   */
+  async freeMemory() {
+    try {
+      const response = await fetch(`${this.getHttpBase()}/free`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ unload_models: true, free_memory: true }),
+      })
+      if (!response.ok) {
+        throw new Error(`Failed to free memory: ${response.status}`)
+      }
+      return await response.json()
+    } catch (error) {
+      console.error('Error freeing memory:', error)
+      throw error
+    }
+  }
+
+  /**
    * Resolve optional Comfy account API key for paid API nodes.
    */
   async getComfyOrgApiKey() {

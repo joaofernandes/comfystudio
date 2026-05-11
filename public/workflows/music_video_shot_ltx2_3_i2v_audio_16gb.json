@@ -74,7 +74,7 @@
   },
   "504": {
     "inputs": {
-      "chunks": 4,
+      "chunks": 8,
       "dim_threshold": 2048,
       "model": ["268", 0]
     },
@@ -112,20 +112,15 @@
     "class_type": "VAELoader",
     "_meta": { "title": "Load VAE (LTX 2.3 Video)" }
   },
-  "1561": {
-    "inputs": { "model_name": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" },
-    "class_type": "LatentUpscaleModelLoader",
-    "_meta": { "title": "Load Latent Upscale Model" }
-  },
   "1562": {
     "inputs": {
-      "clip_name1": "gemma-3-12b-it-IQ4_XS.gguf",
+      "clip_name1": "gemma-3-12b-it-qat-UD-IQ2_XXS.gguf",
       "clip_name2": "ltx-2.3-distilled-connector.safetensors",
       "type": "ltxv",
       "device": "default"
     },
     "class_type": "DualCLIPLoaderGGUF",
-    "_meta": { "title": "DualCLIPLoader GGUF (Gemma 3-12B Q4 - 16GB VRAM)" }
+    "_meta": { "title": "DualCLIPLoader GGUF (Gemma 3-12B QAT UD-IQ2_XXS - 16GB VRAM)" }
   },
   "1567": {
     "inputs": {
@@ -149,7 +144,7 @@
     "_meta": { "title": "Load GGUF Model (LTX 2.3 22B Q3 - 16GB VRAM)" }
   },
   "1586": {
-    "inputs": { "value": 25 },
+    "inputs": { "value": 24 },
     "class_type": "PrimitiveFloat",
     "_meta": { "title": "FPS" }
   },
@@ -281,9 +276,9 @@
     "_meta": { "title": "IMG STRENGTH. Set 0 for T2V mode" }
   },
   "2012": {
-    "inputs": { "value": 4 },
+    "inputs": { "value": 5 },
     "class_type": "PrimitiveFloat",
-    "_meta": { "title": "LENGTH (in seconds)" }
+    "_meta": { "title": "LENGTH (in seconds) - default, overridden by shot config" }
   },
   "2023": {
     "inputs": {
@@ -333,15 +328,6 @@
     },
     "class_type": "LTXVConcatAVLatent",
     "_meta": { "title": "LTXVConcatAVLatent (Pass 2)" }
-  },
-  "2158": {
-    "inputs": {
-      "samples": ["2159", 0],
-      "upscale_model": ["1561", 0],
-      "vae": ["1559", 0]
-    },
-    "class_type": "LTXVLatentUpsampler",
-    "_meta": { "title": "Spatial Upsampler (x2)" }
   },
   "2159": {
     "inputs": {
@@ -454,7 +440,7 @@
       "bypass": false,
       "vae": ["1559", 0],
       "image": ["2189", 0],
-      "latent": ["2158", 0]
+      "latent": ["2159", 0]
     },
     "class_type": "LTXVImgToVideoInplace",
     "_meta": { "title": "LTXVImgToVideoInplace (Pass 2)" }
@@ -501,7 +487,7 @@
   },
   "4109": {
     "inputs": {
-      "strength": 1,
+      "strength": 0.85,
       "bypass": false,
       "vae": ["1559", 0],
       "image": ["446", 0],
