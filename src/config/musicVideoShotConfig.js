@@ -406,21 +406,34 @@ export function musicVideoAssetMatchesCurrentShot(asset, {
   if (currentWorkflowId && String(meta.workflowId || '').trim() !== currentWorkflowId) return false
   if (currentVariantKey && String(meta.variantKey || '').trim() !== currentVariantKey) return false
 
-  const expectedSignature = buildMusicVideoShotPlanMatchSignature({
-    workflowId,
-    variantKey,
-    shotType,
-    audioStart,
-    length,
-    shotPrompt,
-  })
   if (meta.shotPlanSignature) {
-    return String(meta.shotPlanSignature) === expectedSignature
+    try {
+      const signature = JSON.parse(String(meta.shotPlanSignature))
+      const expectedLength = Number(length)
+      const signatureLength = Number(signature?.length)
+      const expectedAudioStart = Number(audioStart)
+      const signatureAudioStart = Number(signature?.audioStart)
+      if (currentWorkflowId && String(signature?.workflowId || '').trim() !== currentWorkflowId) return false
+      if (currentVariantKey && String(signature?.variantKey || '').trim() !== currentVariantKey) return false
+      if (shotType && String(signature?.shotType || '').trim() !== String(shotType || '').trim()) return false
+      if (
+        Number.isFinite(expectedLength) &&
+        Number.isFinite(signatureLength) &&
+        Math.abs(signatureLength - expectedLength) > 0.25
+      ) return false
+      if (
+        Number.isFinite(expectedAudioStart) &&
+        Number.isFinite(signatureAudioStart) &&
+        Math.abs(signatureAudioStart - expectedAudioStart) > 0.25
+      ) return false
+    } catch (_) {
+      // Older/corrupt signatures should not make otherwise keyed assets unusable.
+    }
   }
 
   const expectedPrompt = normalizeMusicVideoPlanMatchText(shotPrompt)
   const assetPrompt = normalizeMusicVideoPlanMatchText(asset.prompt)
-  if (expectedPrompt && assetPrompt && expectedPrompt !== assetPrompt) return false
+  if (!currentVariantKey && expectedPrompt && assetPrompt && expectedPrompt !== assetPrompt) return false
 
   const expectedLength = Number(length)
   const assetDuration = Number(asset?.settings?.duration ?? asset?.duration ?? meta?.length ?? meta?.durationSeconds)
