@@ -156,12 +156,34 @@ const hydrateOpenedProjectSession = async (projectHandleOrPath, rawProjectData, 
 
   const timelineFps = currentTimeline?.fps || projectData?.settings?.fps || 24
   useTimelineStore.getState().loadFromProject(currentTimeline, projectData.assets, timelineFps)
-  await useAssetsStore.getState().loadFromProject(
+  const assetLoadResult = await useAssetsStore.getState().loadFromProject(
     projectData.assets,
     projectHandleOrPath,
     projectData.folders,
     projectData.folderCounter
   )
+  const removedAssetIds = new Set(
+    (assetLoadResult?.prunedMissingAssets || []).map((asset) => asset?.id).filter(Boolean)
+  )
+  const shouldPersistPrunedAssets = removedAssetIds.size > 0
+  const openedProjectData = shouldPersistPrunedAssets
+    ? {
+        ...projectData,
+        assets: useAssetsStore.getState().getProjectData(),
+        // Leave timeline clips intact for now; missing source assets are
+        // absent from the media bin, but destructive timeline cleanup should
+        // remain an explicit editor action.
+        modified: new Date().toISOString(),
+      }
+    : projectData
+
+  if (shouldPersistPrunedAssets) {
+    try {
+      await saveProjectToFile(projectHandleOrPath, openedProjectData)
+    } catch (err) {
+      console.warn('Failed to persist pruned missing asset metadata:', err)
+    }
+  }
 
   if (typeof projectHandleOrPath === 'string') {
     useAssetsStore.getState().loadSpritesFromProject(projectHandleOrPath).catch((err) => {
@@ -170,16 +192,16 @@ const hydrateOpenedProjectSession = async (projectHandleOrPath, rawProjectData, 
   }
 
   const recentProject = {
-    name: projectData.name,
+    name: openedProjectData.name,
     path: typeof projectHandleOrPath === 'string' ? projectHandleOrPath : null,
-    modified: projectData.modified,
-    created: projectData.created,
-    settings: projectData.settings,
-    thumbnail: projectData.thumbnail,
+    modified: openedProjectData.modified,
+    created: openedProjectData.created,
+    settings: openedProjectData.settings,
+    thumbnail: openedProjectData.thumbnail,
   }
 
   set((state) => ({
-    currentProject: projectData,
+    currentProject: openedProjectData,
     currentProjectHandle: projectHandleOrPath,
     currentTimelineId,
     projectHistory: [],
@@ -300,41 +322,9 @@ export const useProjectStore = create(
           if (storedProject) {
             const isValid = await verifyPermission(storedProject)
             if (isValid) {
-              // Load project data
               const projectData = await loadProjectFromFile(storedProject)
               if (projectData) {
-                // Get the current/first timeline
-                const currentTimelineId = projectData.currentTimelineId || projectData.timelines?.[0]?.id
-                const currentTimeline = projectData.timelines?.find(t => t.id === currentTimelineId) || projectData.timelines?.[0]
-                
-                // Load timeline data (normalize clip timebases with asset fps)
-                if (currentTimeline) {
-                  const timelineFps = currentTimeline?.fps || projectData?.settings?.fps || 24
-                  useTimelineStore.getState().loadFromProject(currentTimeline, projectData.assets || [], timelineFps)
-                }
-                
-                // Regenerate asset URLs from project files; restore folder structure
-                if (projectData.assets) {
-                  await useAssetsStore.getState().loadFromProject(
-                    projectData.assets,
-                    storedProject,
-                    projectData.folders,
-                    projectData.folderCounter
-                  )
-                }
-                
-                // Load thumbnail sprites in background (Electron only)
-                if (typeof storedProject === 'string') {
-                  useAssetsStore.getState().loadSpritesFromProject(storedProject).catch(err => {
-                    console.warn('Failed to load sprites:', err)
-                  })
-                }
-                
-                set({
-                  currentProject: projectData,
-                  currentProjectHandle: storedProject,
-                  currentTimelineId: currentTimelineId,
-                })
+                await hydrateOpenedProjectSession(storedProject, projectData, set)
               }
             }
           }

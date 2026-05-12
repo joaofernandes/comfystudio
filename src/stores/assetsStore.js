@@ -442,6 +442,7 @@ export const useAssetsStore = create(
 
     // Load assets - URLs need to be regenerated for imported assets
     const assetsWithUrls = []
+    const prunedMissingAssets = []
     let loadedAssetCount = 0
     
     for (const asset of sourceAssets) {
@@ -454,7 +455,41 @@ export const useAssetsStore = create(
         try {
           const { getProjectFileUrl, getAbsoluteFileUrl, isElectron } = await import('../services/fileSystem')
           let url = null
-          if (isElectron() && hasAbsolutePath) {
+          let resolvedAbsolutePath = null
+          if (
+            isElectron() &&
+            typeof projectHandle === 'string' &&
+            window.electronAPI?.exists
+          ) {
+            if (hasAbsolutePath && await window.electronAPI.exists(asset.absolutePath)) {
+              resolvedAbsolutePath = asset.absolutePath
+            } else if (hasPath && window.electronAPI?.pathJoin) {
+              const candidatePath = await window.electronAPI.pathJoin(projectHandle, asset.path)
+              if (await window.electronAPI.exists(candidatePath)) {
+                resolvedAbsolutePath = candidatePath
+              }
+            }
+
+            if ((hasAbsolutePath || hasPath) && !resolvedAbsolutePath) {
+              prunedMissingAssets.push(asset)
+              loadedAssetCount += 1
+              set({
+                mediaPreparation: {
+                  active: true,
+                  phase: 'assets',
+                  label: 'Loading project assets...',
+                  completed: loadedAssetCount,
+                  total: totalAssets,
+                  critical: true,
+                },
+              })
+              continue
+            }
+          }
+
+          if (isElectron() && resolvedAbsolutePath) {
+            url = await getAbsoluteFileUrl(resolvedAbsolutePath)
+          } else if (isElectron() && hasAbsolutePath) {
             url = await getAbsoluteFileUrl(asset.absolutePath)
           } else if (hasPath) {
             url = await getProjectFileUrl(projectHandle, asset.path)
@@ -532,6 +567,7 @@ export const useAssetsStore = create(
           }
           assetsWithUrls.push({
             ...asset,
+            absolutePath: resolvedAbsolutePath || asset.absolutePath,
             url,
             playbackCachePath: playbackCachePath ?? undefined,
             playbackCacheStatus,
@@ -542,8 +578,7 @@ export const useAssetsStore = create(
           })
         } catch (err) {
           console.warn(`Could not load asset ${asset.name}:`, err)
-          // Keep asset but mark URL as null
-          assetsWithUrls.push({ ...asset, url: null })
+          prunedMissingAssets.push(asset)
         }
       } else {
         // For AI/external assets, keep the URL as-is (may need ComfyUI to be running)
@@ -593,6 +628,13 @@ export const useAssetsStore = create(
       nextState.folderCounter = projectFolderCounter
     }
     set(nextState)
+    if (prunedMissingAssets.length > 0) {
+      console.warn(`Pruned ${prunedMissingAssets.length} missing project asset record${prunedMissingAssets.length === 1 ? '' : 's'} during project load.`)
+    }
+    return {
+      assets: assetsWithUrls,
+      prunedMissingAssets,
+    }
   },
 
   /**
