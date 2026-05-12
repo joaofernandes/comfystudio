@@ -1091,11 +1091,12 @@ function composeMusicShotVideoPrompt({
   concept = '',
   styleNotes = '',
 }) {
-  const lyricCue = String(lyricMoment || '')
+  const shouldUseLyricCue = Boolean(shotTypeOption?.needsVocalAlignment)
+  const lyricCue = shouldUseLyricCue ? String(lyricMoment || '')
     .replace(/["'\u2018\u2019\u201C\u201D]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 240)
+    .slice(0, 240) : ''
   const motion = String(motionPromptRaw || '').trim()
   const conceptLine = String(concept || '').trim()
   const styleLine = String(styleNotes || '').trim()
@@ -1298,6 +1299,18 @@ function buildMusicVideoPlanFromScript(options = {}) {
 
       const lyricMomentHint = String(scriptShot.lyricMoment || '').trim()
       const startAtRaw = String(scriptShot.startAtRaw || '').trim()
+      const isVocalAlignedShot = Boolean(shotTypeOption?.needsVocalAlignment)
+      const effectiveLyricMomentHint = isVocalAlignedShot ? lyricMomentHint : ''
+      if (lyricMomentHint && !isVocalAlignedShot) {
+        warnings.push({
+          shotIndex: flatShotIndex,
+          shotLabel: scriptShot.label || `Shot ${flatShotIndex}`,
+          kind: 'broll-lyric-moment-ignored',
+          raw: lyricMomentHint,
+          message: `Shot ${flatShotIndex}${scriptShot.label ? ` (${scriptShot.label})` : ''}: Lyric moment was ignored because b-roll/cutaway shots must not lip-sync.`,
+          severity: 'info',
+        })
+      }
 
       // Tier 1 — explicit `Start at:` from the script (Phase 8).
       const explicitStart = startAtRaw ? parseTimeSpecToSeconds(startAtRaw) : null
@@ -1312,19 +1325,18 @@ function buildMusicVideoPlanFromScript(options = {}) {
       }
 
       // Tier 2 — fuzzy-match the Lyric moment against parsed SRT/LRC.
-      const timedMatch = lyricMomentHint && hasTimedLyrics
-        ? findTimedLyricLineByText(lyricMomentHint, timedLyricLines)
+      const timedMatch = effectiveLyricMomentHint && hasTimedLyrics
+        ? findTimedLyricLineByText(effectiveLyricMomentHint, timedLyricLines)
         : null
 
       // Tier 3 — legacy linear estimate based on plain lyric line index.
-      const lineIdx = lyricMomentHint && effectiveLyricLines.length > 0
-        ? findLyricLineIndex(lyricMomentHint, effectiveLyricLines)
+      const lineIdx = effectiveLyricMomentHint && effectiveLyricLines.length > 0
+        ? findLyricLineIndex(effectiveLyricMomentHint, effectiveLyricLines)
         : -1
 
       let audioStart
       let audioStartSource
       const hasTimedMatch = timedMatch && typeof timedMatch.startSec === 'number'
-      const isVocalAlignedShot = Boolean(shotTypeOption?.needsVocalAlignment)
       if (isVocalAlignedShot && hasTimedMatch) {
         audioStart = timedMatch.startSec
         audioStartSource = 'srt-fuzzy'
@@ -1337,7 +1349,7 @@ function buildMusicVideoPlanFromScript(options = {}) {
               shotLabel: scriptShot.label || `Shot ${flatShotIndex}`,
               kind: 'performance-start-at-overridden',
               raw: startAtRaw,
-              message: `Shot ${flatShotIndex}${scriptShot.label ? ` (${scriptShot.label})` : ''}: performance lip-sync uses SRT timing (${formatSecondsAsMMSS(timedMatch.startSec)}) instead of Start at (${formatSecondsAsMMSS(explicitStart)}) for "${lyricMomentHint}".`,
+              message: `Shot ${flatShotIndex}${scriptShot.label ? ` (${scriptShot.label})` : ''}: performance lip-sync uses SRT timing (${formatSecondsAsMMSS(timedMatch.startSec)}) instead of Start at (${formatSecondsAsMMSS(explicitStart)}) for "${effectiveLyricMomentHint}".`,
               severity: 'info',
             })
           }
@@ -1452,7 +1464,7 @@ function buildMusicVideoPlanFromScript(options = {}) {
       const videoPrompt = composeMusicShotVideoPrompt({
         motionPromptRaw: scriptShot.motionPromptRaw || scriptShot.videoBeat,
         shotTypeOption,
-        lyricMoment: lyricMomentHint,
+        lyricMoment: effectiveLyricMomentHint,
         concept,
         styleNotes,
       })
@@ -1515,7 +1527,7 @@ function buildMusicVideoPlanFromScript(options = {}) {
           // Diagnostic / editable metadata so future UI can show the raw
           // script fields back to the user without reparsing.
           scriptShotLabel: scriptShot.label || '',
-          scriptLyricMoment: lyricMomentHint,
+          scriptLyricMoment: effectiveLyricMomentHint,
           scriptLyricLineIndex: lineIdx,
           scriptArtistRaw: artistOverrideRaw,
         }],
@@ -2026,9 +2038,10 @@ function buildMusicVideoLLMPrompt(options = {}) {
     '  2. Every shot MUST include "Length:" in seconds (between 2 and 8 — LTX 2.3 works best here).',
     '  3. Main sequence and b-roll/detail/environment sections should tile the song with no big gaps. Performance passes may leave gaps during instrumental or non-vocal sections.',
     '  4. "Shot type:" must be one of: performance, performance_wide, b_roll. Use performance/performance_wide when the singer\'s face is visible and lip-syncing; use b_roll for everything else.',
+    '  4a. A b_roll shot may include Artist only as a visual/non-singing reference. If a band/performance cast member is singing or mouthing lyrics, the shot type MUST be performance or performance_wide, not b_roll.',
     '  5. For vocal lines, add "Lyric moment:" quoting the specific lyric line. For instrumentals or b_roll, omit Lyric moment.',
     '  5a. When SRT/LRC is provided, a Lyric moment can only appear at that lyric line\'s actual timestamp. Do not move later lyrics to the beginning of the song.',
-    '  6. Use "Artist:" to pick who appears. Use band/performance roles for performance shots. Use non-singing cast roles such as "other" / "never_sings" for b_roll shots. Omit Artist when b_roll has no person visible.',
+    '  6. Use "Artist:" to pick who appears. Use band/performance roles for performance shots. Use non-singing cast roles such as "other" / "never_sings" for b_roll shots. Omit Artist when b_roll has no person visible. If b_roll uses a band/performance Artist for story continuity, describe them as not singing.',
     '  7. "Keyframe prompt:" describes the opening still and must include location, subject, wardrobe/props, lighting, color palette, and composition.',
     '  8. "Motion prompt:" describes what moves in the clip: lip-sync/performance action, body movement, camera movement, atmosphere, and any story action.',
     '  9. Keep wardrobe, location, and lighting consistent across adjacent shots unless the script deliberately calls for a hard cut.',
