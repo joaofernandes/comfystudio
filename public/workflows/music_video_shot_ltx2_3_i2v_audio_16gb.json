@@ -70,7 +70,7 @@
     "inputs": {
       "video_latent": [
         "6002",
-        0
+        2
       ],
       "audio_latent": [
         "1603",
@@ -598,7 +598,7 @@
     "inputs": {
       "video_latent": [
         "6003",
-        0
+        2
       ],
       "audio_latent": [
         "2159",
