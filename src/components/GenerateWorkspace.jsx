@@ -448,6 +448,55 @@ function snapshotGenerationAsset(asset) {
   }
 }
 
+function getYoloVideoStoryboardVariantKey(job) {
+  if (job?.yolo?.stage !== 'video') return ''
+  return String(job?.deferredInput?.variantKey || job?.yolo?.variantKey || '').trim()
+}
+
+function yoloJobModeMatches(jobMode, assetMode) {
+  return jobMode === 'music'
+    ? assetMode === 'music'
+    : assetMode !== 'music'
+}
+
+function findLatestYoloStoryboardAssetForVideoJob(job, assets = []) {
+  const variantKey = getYoloVideoStoryboardVariantKey(job)
+  if (!variantKey) return null
+  const jobMode = job?.yolo?.mode
+  const minCreatedAt = Number(job?.deferredInput?.minCreatedAt) || 0
+  let latest = null
+  for (const asset of assets || []) {
+    if (asset?.type !== 'image') continue
+    if (asset?.yolo?.stage !== 'storyboard') continue
+    if (String(asset?.yolo?.key || '').trim() !== variantKey) continue
+    if (!yoloJobModeMatches(jobMode, asset?.yolo?.mode)) continue
+    const assetTime = new Date(asset.createdAt || 0).getTime()
+    if (minCreatedAt > 0 && (!assetTime || assetTime < minCreatedAt)) continue
+    const latestTime = latest ? new Date(latest.createdAt || 0).getTime() : -1
+    if (!latest || assetTime >= latestTime) latest = asset
+  }
+  return latest
+}
+
+function hasActiveYoloStoryboardDependency(job, queue = []) {
+  const variantKey = getYoloVideoStoryboardVariantKey(job)
+  if (!variantKey) return false
+  const jobMode = job?.yolo?.mode
+  return (queue || []).some((entry) => (
+    entry?.yolo?.stage === 'storyboard' &&
+    String(entry?.yolo?.key || '').trim() === variantKey &&
+    yoloJobModeMatches(jobMode, entry?.yolo?.mode) &&
+    NON_TERMINAL_JOB_STATUSES.includes(entry.status)
+  ))
+}
+
+function isWaitingForDeferredYoloStoryboard(job, assets = [], queue = []) {
+  if (!job?.deferredInput || job?.deferredInput?.stage !== 'storyboard') return false
+  if (job.inputAssetId) return false
+  if (findLatestYoloStoryboardAssetForVideoJob(job, assets)) return false
+  return hasActiveYoloStoryboardDependency(job, queue)
+}
+
 function sanitizeProjectOriginForStorage(originProject) {
   if (!originProject) return null
   const path = typeof originProject.path === 'string'
@@ -8314,6 +8363,29 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         ))
         .map((job) => job.yolo.key)
     )
+    const activeStoryboardKeys = new Set(
+      generationQueue
+        .filter((job) => {
+          if (job?.yolo?.stage !== 'storyboard' || !job?.yolo?.key) return false
+          if (!NON_TERMINAL_JOB_STATUSES.includes(job.status)) return false
+          return yoloModeKey === 'music'
+            ? job?.yolo?.mode === 'music'
+            : job?.yolo?.mode !== 'music'
+        })
+        .map((job) => job.yolo.key)
+    )
+    const activeStoryboardCreatedAtByKey = new Map()
+    for (const job of generationQueue || []) {
+      if (job?.yolo?.stage !== 'storyboard' || !job?.yolo?.key) continue
+      if (!NON_TERMINAL_JOB_STATUSES.includes(job.status)) continue
+      const modeMatches = yoloModeKey === 'music'
+        ? job?.yolo?.mode === 'music'
+        : job?.yolo?.mode !== 'music'
+      if (!modeMatches) continue
+      const createdAt = Number(job.createdAt) || Date.now()
+      const existing = Number(activeStoryboardCreatedAtByKey.get(job.yolo.key)) || 0
+      if (!existing || createdAt > existing) activeStoryboardCreatedAtByKey.set(job.yolo.key, createdAt)
+    }
 
     // Build a lookup from variant.key back to the source shot so we can pull
     // music-video-specific fields (musicShotType, audioStart, shotPrompt, etc.)
@@ -8391,16 +8463,22 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
 
     const jobs = []
     let missing = 0
+    let deferred = 0
     let seedOffset = 0
     const videoResolution = {
       width: Number(resolutionOverride?.width) || resolution.width,
       height: Number(resolutionOverride?.height) || resolution.height,
     }
     for (const variant of variantsToQueue) {
-      const storyboardAsset = yoloStoryboardAssetMap.get(variant.key)
+      const activeStoryboardCreatedAt = activeStoryboardCreatedAtByKey.get(variant.key) || 0
+      const shouldWaitForQueuedStoryboard = activeStoryboardKeys.has(variant.key)
+      const storyboardAsset = shouldWaitForQueuedStoryboard ? null : yoloStoryboardAssetMap.get(variant.key)
       if (!storyboardAsset) {
-        missing += 1
-        continue
+        if (!shouldWaitForQueuedStoryboard) {
+          missing += 1
+          continue
+        }
+        deferred += 1
       }
       seedOffset += 1
       const effectiveWorkflowId = resolveVariantWorkflowId(variant)
@@ -8451,8 +8529,13 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         workflowId: effectiveWorkflowId,
         workflowLabel: `${DIRECTOR_MODE_BETA_LABEL} ${yoloModeLabel} Video (${getWorkflowDisplayLabel(effectiveWorkflowId)})`,
         needsImage: true,
-        inputAssetId: storyboardAsset.id,
-        inputAssetName: storyboardAsset.name || variant.key,
+        inputAssetId: storyboardAsset?.id || null,
+        inputAssetName: storyboardAsset?.name || `Waiting for keyframe ${variant.key}`,
+        deferredInput: storyboardAsset ? null : {
+          stage: 'storyboard',
+          variantKey: variant.key,
+          minCreatedAt: activeStoryboardCreatedAt,
+        },
         inputFromTimelineFrame: false,
         prompt: musicShotPayload?.shotPrompt || adVideoPrompt || variant.videoPrompt || variant.prompt,
         negativePrompt: !isYoloMusicMode
@@ -8534,7 +8617,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
 
     setGenerationQueue(prev => [...prev, ...jobs])
     setFormError(missing > 0 ? `Queued ${jobs.length} video jobs (${missing} variants still missing keyframe images)` : null)
-    addComfyLog('status', `${sourceLabel} queued: ${jobs.length} job${jobs.length === 1 ? '' : 's'}${missing > 0 ? ` (${missing} missing)` : ''}`)
+    const waitingSuffix = deferred > 0 ? `, ${deferred} waiting for keyframes` : ''
+    addComfyLog('status', `${sourceLabel} queued: ${jobs.length} job${jobs.length === 1 ? '' : 's'}${waitingSuffix}${missing > 0 ? ` (${missing} missing)` : ''}`)
     return jobs.length
   }, [
     addComfyLog,
@@ -9768,10 +9852,34 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
   }, [addAsset, addComfyLog, assets, currentProjectHandle, saveProject, updateJob])
 
   const runJob = useCallback(async (job) => {
-    updateJob(job.id, { status: 'uploading', progress: 5, error: null })
     let importedAssets = []
 
     try {
+      if (job?.deferredInput?.stage === 'storyboard') {
+        const storyboardAsset = findLatestYoloStoryboardAssetForVideoJob(job, assets)
+        if (!storyboardAsset) {
+          throw new Error('Keyframe is still missing for this video job. Queue or re-render the keyframe first.')
+        }
+        job = {
+          ...job,
+          inputAssetId: storyboardAsset.id,
+          inputAssetName: storyboardAsset.name || job.inputAssetName || '',
+          deferredInput: null,
+          sourceAssets: {
+            ...(job.sourceAssets || {}),
+            input: snapshotGenerationAsset(storyboardAsset),
+          },
+        }
+        updateJob(job.id, {
+          inputAssetId: job.inputAssetId,
+          inputAssetName: job.inputAssetName,
+          deferredInput: null,
+          sourceAssets: job.sourceAssets,
+        })
+        addComfyLog('status', `Resolved queued video input from new keyframe: ${storyboardAsset.name || storyboardAsset.id}`)
+      }
+
+      updateJob(job.id, { status: 'uploading', progress: 5, error: null })
       let uploadedFilename = null
       let uploadedVideoFilename = null
       let referenceFilenames = []
@@ -10472,7 +10580,9 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     if (queuePausedRef.current) return
     if (!isConnected) return
     const nextJob = queueRef.current.find((job) => (
-      job.status === 'queued' && !startedJobIdsRef.current.has(job.id)
+      job.status === 'queued' &&
+      !startedJobIdsRef.current.has(job.id) &&
+      !isWaitingForDeferredYoloStoryboard(job, assets, queueRef.current)
     ))
     if (!nextJob) return
 
@@ -10524,7 +10634,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     setTimeout(() => {
       processQueue()
     }, delay)
-  }, [runJob, addComfyLog, updateJob, isConnected])
+  }, [runJob, addComfyLog, updateJob, isConnected, assets])
 
   useEffect(() => {
     processQueue()
@@ -13687,7 +13797,9 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                 const jobPassLabel = showJobPassBadge
                   ? (String(job?.yolo?.pass?.altLabel || '') || getMusicVideoPassDisplayName(jobPassType))
                   : ''
-                const statusLabel = job.status === 'queued' ? 'Queued'
+                const isWaitingForKeyframe = isWaitingForDeferredYoloStoryboard(job, assets, generationQueue)
+                const statusLabel = isWaitingForKeyframe ? 'Waiting for keyframe'
+                  : job.status === 'queued' ? 'Queued'
                   : job.status === 'paused' ? 'Paused'
                   : job.status === 'uploading' ? 'Uploading input'
                   : job.status === 'configuring' ? 'Configuring workflow'
