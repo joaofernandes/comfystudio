@@ -2666,10 +2666,15 @@ export function modifyMusicVideoShotWorkflow(workflow, options = {}) {
   const numericWidth = Math.max(256, Math.round(Number(width) || MUSIC_VIDEO_SHOT_DEFAULTS.width))
   const numericHeight = Math.max(256, Math.round(Number(height) || MUSIC_VIDEO_SHOT_DEFAULTS.height))
   const numericFps = Math.max(1, Math.round(Number(fps) || MUSIC_VIDEO_SHOT_DEFAULTS.fps))
+  const maxGenerationLength = Math.max(
+    shot.length,
+    Number(MUSIC_VIDEO_SHOT_DEFAULTS.maxShotLengthSeconds) || 15
+  )
   const requestedPrerollSeconds = shotTypeOption?.needsVocalAlignment
     ? Math.max(0, Number(rawShot?.prerollSeconds ?? MUSIC_VIDEO_SHOT_DEFAULTS.prerollSeconds) || 0)
     : 0
-  const resolvedPrerollSeconds = Math.min(requestedPrerollSeconds, shot.audioStart)
+  const prerollBudgetSeconds = Math.max(0, maxGenerationLength - shot.length)
+  const resolvedPrerollSeconds = Math.min(requestedPrerollSeconds, shot.audioStart, prerollBudgetSeconds)
   const generationAudioStart = Math.max(0, shot.audioStart - resolvedPrerollSeconds)
   const generationLength = shot.length + resolvedPrerollSeconds
   const prerollFrames = Math.max(0, Math.round(resolvedPrerollSeconds * numericFps))
