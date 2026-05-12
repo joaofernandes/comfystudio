@@ -114,7 +114,7 @@
   },
   "1562": {
     "inputs": {
-      "clip_name1": "gemma-3-12b-it-IQ4_XS.gguf",
+      "clip_name1": "gemma-3-12b-it-qat-UD-IQ2_XXS.gguf",
       "clip_name2": "ltx-2.3-distilled-connector.safetensors",
       "type": "ltxv",
       "device": "default"

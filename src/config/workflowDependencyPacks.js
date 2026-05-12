@@ -1162,7 +1162,7 @@ export const WORKFLOW_DEPENDENCY_PACKS = Object.freeze({
       {
         classType: 'DualCLIPLoaderGGUF',
         inputKey: 'clip_name1',
-        filename: 'gemma-3-12b-it-IQ4_XS.gguf',
+        filename: 'gemma-3-12b-it-qat-UD-IQ2_XXS.gguf',
         targetSubdir: 'text_encoders',
       },
       {
