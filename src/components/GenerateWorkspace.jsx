@@ -1120,6 +1120,23 @@ function buildMusicVideoNegativePrompt(baseNegativePrompt = '', shotType = '') {
     .join(', ')
 }
 
+function buildMusicKeyframePromptWithIdentityGuard(basePrompt = '', primaryMember = null, secondaryMembers = []) {
+  const prompt = String(basePrompt || '').trim()
+  if (!primaryMember?.assetId) return prompt
+  const primaryLabel = String(primaryMember?.label || primaryMember?.slug || 'the primary artist').trim()
+  const secondaryLabels = (Array.isArray(secondaryMembers) ? secondaryMembers : [])
+    .map((member) => String(member?.label || member?.slug || '').trim())
+    .filter(Boolean)
+  const identityGuard = [
+    `Identity lock: the attached primary reference image is ${primaryLabel}. Preserve ${primaryLabel}'s face, hair, age, build, and recognizable identity from that reference image.`,
+    'If any written shot detail conflicts with the attached reference image, the reference image wins.',
+    secondaryLabels.length > 0
+      ? `Do not borrow facial traits, hairstyle, wardrobe, or silhouette from other cast references (${secondaryLabels.join(', ')}).`
+      : 'Do not borrow facial traits, hairstyle, wardrobe, or silhouette from any other cast member.',
+  ].filter(Boolean).join(' ')
+  return [identityGuard, prompt].filter(Boolean).join(' ')
+}
+
 /**
  * Compose the reference-image prompt used by the storyboard pass to generate
  * the per-shot keyframe still. Built from the script's Keyframe prompt plus
@@ -7853,6 +7870,13 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       const storyboardInputAsset = effectiveUsesModelProductStoryboardWorkflow
         ? (isYoloMusicMode ? qwenMusicInputAsset : adStoryboardInputAsset)
         : qwenMusicInputAsset
+      const musicPrompt = isYoloMusicMode
+        ? buildMusicKeyframePromptWithIdentityGuard(
+          variant.storyboardPrompt || variant.prompt,
+          referenceMusicMembers[0] || null,
+          referenceMusicMembers.slice(1)
+        )
+        : null
       const storyboardReferenceAssetId1 = isYoloMusicMode
         ? (effectiveUsesQwenMusicStoryboardWorkflow || effectiveUsesModelProductStoryboardWorkflow ? musicReferenceAssetId2 : musicReferenceAssetId1)
         : (effectiveAdProductAsset?.id || null)
@@ -7864,7 +7888,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         workflowId: effectiveStoryboardWorkflowId,
         workflowLabel: `${DIRECTOR_MODE_BETA_LABEL} ${yoloModeLabel} Keyframe (${effectiveStoryboardWorkflowId})`,
         needsImage: effectiveUsesModelProductStoryboardWorkflow || Boolean(qwenMusicInputAsset),
-        prompt: variant.storyboardPrompt || variant.prompt,
+        prompt: musicPrompt || variant.storyboardPrompt || variant.prompt,
         negativePrompt: buildDirectorKeyframeNegativePrompt(negativePrompt),
         seed: storyboardSeed,
         resolution: storyboardResolution,
@@ -7896,6 +7920,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
           workflowId: effectiveStoryboardWorkflowId,
           musicShotType: isYoloMusicMode ? (variant.musicShotType || '') : '',
           resolvedArtistSource: isYoloMusicMode ? (variant.resolvedArtistSource || '') : '',
+          resolvedArtistAssetIds: isYoloMusicMode ? [musicReferenceAssetId1, musicReferenceAssetId2].filter(Boolean) : [],
+          resolvedArtistLabels: isYoloMusicMode ? referenceMusicMembers.map((member) => member?.label || member?.slug || '').filter(Boolean) : [],
           profileRuntime: !isYoloMusicMode ? yoloStoryboardProfileRuntime : null,
           referenceConsistency: !isYoloMusicMode ? yoloAdConsistency : null,
           // Origin pass (music mode only). flattenYoloPlanVariants threads this
