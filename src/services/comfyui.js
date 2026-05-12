@@ -1405,8 +1405,17 @@ export function modifyQwenImageEdit2509Workflow(workflow, options = {}) {
     const title = String(node?._meta?.title || '')
     return /load\s*product/i.test(title)
   })
+  const negativePrompt = 'text, captions, subtitles, labels, watermarks, logos, random letters, fake typography, scene codes, shot numbers'
+  const negativeConditioningNodeIds = new Set()
+  for (const [nodeId, node] of Object.entries(modified)) {
+    if (!node?.inputs || !String(node.class_type || '').includes('Sampler')) continue
+    const negativeInput = node.inputs.negative
+    if (Array.isArray(negativeInput) && negativeInput[0] != null) {
+      negativeConditioningNodeIds.add(String(negativeInput[0]))
+    }
+  }
 
-  for (const node of Object.values(modified)) {
+  for (const [nodeId, node] of Object.entries(modified)) {
     if (!node || typeof node !== 'object') continue
     const title = (node._meta && node._meta.title) ? String(node._meta.title) : ''
     const cls = node.class_type || ''
@@ -1433,8 +1442,9 @@ export function modifyQwenImageEdit2509Workflow(workflow, options = {}) {
     if (node.inputs) {
       const key = ['prompt', 'text', 'string'].find(k => k in node.inputs)
       const valueKey = (key === undefined && 'value' in node.inputs && (title.includes('Prompt') || cls.includes('Prompt'))) ? 'value' : null
-      if (key) node.inputs[key] = prompt
-      else if (valueKey) node.inputs[valueKey] = prompt
+      const promptValue = negativeConditioningNodeIds.has(String(nodeId)) ? negativePrompt : prompt
+      if (key) node.inputs[key] = promptValue
+      else if (valueKey) node.inputs[valueKey] = promptValue
     }
     // Seed: apply to edit-specific nodes and sampler nodes.
     // The 2509 workflows use KSampler seed directly, so this must be updated per take.

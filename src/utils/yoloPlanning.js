@@ -690,7 +690,7 @@ export function flattenYoloPlanVariants(plan = []) {
             .join(' ')
           const keyframeMoment = extractKeyframeMoment(imageBeat || scene?.summary || sceneBody)
           const storyboardPrompt = [
-            `Single cinematic keyframe still for ${scene.id} ${shot.id}.`,
+            'Single cinematic keyframe still.',
             sceneBody ? `Scene context: ${sceneBody}.` : '',
             adBeat ? `Commercial beat: ${adBeat}.` : '',
             productMode ? `Product mode: ${productMode}.` : '',
@@ -709,7 +709,7 @@ export function flattenYoloPlanVariants(plan = []) {
               ? 'Keep the same person identity and wardrobe fully locked to references.'
               : 'Keep character identity and wardrobe reasonably consistent with adjacent shots.',
             scene.styleNotes,
-            'Hard rule: do not render overlay words, end-card words, captions, subtitles, labels, watermarks, random letters, or fake typography in the image.',
+            'Hard rule: do not render overlay words, end-card words, scene numbers, shot codes, captions, subtitles, labels, watermarks, random letters, or fake typography in the image.',
           ]
             .filter(Boolean)
             .join(' ')
