@@ -2687,6 +2687,14 @@ export function modifyMusicVideoShotWorkflow(workflow, options = {}) {
   if (modified['1616']?.inputs && 'switch' in modified['1616'].inputs) {
     modified['1616'].inputs.switch = Boolean(useVocalsOnly)
   }
+  // Audio attention — node 1523.
+  // B-roll still uses audioStart/length for timeline placement, but the video
+  // should not be driven by vocals. Otherwise a visible cast member can start
+  // mouthing the song even when Shot type is b_roll and no Lyric moment exists.
+  if (modified['1523']?.inputs && !shotTypeOption?.needsVocalAlignment) {
+    if ('audio_to_video_scale' in modified['1523'].inputs) modified['1523'].inputs.audio_to_video_scale = 0
+    if ('video_to_audio_scale' in modified['1523'].inputs) modified['1523'].inputs.video_to_audio_scale = 0
+  }
   // Audio start / length — nodes 5100, 2012, 2013, 2014.
   // Performance shots generate a short preroll for audio/mouth context, then
   // the workflow trims those lead-in frames before saving so timeline timing

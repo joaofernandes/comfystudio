@@ -1111,9 +1111,13 @@ function composeMusicShotVideoPrompt({
 }
 
 function buildMusicVideoNegativePrompt(baseNegativePrompt = '', shotType = '') {
+  const normalizedShotType = String(shotType || '').trim().toLowerCase()
   return [
     baseNegativePrompt,
     'text, captions, subtitles, labels, watermarks, logos, signs, posters, banners, billboards, license plates, UI glyphs, random letters, fake typography, pseudo-text',
+    normalizedShotType === 'b_roll'
+      ? 'singing, lip-sync, lipsync, mouthing words, open singing mouth, vocalist performance, matching sung words'
+      : '',
   ]
     .map((part) => String(part || '').trim())
     .filter(Boolean)
