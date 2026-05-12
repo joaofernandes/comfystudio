@@ -1116,7 +1116,7 @@ function buildMusicVideoNegativePrompt(baseNegativePrompt = '', shotType = '') {
     baseNegativePrompt,
     'text, captions, subtitles, labels, watermarks, logos, signs, posters, banners, billboards, license plates, UI glyphs, random letters, fake typography, pseudo-text',
     normalizedShotType === 'b_roll'
-      ? 'singing, lip-sync, lipsync, mouthing words, open singing mouth, vocalist performance, matching sung words, different person, changed identity, different location, different scene'
+      ? 'singing, lip-sync, lipsync, mouthing words, open singing mouth, vocalist performance, matching sung words, different person, changed identity, different location, different scene, warped hands, deformed hands, disfigured hands, fused fingers, extra fingers, missing fingers, melting fingers, broken wrists, distorted arms'
       : '',
   ]
     .map((part) => String(part || '').trim())

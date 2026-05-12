@@ -52,7 +52,7 @@ export const MUSIC_VIDEO_SHOT_TYPE_OPTIONS = Object.freeze([
     cameraLoraOn: false,
     cameraLoraStrength: 0.3,
     defaultImageStrength: 1,
-    promptSuffix: 'B-roll cutaway. Preserve the exact first-frame subject, identity, clothing, composition, location, and lighting. Use subtle natural motion only. No singing, no lip-sync, no mouthing words; any visible person keeps a closed or neutral mouth.',
+    promptSuffix: 'B-roll cutaway. Preserve the exact first-frame subject, identity, clothing, composition, location, and lighting. Use subtle natural motion only. Keep visible hands relaxed, natural, and mostly still unless the prompt explicitly requires hand action. No singing, no lip-sync, no mouthing words; any visible person keeps a closed or neutral mouth.',
     needsVocalAlignment: false,
   },
 ])
