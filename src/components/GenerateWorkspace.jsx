@@ -3213,9 +3213,10 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
   const frameForAI = useFrameForAIStore((s) => s.frame)
   const clearFrameForAI = useFrameForAIStore((s) => s.clearFrame)
 
-  const pruneMissingYoloStoryboardAssets = useCallback(async (mode = yoloModeKey) => {
+  const pruneMissingYoloStoryboardAssets = useCallback(async (mode = '') => {
     if (!isElectron() || !window.electronAPI?.exists) return 0
-    const targetMode = String(mode || yoloModeKey || '').trim()
+    const targetMode = String(mode || '').trim()
+    if (!targetMode) return 0
     const storyboardAssets = assets.filter((asset) => {
       if (asset?.type !== 'image' || asset?.yolo?.stage !== 'storyboard') return false
       const assetMode = String(asset?.yolo?.mode || '').trim()
@@ -3252,7 +3253,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       console.warn('Failed to save project after pruning missing keyframe metadata:', error)
     }
     return missingIds.length
-  }, [addComfyLog, assets, currentProjectHandle, removeAsset, saveProject, yoloModeKey])
+  }, [addComfyLog, assets, currentProjectHandle, removeAsset, saveProject])
 
   // ComfyUI launcher state (drives gating banner and auto-dispatch behavior)
   const [launcherState, setLauncherState] = useState(() => (
