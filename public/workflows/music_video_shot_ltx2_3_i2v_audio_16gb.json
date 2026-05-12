@@ -114,13 +114,13 @@
   },
   "1562": {
     "inputs": {
-      "clip_name1": "gemma-3-12b-it-qat-UD-IQ2_XXS.gguf",
+      "clip_name1": "gemma-3-12b-it-IQ4_XS.gguf",
       "clip_name2": "ltx-2.3-distilled-connector.safetensors",
       "type": "ltxv",
       "device": "default"
     },
     "class_type": "DualCLIPLoaderGGUF",
-    "_meta": { "title": "DualCLIPLoader GGUF (Gemma 3-12B QAT UD-IQ2_XXS - 16GB VRAM)" }
+    "_meta": { "title": "DualCLIPLoader GGUF (Gemma 3-12B IQ4_XS - 16GB VRAM)" }
   },
   "1567": {
     "inputs": {
@@ -138,10 +138,10 @@
   },
   "1570": {
     "inputs": {
-      "unet_name": "ltx-2.3-22b-distilled-Q3_K_M.gguf"
+      "unet_name": "LTX-2.3-22B-distilled-1.1-Q3_K_M.gguf"
     },
     "class_type": "UnetLoaderGGUF",
-    "_meta": { "title": "Load GGUF Model (LTX 2.3 22B Q3 - 16GB VRAM)" }
+    "_meta": { "title": "Load GGUF Model (LTX 2.3 22B 1.1 Q3 - 16GB VRAM)" }
   },
   "1586": {
     "inputs": { "value": 24 },

@@ -1143,7 +1143,7 @@ export const WORKFLOW_DEPENDENCY_PACKS = Object.freeze({
       {
         classType: 'UnetLoaderGGUF',
         inputKey: 'unet_name',
-        filename: 'ltx-2.3-22b-distilled-Q3_K_M.gguf',
+        filename: 'LTX-2.3-22B-distilled-1.1-Q3_K_M.gguf',
         targetSubdir: 'unet',
       },
       {
