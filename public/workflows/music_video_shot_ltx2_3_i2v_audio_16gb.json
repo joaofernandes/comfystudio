@@ -331,7 +331,7 @@
   "2170": {
     "inputs": {
       "cfg": 1,
-      "model": ["2178", 0],
+      "model": ["2188", 0],
       "positive": ["164", 0],
       "negative": ["164", 0]
     },
@@ -356,7 +356,7 @@
   "2175": {
     "inputs": {
       "shift": 13,
-      "model": ["2178", 0]
+      "model": ["2188", 0]
     },
     "class_type": "ModelSamplingSD3",
     "_meta": { "title": "ModelSamplingSD3 (Pass 2)" }
@@ -369,25 +369,12 @@
   "2177": {
     "inputs": {
       "cfg": 1,
-      "model": ["2178", 0],
+      "model": ["2188", 0],
       "positive": ["164", 0],
       "negative": ["164", 1]
     },
     "class_type": "CFGGuider",
     "_meta": { "title": "CFGGuider (Pass 2)" }
-  },
-  "2178": {
-    "inputs": {
-      "nag_scale": 11,
-      "nag_alpha": 0.25,
-      "nag_tau": 2.5,
-      "inplace": true,
-      "model": ["2188", 0],
-      "nag_cond_video": ["164", 1],
-      "nag_cond_audio": ["164", 1]
-    },
-    "class_type": "LTX2_NAG",
-    "_meta": { "title": "LTX2 NAG" }
   },
   "2179": {
     "inputs": { "noise_seed": 42 },
@@ -435,7 +422,7 @@
   "2185": {
     "inputs": {
       "shift": 13,
-      "model": ["2178", 0]
+      "model": ["2188", 0]
     },
     "class_type": "ModelSamplingSD3",
     "_meta": { "title": "ModelSamplingSD3 (Pass 1)" }
