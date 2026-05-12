@@ -699,6 +699,15 @@ export const MODEL_INSTALL_RECIPES = Object.freeze({
     licenseUrl: 'https://huggingface.co/Lightricks/LTX-2.3',
     notes: 'Required for the bundled LTX 2.3 upscaling step.',
   }),
+  [modelKey('unet', 'LTX-2.3-22B-distilled-1.1-Q6_K.gguf')]: createModelRecipe({
+    filename: 'LTX-2.3-22B-distilled-1.1-Q6_K.gguf',
+    targetSubdir: 'unet',
+    displayName: 'LTX 2.3 22B Distilled 1.1 GGUF Q6_K',
+    downloadUrl: hfResolve('QuantStack/LTX-2.3-GGUF', 'LTX-2.3-distilled-1.1/LTX-2.3-22B-distilled-1.1-Q6_K.gguf'),
+    sourceUrl: hfBlob('QuantStack/LTX-2.3-GGUF', 'LTX-2.3-distilled-1.1/LTX-2.3-22B-distilled-1.1-Q6_K.gguf'),
+    licenseUrl: 'https://huggingface.co/Lightricks/LTX-2.3',
+    notes: 'Higher-quality GGUF model for the 16GB music-video workflow; ComfyUI-GGUF can offload part of the model to system RAM.',
+  }),
   [modelKey('text_encoders', 'qwen_2.5_vl_7b_fp8_scaled.safetensors')]: createModelRecipe({
     filename: 'qwen_2.5_vl_7b_fp8_scaled.safetensors',
     targetSubdir: 'text_encoders',

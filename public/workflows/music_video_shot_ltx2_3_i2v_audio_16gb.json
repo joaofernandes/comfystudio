@@ -112,6 +112,11 @@
     "class_type": "VAELoader",
     "_meta": { "title": "Load VAE (LTX 2.3 Video)" }
   },
+  "1561": {
+    "inputs": { "model_name": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" },
+    "class_type": "LatentUpscaleModelLoader",
+    "_meta": { "title": "Load Latent Upscale Model" }
+  },
   "1562": {
     "inputs": {
       "clip_name1": "gemma-3-12b-it-qat-UD-IQ2_XXS.gguf",
@@ -138,10 +143,10 @@
   },
   "1570": {
     "inputs": {
-      "unet_name": "LTX-2.3-22B-distilled-1.1-Q3_K_M.gguf"
+      "unet_name": "LTX-2.3-22B-distilled-1.1-Q6_K.gguf"
     },
     "class_type": "UnetLoaderGGUF",
-    "_meta": { "title": "Load GGUF Model (LTX 2.3 22B 1.1 Q3 - 16GB VRAM)" }
+    "_meta": { "title": "Load GGUF Model (LTX 2.3 22B 1.1 Q6 - 16GB VRAM)" }
   },
   "1586": {
     "inputs": { "value": 24 },
@@ -316,6 +321,15 @@
     "class_type": "LTXVConcatAVLatent",
     "_meta": { "title": "LTXVConcatAVLatent (Pass 2)" }
   },
+  "2158": {
+    "inputs": {
+      "samples": ["2159", 0],
+      "upscale_model": ["1561", 0],
+      "vae": ["1559", 0]
+    },
+    "class_type": "LTXVLatentUpsampler",
+    "_meta": { "title": "Spatial Upsampler (x2)" }
+  },
   "2159": {
     "inputs": {
       "av_latent": ["2181", 0]
@@ -414,7 +428,7 @@
       "bypass": false,
       "vae": ["1559", 0],
       "image": ["2189", 0],
-      "latent": ["2159", 0]
+      "latent": ["2158", 0]
     },
     "class_type": "LTXVImgToVideoInplace",
     "_meta": { "title": "LTXVImgToVideoInplace (Pass 2)" }
@@ -473,21 +487,10 @@
   "5000": {
     "inputs": {
       "fps": ["1586", 0],
-      "images": ["6000", 0]
+      "images": ["1318", 0]
     },
     "class_type": "CreateVideo",
-    "_meta": { "title": "Create Video (RTX upscaled, silent)" }
-  },
-  "6000": {
-    "inputs": {
-      "images": ["1318", 0],
-      "resize_type": "target dimensions",
-      "resize_type.width": 1920,
-      "resize_type.height": 1080,
-      "quality": "HIGH"
-    },
-    "class_type": "RTXVideoSuperResolution",
-    "_meta": { "title": "RTX Video Super Resolution (target output size)" }
+    "_meta": { "title": "Create Video (latent upscaled, silent)" }
   },
   "5001": {
     "inputs": {

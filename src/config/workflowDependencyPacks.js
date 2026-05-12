@@ -1129,14 +1129,15 @@ export const WORKFLOW_DEPENDENCY_PACKS = Object.freeze({
       { classType: 'DualCLIPLoaderGGUF' },
       { classType: 'VAELoader' },
       { classType: 'VAELoaderKJ' },
+      { classType: 'LatentUpscaleModelLoader' },
       { classType: 'LTXVAudioVAEEncode' },
       { classType: 'LTXVChunkFeedForward' },
       { classType: 'LTXVConcatAVLatent' },
       { classType: 'LTXVConditioning' },
+      { classType: 'LTXVLatentUpsampler' },
       { classType: 'LTXVPreprocess' },
       { classType: 'LTXVSeparateAVLatent' },
       { classType: 'LoadAudio' },
-      { classType: 'RTXVideoSuperResolution' },
       { classType: 'CreateVideo' },
       { classType: 'SaveVideo' },
     ]),
@@ -1144,7 +1145,7 @@ export const WORKFLOW_DEPENDENCY_PACKS = Object.freeze({
       {
         classType: 'UnetLoaderGGUF',
         inputKey: 'unet_name',
-        filename: 'LTX-2.3-22B-distilled-1.1-Q3_K_M.gguf',
+        filename: 'LTX-2.3-22B-distilled-1.1-Q6_K.gguf',
         targetSubdir: 'unet',
       },
       {
@@ -1158,6 +1159,12 @@ export const WORKFLOW_DEPENDENCY_PACKS = Object.freeze({
         inputKey: 'vae_name',
         filename: 'ltx-2.3-distilled-audio-vae.safetensors',
         targetSubdir: 'vae',
+      },
+      {
+        classType: 'LatentUpscaleModelLoader',
+        inputKey: 'model_name',
+        filename: 'ltx-2.3-spatial-upscaler-x2-1.1.safetensors',
+        targetSubdir: 'latent_upscale_models',
       },
       {
         classType: 'DualCLIPLoaderGGUF',
