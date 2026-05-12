@@ -796,6 +796,23 @@ class ComfyUIService {
   }
 
   /**
+   * Clear queued ComfyUI prompts. Running prompts still need /interrupt.
+   */
+  async clearQueue() {
+    try {
+      await fetch(`${this.getHttpBase()}/queue`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ clear: true }),
+      });
+    } catch (error) {
+      console.error('Error clearing queue:', error);
+    }
+  }
+
+  /**
    * Get queue status
    */
   async getQueueStatus() {

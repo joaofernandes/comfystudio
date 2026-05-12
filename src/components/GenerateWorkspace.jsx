@@ -194,6 +194,22 @@ function assertGenerationResultMatchesJob(result, job) {
   throw new Error(`Workflow returned ${foundLabel}, but this queued job expected ${expectedLabel}. Check that the correct Generate step/button was used.`)
 }
 
+function getYoloNaturalSortNumber(value) {
+  const match = String(value || '').match(/(\d+)/)
+  const parsed = match ? Number(match[1]) : Number.POSITIVE_INFINITY
+  return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY
+}
+
+function compareYoloVariantsInPlanOrder(a, b) {
+  const sceneDiff = getYoloNaturalSortNumber(a?.sceneId) - getYoloNaturalSortNumber(b?.sceneId)
+  if (sceneDiff !== 0) return sceneDiff
+  const shotDiff = getYoloNaturalSortNumber(a?.shotId) - getYoloNaturalSortNumber(b?.shotId)
+  if (shotDiff !== 0) return shotDiff
+  const angleDiff = String(a?.angle || '').localeCompare(String(b?.angle || ''), undefined, { numeric: true })
+  if (angleDiff !== 0) return angleDiff
+  return (Number(a?.take) || 0) - (Number(b?.take) || 0)
+}
+
 const YOLO_AD_STAGE_TIER_OPTIONS = Object.freeze({
   local: Object.freeze([
     { id: 'low', label: 'Low VRAM' },
@@ -5699,6 +5715,11 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         // ignore interrupt failure; queue reset still proceeds
       }
     }
+    try {
+      await comfyui.clearQueue()
+    } catch (_) {
+      // ignore queue-clear failure; local queue reset still proceeds
+    }
 
     setGenerationQueue([])
     setActiveJobId(null)
@@ -8158,7 +8179,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       if (!allowExistingDoneKeys && (existingKeys.has(variantScopedKey) || existingKeys.has(variant.key))) return false
       if (!allowExistingDoneKeys && findExistingVideoAssetForVariant(variant, variantWorkflowId)) return false
       return true
-    })
+    }).sort(compareYoloVariantsInPlanOrder)
 
     const jobs = []
     let missing = 0
