@@ -7166,7 +7166,9 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       return 0
     }
     if (yoloActivePlanIsStale && !skipStaleCheck) {
-      setFormError('Director plan is out of date. Click Build Plan again to apply the current script, references, and style settings.')
+      setFormError(isYoloMusicMode
+        ? 'Director plan is out of date. Click Parse Script again to apply the current script, references, and style settings.'
+        : 'Director plan is out of date. Click Build Plan again to apply the current script, references, and style settings.')
       setDirectorSubTab('plan-script')
       return 0
     }
@@ -7236,7 +7238,9 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     } = options || {}
     if (!isConnected) return
     if (yoloActivePlanIsStale) {
-      setFormError('Director plan is out of date. Click Build Plan again before re-rendering keyframes.')
+      setFormError(isYoloMusicMode
+        ? 'Director plan is out of date. Click Parse Script again before re-rendering keyframes.'
+        : 'Director plan is out of date. Click Build Plan again before re-rendering keyframes.')
       setDirectorSubTab('plan-script')
       return
     }
@@ -7533,7 +7537,9 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       return 0
     }
     if (yoloActivePlanIsStale && !skipStaleCheck) {
-      setFormError('Director plan is out of date. Click Build Plan again before queueing videos.')
+      setFormError(isYoloMusicMode
+        ? 'Director plan is out of date. Click Parse Script again before queueing videos.'
+        : 'Director plan is out of date. Click Build Plan again before queueing videos.')
       setDirectorSubTab('plan-script')
       return 0
     }
@@ -7723,7 +7729,9 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     } = options || {}
     if (!isConnected) return
     if (yoloActivePlanIsStale && !skipStaleCheck) {
-      setFormError('Director plan is out of date. Click Build Plan again before creating shot video.')
+      setFormError(isYoloMusicMode
+        ? 'Director plan is out of date. Click Parse Script again before creating shot video.'
+        : 'Director plan is out of date. Click Build Plan again before creating shot video.')
       setDirectorSubTab('plan-script')
       return
     }
