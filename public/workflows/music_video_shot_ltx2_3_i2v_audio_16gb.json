@@ -481,11 +481,9 @@
   "6000": {
     "inputs": {
       "images": ["1318", 0],
-      "resize_type": {
-        "resize_type": "target dimensions",
-        "width": 1920,
-        "height": 1080
-      },
+      "resize_type": "target dimensions",
+      "resize_type.width": 1920,
+      "resize_type.height": 1080,
       "quality": "HIGH"
     },
     "class_type": "RTXVideoSuperResolution",
