@@ -1405,7 +1405,7 @@ export function modifyQwenImageEdit2509Workflow(workflow, options = {}) {
     const title = String(node?._meta?.title || '')
     return /load\s*product/i.test(title)
   })
-  const negativePrompt = 'text, captions, subtitles, labels, watermarks, logos, random letters, fake typography, scene codes, shot numbers'
+  const negativePrompt = 'text, captions, subtitles, labels, watermarks, logos, signs, posters, banners, billboards, license plates, UI glyphs, letters, numbers, random letters, fake typography, pseudo-text, scene codes, shot numbers, alphanumeric symbols'
   const negativeConditioningNodeIds = new Set()
   for (const [nodeId, node] of Object.entries(modified)) {
     if (!node?.inputs || !String(node.class_type || '').includes('Sampler')) continue

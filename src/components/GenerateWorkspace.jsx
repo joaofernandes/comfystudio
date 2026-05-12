@@ -1018,6 +1018,9 @@ function composeMusicShotReferencePrompt({
     styleLine ? `Style: ${styleLine}.` : '',
     'Render one cinematic keyframe still, no collage, no split screen, no multiple panels.',
     'Maintain consistent subject identity and wardrobe across the video.',
+    'No visible text, captions, subtitles, labels, watermarks, logos, signs, posters, banners, billboards, license plates, UI glyphs, letters, numbers, or text-like marks.',
+    'Use plain unmarked surfaces for walls, screens, clothing, windows, vehicles, props, and backgrounds.',
+    'Hard rule: do not render shot codes, scene numbers, random letters, fake typography, signage, or alphanumeric symbols in the image.',
   ].filter(Boolean)
   return parts.join(' ')
 }

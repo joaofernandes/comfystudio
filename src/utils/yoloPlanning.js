@@ -698,18 +698,19 @@ export function flattenYoloPlanVariants(plan = []) {
             keyframeMoment ? `Capture this exact moment: ${keyframeMoment}.` : '',
             `Camera framing: ${String(angle || 'medium shot').toLowerCase()}.`,
             cameraDirection ? `Camera treatment: ${cameraDirection}.` : '',
-            textOverlay ? `Reserve clean negative space for editor-native text overlay: "${textOverlay}". Do not render the words into the image.` : '',
-            endCard ? `End-card intent: reserve a clean packshot/brand-safe layout for editor-native typography: "${endCard}". Do not render the words into the image.` : '',
+            textOverlay ? 'Reserve clean negative space for editor-native text overlay added later in the editor. Do not render any overlay words into the image.' : '',
+            endCard ? 'Reserve a clean packshot/brand-safe layout for editor-native typography added later in the editor. Do not render any end-card words into the image.' : '',
             'Render one image only: one frame, one moment, one continuous camera view.',
             'Do not create split-screen, collage, diptych, triptych, storyboard grid, comic panels, or multiple images in one frame.',
             'Do not depict a before/after sequence or montage in a single image.',
             'Show one primary subject instance only unless the script explicitly requires extra characters.',
-            'No on-screen text, no captions, no subtitles, no labels, no watermarks.',
+            'No on-screen text, no captions, no subtitles, no labels, no watermarks, no signs, no posters, no banners, no billboards, no license plates, no UI glyphs, no letters, no numbers, no text-like marks.',
+            'Use plain unmarked surfaces for walls, screens, clothing, windows, vehicles, props, and backgrounds.',
             strictConsistency
               ? 'Keep the same person identity and wardrobe fully locked to references.'
               : 'Keep character identity and wardrobe reasonably consistent with adjacent shots.',
             scene.styleNotes,
-            'Hard rule: do not render overlay words, end-card words, scene numbers, shot codes, captions, subtitles, labels, watermarks, random letters, or fake typography in the image.',
+            'Hard rule: do not render overlay words, end-card words, scene numbers, shot codes, captions, subtitles, labels, watermarks, random letters, fake typography, signage, or alphanumeric symbols in the image.',
           ]
             .filter(Boolean)
             .join(' ')
