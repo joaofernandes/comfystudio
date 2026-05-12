@@ -1421,6 +1421,7 @@ function buildMusicVideoPlanFromScript(options = {}) {
       let audioStart
       let audioStartSource
       const hasTimedMatch = timedMatch && typeof timedMatch.startSec === 'number'
+      const isVocalAlignedShot = Boolean(shotTypeOption?.needsVocalAlignment)
       if (isVocalAlignedShot && hasTimedMatch) {
         audioStart = timedMatch.startSec
         audioStartSource = 'srt-fuzzy'
