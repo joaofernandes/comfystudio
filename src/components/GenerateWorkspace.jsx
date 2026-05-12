@@ -12034,7 +12034,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                             <div className="text-[10px] text-sf-text-muted uppercase tracking-wider">Quality</div>
                             <p className="mt-1 text-[10px] text-sf-text-muted">
                               Picks the default keyframe workflow and video model pass. Use 16gb
-                              for the GGUF music-video workflow on 16GB VRAM hosts.
+                              for the FP8 music-video workflow on 16GB VRAM hosts.
                             </p>
                             <div className="mt-2 grid grid-cols-4 gap-1">
                               {['draft', 'balanced', 'premium', '16gb'].map((profileId) => {
@@ -12067,7 +12067,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                           <div className="text-[10px] uppercase tracking-[0.14em] text-amber-300 font-semibold">Heads up</div>
                           <div className="mt-1 text-[10px] text-sf-text-secondary leading-relaxed">
                             Music Video runs an audio-conditioned LTX 2.3 video pass locally.
-                            Use the 16gb profile for the GGUF workflow on 16GB VRAM hosts;
+                            Use the 16gb profile for the FP8 workflow on 16GB VRAM hosts;
                             the standard profile still targets 24GB+ GPUs.
                           </div>
                         </div>

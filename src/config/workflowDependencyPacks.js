@@ -1123,13 +1123,14 @@ export const WORKFLOW_DEPENDENCY_PACKS = Object.freeze({
 
   'music-video-shot-ltx23-16gb': Object.freeze({
     id: 'music-video-shot-ltx23-16gb',
-    displayName: 'Music Video Shot (LTX 2.3 GGUF - 16GB)',
+    displayName: 'Music Video Shot (LTX 2.3 FP8 - 16GB)',
     requiredNodes: Object.freeze([
-      { classType: 'UnetLoaderGGUF' },
-      { classType: 'DualCLIPLoaderGGUF' },
+      { classType: 'UNETLoader' },
+      { classType: 'DualCLIPLoader' },
       { classType: 'VAELoader' },
       { classType: 'VAELoaderKJ' },
       { classType: 'LatentUpscaleModelLoader' },
+      { classType: 'PathchSageAttentionKJ' },
       { classType: 'LTXVAudioVAEEncode' },
       { classType: 'LTXVChunkFeedForward' },
       { classType: 'LTXVConcatAVLatent' },
@@ -1148,10 +1149,10 @@ export const WORKFLOW_DEPENDENCY_PACKS = Object.freeze({
     ]),
     requiredModels: Object.freeze([
       {
-        classType: 'UnetLoaderGGUF',
+        classType: 'UNETLoader',
         inputKey: 'unet_name',
-        filename: 'LTX-2.3-22B-distilled-1.1-Q6_K.gguf',
-        targetSubdir: 'unet',
+        filename: 'ltx-2.3-22b-distilled-1.1_transformer_only_mxfp8_block32.safetensors',
+        targetSubdir: 'diffusion_models',
       },
       {
         classType: 'VAELoader',
@@ -1172,15 +1173,15 @@ export const WORKFLOW_DEPENDENCY_PACKS = Object.freeze({
         targetSubdir: 'latent_upscale_models',
       },
       {
-        classType: 'DualCLIPLoaderGGUF',
+        classType: 'DualCLIPLoader',
         inputKey: 'clip_name1',
-        filename: 'gemma-3-12b-it-qat-UD-IQ2_XXS.gguf',
+        filename: 'gemma_3_12B_it_fp8_e4m3fn.safetensors',
         targetSubdir: 'text_encoders',
       },
       {
-        classType: 'DualCLIPLoaderGGUF',
+        classType: 'DualCLIPLoader',
         inputKey: 'clip_name2',
-        filename: 'ltx-2.3-distilled-connector.safetensors',
+        filename: 'ltx-2.3_text_projection_bf16.safetensors',
         targetSubdir: 'text_encoders',
       },
     ]),

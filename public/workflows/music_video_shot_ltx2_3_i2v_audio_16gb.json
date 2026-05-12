@@ -1,93 +1,164 @@
 {
   "164": {
     "inputs": {
-      "frame_rate": ["1586", 0],
-      "positive": ["1621", 0],
-      "negative": ["1626", 0]
+      "frame_rate": [
+        "1586",
+        0
+      ],
+      "positive": [
+        "1621",
+        0
+      ],
+      "negative": [
+        "1626",
+        0
+      ]
     },
     "class_type": "LTXVConditioning",
-    "_meta": { "title": "LTXVConditioning" }
+    "_meta": {
+      "title": "LTXVConditioning"
+    }
   },
   "245": {
     "inputs": {
-      "av_latent": ["2182", 0]
+      "av_latent": [
+        "2182",
+        0
+      ]
     },
     "class_type": "LTXVSeparateAVLatent",
-    "_meta": { "title": "LTXVSeparateAVLatent" }
+    "_meta": {
+      "title": "LTXVSeparateAVLatent"
+    }
   },
   "268": {
     "inputs": {
-      "sage_attention": "auto",
+      "sage_attention": "sageattn3",
       "allow_compile": false,
-      "model": ["1570", 0]
+      "model": [
+        "1570",
+        0
+      ]
     },
     "class_type": "PathchSageAttentionKJ",
-    "_meta": { "title": "Patch Sage Attention KJ" }
+    "_meta": {
+      "title": "Patch Sage Attention KJ"
+    }
   },
   "344": {
     "inputs": {
-      "width": ["1631", 0],
-      "height": ["1631", 1],
-      "length": ["1651", 1],
+      "width": [
+        "1631",
+        0
+      ],
+      "height": [
+        "1631",
+        1
+      ],
+      "length": [
+        "1651",
+        1
+      ],
       "batch_size": 1
     },
     "class_type": "EmptyLTXVLatentVideo",
-    "_meta": { "title": "EmptyLTXVLatentVideo" }
+    "_meta": {
+      "title": "EmptyLTXVLatentVideo"
+    }
   },
   "350": {
     "inputs": {
-      "video_latent": ["4109", 0],
-      "audio_latent": ["1603", 0]
+      "video_latent": [
+        "4109",
+        0
+      ],
+      "audio_latent": [
+        "1603",
+        0
+      ]
     },
     "class_type": "LTXVConcatAVLatent",
-    "_meta": { "title": "LTXVConcatAVLatent" }
+    "_meta": {
+      "title": "LTXVConcatAVLatent"
+    }
   },
   "444": {
     "inputs": {
       "image": "music_video_shot_reference.png"
     },
     "class_type": "LoadImage",
-    "_meta": { "title": "Load Image (Shot Reference)" }
+    "_meta": {
+      "title": "Load Image (Shot Reference)"
+    }
   },
   "445": {
     "inputs": {
-      "width": ["1606", 0],
-      "height": ["1591", 0],
+      "width": [
+        "1606",
+        0
+      ],
+      "height": [
+        "1591",
+        0
+      ],
       "upscale_method": "lanczos",
       "keep_proportion": "resize",
       "pad_color": "0, 0, 0",
       "crop_position": "center",
       "divisible_by": 2,
       "device": "cpu",
-      "image": ["444", 0]
+      "image": [
+        "444",
+        0
+      ]
     },
     "class_type": "ImageResizeKJv2",
-    "_meta": { "title": "Resize Image v2" }
+    "_meta": {
+      "title": "Resize Image v2"
+    }
   },
   "446": {
     "inputs": {
       "img_compression": 18,
-      "image": ["2189", 0]
+      "image": [
+        "2189",
+        0
+      ]
     },
     "class_type": "LTXVPreprocess",
-    "_meta": { "title": "LTXVPreprocess" }
+    "_meta": {
+      "title": "LTXVPreprocess"
+    }
   },
   "504": {
     "inputs": {
       "chunks": 8,
       "dim_threshold": 2048,
-      "model": ["268", 0]
+      "model": [
+        "268",
+        0
+      ]
     },
     "class_type": "LTXVChunkFeedForward",
-    "_meta": { "title": "LTXV Chunk FeedForward (16GB VRAM Optimized)" }
+    "_meta": {
+      "title": "LTXV Chunk FeedForward (16GB VRAM Optimized)"
+    }
   },
   "1318": {
     "inputs": {
-      "samples": ["245", 0],
-      "vae": ["1559", 0]
+      "samples": [
+        "245",
+        0
+      ],
+      "vae": [
+        "1559",
+        0
+      ]
     },
     "class_type": "VAEDecode",
-    "_meta": { "title": "VAE Decode" }
+    "_meta": {
+      "title": "VAE Decode"
+    }
   },
   "1523": {
     "inputs": {
@@ -97,35 +168,54 @@
       "audio_to_video_scale": 1,
       "video_to_audio_scale": 1,
       "triton_kernels": true,
-      "model": ["504", 0]
+      "model": [
+        "504",
+        0
+      ]
     },
     "class_type": "LTX2AttentionTunerPatch",
-    "_meta": { "title": "LTX2 Attention Tuner Patch" }
+    "_meta": {
+      "title": "LTX2 Attention Tuner Patch"
+    }
   },
   "1527": {
-    "inputs": { "value": 1000 },
+    "inputs": {
+      "value": 1000
+    },
     "class_type": "INTConstant",
-    "_meta": { "title": "Start Seed" }
+    "_meta": {
+      "title": "Start Seed"
+    }
   },
   "1559": {
-    "inputs": { "vae_name": "LTX23_video_vae_bf16.safetensors" },
+    "inputs": {
+      "vae_name": "LTX23_video_vae_bf16.safetensors"
+    },
     "class_type": "VAELoader",
-    "_meta": { "title": "Load VAE (LTX 2.3 Video)" }
+    "_meta": {
+      "title": "Load VAE (LTX 2.3 Video)"
+    }
   },
   "1561": {
-    "inputs": { "model_name": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" },
+    "inputs": {
+      "model_name": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors"
+    },
     "class_type": "LatentUpscaleModelLoader",
-    "_meta": { "title": "Load Latent Upscale Model" }
+    "_meta": {
+      "title": "Load Latent Upscale Model"
+    }
   },
   "1562": {
     "inputs": {
-      "clip_name1": "gemma-3-12b-it-qat-UD-IQ2_XXS.gguf",
-      "clip_name2": "ltx-2.3-distilled-connector.safetensors",
+      "clip_name1": "gemma_3_12B_it_fp8_e4m3fn.safetensors",
+      "clip_name2": "ltx-2.3_text_projection_bf16.safetensors",
       "type": "ltxv",
       "device": "default"
     },
-    "class_type": "DualCLIPLoaderGGUF",
-    "_meta": { "title": "DualCLIPLoader GGUF (Gemma 3-12B IQ4_XS - 16GB VRAM)" }
+    "class_type": "DualCLIPLoader",
+    "_meta": {
+      "title": "DualCLIPLoader (Gemma 3 FP8 + LTX 2.3 Projection - 16GB)"
+    }
   },
   "1567": {
     "inputs": {
@@ -134,198 +224,345 @@
       "weight_dtype": "bf16"
     },
     "class_type": "VAELoaderKJ",
-    "_meta": { "title": "Load VAE (LTX 2.3 Audio)" }
+    "_meta": {
+      "title": "Load VAE (LTX 2.3 Audio)"
+    }
   },
   "1569": {
-    "inputs": { "vae_name": "taeltx2_3.safetensors" },
+    "inputs": {
+      "vae_name": "taeltx2_3.safetensors"
+    },
     "class_type": "VAELoader",
-    "_meta": { "title": "Load VAE (LTX 2.3 Preview)" }
+    "_meta": {
+      "title": "Load VAE (LTX 2.3 Preview)"
+    }
   },
   "1570": {
     "inputs": {
-      "unet_name": "LTX-2.3-22B-distilled-1.1-Q6_K.gguf"
+      "unet_name": "ltx-2.3-22b-distilled-1.1_transformer_only_mxfp8_block32.safetensors",
+      "weight_dtype": "default"
     },
-    "class_type": "UnetLoaderGGUF",
-    "_meta": { "title": "Load GGUF Model (LTX 2.3 22B 1.1 Q6 - 16GB VRAM)" }
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model (LTX 2.3 22B 1.1 MXFP8 - 16GB)"
+    }
   },
   "1586": {
-    "inputs": { "value": 24 },
+    "inputs": {
+      "value": 24
+    },
     "class_type": "PrimitiveFloat",
-    "_meta": { "title": "FPS" }
+    "_meta": {
+      "title": "FPS"
+    }
   },
   "1587": {
-    "inputs": { "value": 24 },
+    "inputs": {
+      "value": 24
+    },
     "class_type": "PrimitiveInt",
-    "_meta": { "title": "FPS (integer for frame trim)" }
+    "_meta": {
+      "title": "FPS (integer for frame trim)"
+    }
   },
   "1591": {
-    "inputs": { "value": 512 },
+    "inputs": {
+      "value": 512
+    },
     "class_type": "INTConstant",
-    "_meta": { "title": "HEIGHT (512 for 16GB VRAM)" }
+    "_meta": {
+      "title": "HEIGHT (512 for 16GB VRAM)"
+    }
   },
   "1594": {
     "inputs": {
       "audio": "music_video_track.mp3"
     },
     "class_type": "LoadAudio",
-    "_meta": { "title": "Load Audio (Full Track or Vocal Stem)" }
+    "_meta": {
+      "title": "Load Audio (Full Track or Vocal Stem)"
+    }
   },
   "1598": {
     "inputs": {
       "model_name": "htdemucs",
       "device": "cpu",
       "audio_file_path": "",
-      "audio": ["1594", 0]
+      "audio": [
+        "1594",
+        0
+      ]
     },
     "class_type": "ComfyStudioCachedVocalStem",
-    "_meta": { "title": "Cached Vocal Stem Extract (Demucs, CPU)" }
+    "_meta": {
+      "title": "Cached Vocal Stem Extract (Demucs, CPU)"
+    }
   },
   "1603": {
     "inputs": {
-      "samples": ["1605", 0],
-      "mask": ["1604", 0]
+      "samples": [
+        "1605",
+        0
+      ],
+      "mask": [
+        "1604",
+        0
+      ]
     },
     "class_type": "SetLatentNoiseMask",
-    "_meta": { "title": "Set Latent Noise Mask" }
+    "_meta": {
+      "title": "Set Latent Noise Mask"
+    }
   },
   "1604": {
     "inputs": {
       "value": 0,
-      "width": ["1606", 0],
-      "height": ["1591", 0]
+      "width": [
+        "1606",
+        0
+      ],
+      "height": [
+        "1591",
+        0
+      ]
     },
     "class_type": "SolidMask",
-    "_meta": { "title": "SolidMask" }
+    "_meta": {
+      "title": "SolidMask"
+    }
   },
   "1605": {
     "inputs": {
-      "audio": ["1653", 0],
-      "audio_vae": ["1567", 0]
+      "audio": [
+        "1653",
+        0
+      ],
+      "audio_vae": [
+        "1567",
+        0
+      ]
     },
     "class_type": "LTXVAudioVAEEncode",
-    "_meta": { "title": "LTXV Audio VAE Encode" }
+    "_meta": {
+      "title": "LTXV Audio VAE Encode"
+    }
   },
   "1606": {
-    "inputs": { "value": 768 },
+    "inputs": {
+      "value": 768
+    },
     "class_type": "INTConstant",
-    "_meta": { "title": "WIDTH (768 for 16GB VRAM)" }
+    "_meta": {
+      "title": "WIDTH (768 for 16GB VRAM)"
+    }
   },
   "1616": {
     "inputs": {
       "switch": false,
-      "on_false": ["1594", 0],
-      "on_true": ["1598", 0]
+      "on_false": [
+        "1594",
+        0
+      ],
+      "on_true": [
+        "1598",
+        0
+      ]
     },
     "class_type": "ComfySwitchNode",
-    "_meta": { "title": "USE VOCALS ONLY" }
+    "_meta": {
+      "title": "USE VOCALS ONLY"
+    }
   },
   "1621": {
     "inputs": {
-      "text": ["2109:1928", 0],
-      "clip": ["1562", 0]
+      "text": [
+        "2109:1928",
+        0
+      ],
+      "clip": [
+        "1562",
+        0
+      ]
     },
     "class_type": "CLIPTextEncode",
-    "_meta": { "title": "CLIP Text Encode (Prompt)" }
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
   },
   "1624": {
     "inputs": {
       "value": "Cinematic music video shot. The subject performs naturally in the environment, head and body motion synchronized to the music, with believable lip sync to the attached vocals. Volumetric lighting, filmic color, shallow depth of field."
     },
     "class_type": "PrimitiveStringMultiline",
-    "_meta": { "title": "PROMPT" }
+    "_meta": {
+      "title": "PROMPT"
+    }
   },
   "1626": {
     "inputs": {
       "text": "text, subtitles, logo, still image, still video, no motion, static, frozen, blurry, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright, distorted sound, saturated sound, loud sound, deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth",
-      "clip": ["1562", 0]
+      "clip": [
+        "1562",
+        0
+      ]
     },
     "class_type": "CLIPTextEncode",
-    "_meta": { "title": "CLIP Text Encode (Negative)" }
+    "_meta": {
+      "title": "CLIP Text Encode (Negative)"
+    }
   },
   "1630": {
     "inputs": {
       "resize_type": "scale by multiplier",
       "resize_type.multiplier": 0.5,
       "scale_method": "area",
-      "input": ["445", 0]
+      "input": [
+        "445",
+        0
+      ]
     },
     "class_type": "ResizeImageMaskNode",
-    "_meta": { "title": "Resize Image/Mask" }
+    "_meta": {
+      "title": "Resize Image/Mask"
+    }
   },
   "1631": {
     "inputs": {
-      "image": ["1630", 0]
+      "image": [
+        "1630",
+        0
+      ]
     },
     "class_type": "GetImageSize",
-    "_meta": { "title": "Get Image Size" }
+    "_meta": {
+      "title": "Get Image Size"
+    }
   },
   "1651": {
     "inputs": {
       "expression": "((floor(((a * b - 1) + 7.999) / 8)) * 8) + 1",
-      "variables.a": ["2012", 0],
-      "variables.b": ["1586", 0]
+      "variables.a": [
+        "2012",
+        0
+      ],
+      "variables.b": [
+        "1586",
+        0
+      ]
     },
     "class_type": "SimpleCalculatorKJ",
-    "_meta": { "title": "Generation Frame Count (includes preroll, aligned to 8+1)" }
+    "_meta": {
+      "title": "Generation Frame Count (includes preroll, aligned to 8+1)"
+    }
   },
   "1652": {
     "inputs": {
       "expression": "round(a * b)",
-      "variables.a": ["2013", 0],
-      "variables.b": ["1586", 0]
+      "variables.a": [
+        "2013",
+        0
+      ],
+      "variables.b": [
+        "1586",
+        0
+      ]
     },
     "class_type": "SimpleCalculatorKJ",
-    "_meta": { "title": "Visible Frame Count (shot length * fps)" }
+    "_meta": {
+      "title": "Visible Frame Count (shot length * fps)"
+    }
   },
   "1653": {
     "inputs": {
-      "start_index": ["5100", 0],
-      "duration": ["2012", 0],
-      "audio": ["1616", 0]
+      "start_index": [
+        "5100",
+        0
+      ],
+      "duration": [
+        "2012",
+        0
+      ],
+      "audio": [
+        "1616",
+        0
+      ]
     },
     "class_type": "TrimAudioDuration",
-    "_meta": { "title": "Trim Audio (shot segment of the song)" }
+    "_meta": {
+      "title": "Trim Audio (shot segment of the song)"
+    }
   },
   "1722": {
-    "inputs": { "value": 0.7 },
+    "inputs": {
+      "value": 0.7
+    },
     "class_type": "PrimitiveFloat",
-    "_meta": { "title": "IMG STRENGTH. Set 0 for T2V mode" }
+    "_meta": {
+      "title": "IMG STRENGTH. Set 0 for T2V mode"
+    }
   },
   "2012": {
-    "inputs": { "value": 5 },
+    "inputs": {
+      "value": 5
+    },
     "class_type": "PrimitiveFloat",
-    "_meta": { "title": "GENERATION LENGTH (seconds, includes preroll)" }
+    "_meta": {
+      "title": "GENERATION LENGTH (seconds, includes preroll)"
+    }
   },
   "2013": {
-    "inputs": { "value": 5 },
+    "inputs": {
+      "value": 5
+    },
     "class_type": "PrimitiveFloat",
-    "_meta": { "title": "VISIBLE LENGTH (seconds, final output)" }
+    "_meta": {
+      "title": "VISIBLE LENGTH (seconds, final output)"
+    }
   },
   "2014": {
-    "inputs": { "value": 0 },
+    "inputs": {
+      "value": 0
+    },
     "class_type": "PrimitiveInt",
-    "_meta": { "title": "PREROLL FRAMES (trimmed before saving)" }
+    "_meta": {
+      "title": "PREROLL FRAMES (trimmed before saving)"
+    }
   },
   "2015": {
-    "inputs": { "value": 1 },
+    "inputs": {
+      "value": 1
+    },
     "class_type": "PrimitiveInt",
-    "_meta": { "title": "TRIM MODE CHUNK INDEX (1 trims preroll)" }
+    "_meta": {
+      "title": "TRIM MODE CHUNK INDEX (1 trims preroll)"
+    }
   },
   "2023": {
     "inputs": {
-      "image": ["1318", 0]
+      "image": [
+        "1318",
+        0
+      ]
     },
     "class_type": "GetImageSizeAndCount",
-    "_meta": { "title": "Get Image Size & Count" }
+    "_meta": {
+      "title": "Get Image Size & Count"
+    }
   },
   "2116": {
-    "inputs": { "value": false },
+    "inputs": {
+      "value": false
+    },
     "class_type": "PrimitiveBoolean",
-    "_meta": { "title": "ENABLE PROMPT ENHANCER" }
+    "_meta": {
+      "title": "ENABLE PROMPT ENHANCER"
+    }
   },
   "2150": {
     "inputs": {
-      "PowerLoraLoaderHeaderWidget": { "type": "PowerLoraLoaderHeaderWidget" },
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
       "lora_1": {
         "on": true,
         "lora": "LTX\\LTX-2\\ID-Lora\\LTX-2.3-22b-AV-LoRA-talking-head-v1.safetensors",
@@ -347,252 +584,485 @@
         "strength": 0.3
       },
       "\u2795 Add Lora": "",
-      "model": ["1570", 0]
+      "model": [
+        "1570",
+        0
+      ]
     },
     "class_type": "Power Lora Loader (rgthree)",
-    "_meta": { "title": "Power Lora Loader (rgthree)" }
+    "_meta": {
+      "title": "Power Lora Loader (rgthree)"
+    }
   },
   "2153": {
     "inputs": {
-      "video_latent": ["2183", 0],
-      "audio_latent": ["2159", 1]
+      "video_latent": [
+        "2183",
+        0
+      ],
+      "audio_latent": [
+        "2159",
+        1
+      ]
     },
     "class_type": "LTXVConcatAVLatent",
-    "_meta": { "title": "LTXVConcatAVLatent (Pass 2)" }
+    "_meta": {
+      "title": "LTXVConcatAVLatent (Pass 2)"
+    }
   },
   "2158": {
     "inputs": {
-      "samples": ["2159", 0],
-      "upscale_model": ["1561", 0],
-      "vae": ["1559", 0]
+      "samples": [
+        "2159",
+        0
+      ],
+      "upscale_model": [
+        "1561",
+        0
+      ],
+      "vae": [
+        "1559",
+        0
+      ]
     },
     "class_type": "LTXVLatentUpsampler",
-    "_meta": { "title": "Spatial Upsampler (x2)" }
+    "_meta": {
+      "title": "Spatial Upsampler (x2)"
+    }
   },
   "2159": {
     "inputs": {
-      "av_latent": ["2181", 0]
+      "av_latent": [
+        "2181",
+        0
+      ]
     },
     "class_type": "LTXVSeparateAVLatent",
-    "_meta": { "title": "LTXVSeparateAVLatent (Pass 1 result)" }
+    "_meta": {
+      "title": "LTXVSeparateAVLatent (Pass 1 result)"
+    }
   },
   "2169": {
-    "inputs": { "noise_seed": 420 },
+    "inputs": {
+      "noise_seed": 420
+    },
     "class_type": "RandomNoise",
-    "_meta": { "title": "RandomNoise (Pass 2)" }
+    "_meta": {
+      "title": "RandomNoise (Pass 2)"
+    }
   },
   "2170": {
     "inputs": {
       "cfg": 1,
-      "model": ["2188", 0],
-      "positive": ["164", 0],
-      "negative": ["164", 0]
+      "model": [
+        "2188",
+        0
+      ],
+      "positive": [
+        "164",
+        0
+      ],
+      "negative": [
+        "164",
+        0
+      ]
     },
     "class_type": "CFGGuider",
-    "_meta": { "title": "CFGGuider (Pass 1)" }
+    "_meta": {
+      "title": "CFGGuider (Pass 1)"
+    }
   },
   "2173": {
     "inputs": {
       "scheduler": "linear_quadratic",
       "steps": 4,
       "denoise": 1,
-      "model": ["2175", 0]
+      "model": [
+        "2175",
+        0
+      ]
     },
     "class_type": "BasicScheduler",
-    "_meta": { "title": "BasicScheduler (Pass 2)" }
+    "_meta": {
+      "title": "BasicScheduler (Pass 2)"
+    }
   },
   "2174": {
-    "inputs": { "sampler_name": "euler" },
+    "inputs": {
+      "sampler_name": "euler"
+    },
     "class_type": "KSamplerSelect",
-    "_meta": { "title": "KSamplerSelect (Pass 2)" }
+    "_meta": {
+      "title": "KSamplerSelect (Pass 2)"
+    }
   },
   "2175": {
     "inputs": {
       "shift": 13,
-      "model": ["2188", 0]
+      "model": [
+        "2188",
+        0
+      ]
     },
     "class_type": "ModelSamplingSD3",
-    "_meta": { "title": "ModelSamplingSD3 (Pass 2)" }
+    "_meta": {
+      "title": "ModelSamplingSD3 (Pass 2)"
+    }
   },
   "2176": {
-    "inputs": { "sigmas": "0.909375, 0.725, 0.421875, 0.0" },
+    "inputs": {
+      "sigmas": "0.909375, 0.725, 0.421875, 0.0"
+    },
     "class_type": "ManualSigmas",
-    "_meta": { "title": "ManualSigmas (Pass 2)" }
+    "_meta": {
+      "title": "ManualSigmas (Pass 2)"
+    }
   },
   "2177": {
     "inputs": {
       "cfg": 1,
-      "model": ["2188", 0],
-      "positive": ["164", 0],
-      "negative": ["164", 1]
+      "model": [
+        "2188",
+        0
+      ],
+      "positive": [
+        "164",
+        0
+      ],
+      "negative": [
+        "164",
+        1
+      ]
     },
     "class_type": "CFGGuider",
-    "_meta": { "title": "CFGGuider (Pass 2)" }
+    "_meta": {
+      "title": "CFGGuider (Pass 2)"
+    }
   },
   "2179": {
-    "inputs": { "noise_seed": 42 },
+    "inputs": {
+      "noise_seed": 42
+    },
     "class_type": "RandomNoise",
-    "_meta": { "title": "RandomNoise (Pass 1)" }
+    "_meta": {
+      "title": "RandomNoise (Pass 1)"
+    }
   },
   "2180": {
-    "inputs": { "sampler_name": "euler" },
+    "inputs": {
+      "sampler_name": "euler"
+    },
     "class_type": "KSamplerSelect",
-    "_meta": { "title": "KSamplerSelect (Pass 1)" }
+    "_meta": {
+      "title": "KSamplerSelect (Pass 1)"
+    }
   },
   "2181": {
     "inputs": {
-      "noise": ["2179", 0],
-      "guider": ["2170", 0],
-      "sampler": ["2180", 0],
-      "sigmas": ["2187", 0],
-      "latent_image": ["350", 0]
+      "noise": [
+        "2179",
+        0
+      ],
+      "guider": [
+        "2170",
+        0
+      ],
+      "sampler": [
+        "2180",
+        0
+      ],
+      "sigmas": [
+        "2187",
+        0
+      ],
+      "latent_image": [
+        "350",
+        0
+      ]
     },
     "class_type": "SamplerCustomAdvanced",
-    "_meta": { "title": "Shot - Pass 1" }
+    "_meta": {
+      "title": "Shot - Pass 1"
+    }
   },
   "2182": {
     "inputs": {
-      "noise": ["2169", 0],
-      "guider": ["2177", 0],
-      "sampler": ["2174", 0],
-      "sigmas": ["2176", 0],
-      "latent_image": ["2153", 0]
+      "noise": [
+        "2169",
+        0
+      ],
+      "guider": [
+        "2177",
+        0
+      ],
+      "sampler": [
+        "2174",
+        0
+      ],
+      "sigmas": [
+        "2176",
+        0
+      ],
+      "latent_image": [
+        "2153",
+        0
+      ]
     },
     "class_type": "SamplerCustomAdvanced",
-    "_meta": { "title": "Shot - Pass 2" }
+    "_meta": {
+      "title": "Shot - Pass 2"
+    }
   },
   "2183": {
     "inputs": {
-      "strength": ["1722", 0],
+      "strength": [
+        "1722",
+        0
+      ],
       "bypass": false,
-      "vae": ["1559", 0],
-      "image": ["2189", 0],
-      "latent": ["2158", 0]
+      "vae": [
+        "1559",
+        0
+      ],
+      "image": [
+        "2189",
+        0
+      ],
+      "latent": [
+        "2158",
+        0
+      ]
     },
     "class_type": "LTXVImgToVideoInplace",
-    "_meta": { "title": "LTXVImgToVideoInplace (Pass 2)" }
+    "_meta": {
+      "title": "LTXVImgToVideoInplace (Pass 2)"
+    }
   },
   "2185": {
     "inputs": {
       "shift": 13,
-      "model": ["2188", 0]
+      "model": [
+        "2188",
+        0
+      ]
     },
     "class_type": "ModelSamplingSD3",
-    "_meta": { "title": "ModelSamplingSD3 (Pass 1)" }
+    "_meta": {
+      "title": "ModelSamplingSD3 (Pass 1)"
+    }
   },
   "2186": {
     "inputs": {
       "scheduler": "linear_quadratic",
       "steps": 10,
       "denoise": 1,
-      "model": ["2185", 0]
+      "model": [
+        "2185",
+        0
+      ]
     },
     "class_type": "BasicScheduler",
-    "_meta": { "title": "BasicScheduler (Pass 1)" }
+    "_meta": {
+      "title": "BasicScheduler (Pass 1)"
+    }
   },
   "2187": {
-    "inputs": { "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0" },
+    "inputs": {
+      "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+    },
     "class_type": "ManualSigmas",
-    "_meta": { "title": "ManualSigmas (Pass 1)" }
+    "_meta": {
+      "title": "ManualSigmas (Pass 1)"
+    }
   },
   "2188": {
     "inputs": {
       "preview_rate": 8,
-      "model": ["2150", 0],
-      "vae": ["1569", 0]
+      "model": [
+        "2150",
+        0
+      ],
+      "vae": [
+        "1569",
+        0
+      ]
     },
     "class_type": "LTX2SamplingPreviewOverride",
-    "_meta": { "title": "LTX2 Sampling Preview Override" }
+    "_meta": {
+      "title": "LTX2 Sampling Preview Override"
+    }
   },
   "2189": {
     "inputs": {
       "longer_edge": 1536,
-      "images": ["445", 0]
+      "images": [
+        "445",
+        0
+      ]
     },
     "class_type": "ResizeImagesByLongerEdge",
-    "_meta": { "title": "Resize Images by Longer Edge" }
+    "_meta": {
+      "title": "Resize Images by Longer Edge"
+    }
   },
   "4109": {
     "inputs": {
       "strength": 1,
       "bypass": false,
-      "vae": ["1559", 0],
-      "image": ["446", 0],
-      "latent": ["344", 0]
+      "vae": [
+        "1559",
+        0
+      ],
+      "image": [
+        "446",
+        0
+      ],
+      "latent": [
+        "344",
+        0
+      ]
     },
     "class_type": "LTXVImgToVideoInplace",
-    "_meta": { "title": "LTXVImgToVideoInplace (Pass 1)" }
+    "_meta": {
+      "title": "LTXVImgToVideoInplace (Pass 1)"
+    }
   },
   "5000": {
     "inputs": {
-      "fps": ["1586", 0],
-      "images": ["5002", 0]
+      "fps": [
+        "1586",
+        0
+      ],
+      "images": [
+        "5002",
+        0
+      ]
     },
     "class_type": "CreateVideo",
-    "_meta": { "title": "Create Video (preroll trimmed, silent)" }
+    "_meta": {
+      "title": "Create Video (preroll trimmed, silent)"
+    }
   },
   "5001": {
     "inputs": {
       "filename_prefix": "music_video/shot",
       "format": "auto",
       "codec": "auto",
-      "video": ["5000", 0]
+      "video": [
+        "5000",
+        0
+      ]
     },
     "class_type": "SaveVideo",
-    "_meta": { "title": "Save Video" }
+    "_meta": {
+      "title": "Save Video"
+    }
   },
   "5002": {
     "inputs": {
-      "images": ["1318", 0],
-      "frames_per_scene": ["1652", 1],
-      "pre_frames": ["2014", 0],
-      "chunk_index": ["2015", 0],
-      "fps": ["1587", 0]
+      "images": [
+        "1318",
+        0
+      ],
+      "frames_per_scene": [
+        "1652",
+        1
+      ],
+      "pre_frames": [
+        "2014",
+        0
+      ],
+      "chunk_index": [
+        "2015",
+        0
+      ],
+      "fps": [
+        "1587",
+        0
+      ]
     },
     "class_type": "VRGDG_TrimImageBatch_SRTOnly",
-    "_meta": { "title": "Trim Preroll Frames" }
+    "_meta": {
+      "title": "Trim Preroll Frames"
+    }
   },
   "5100": {
-    "inputs": { "value": 0 },
+    "inputs": {
+      "value": 0
+    },
     "class_type": "PrimitiveFloat",
-    "_meta": { "title": "AUDIO START (seconds in song)" }
+    "_meta": {
+      "title": "AUDIO START (seconds in song)"
+    }
   },
   "2109:1623": {
     "inputs": {
-      "prompt": ["2109:1618", 0],
+      "prompt": [
+        "2109:1618",
+        0
+      ],
       "max_length": 256,
       "sampling_mode": "off",
       "thinking": false,
       "use_default_template": true,
-      "clip": ["1562", 0],
-      "image": ["2189", 0]
+      "clip": [
+        "1562",
+        0
+      ],
+      "image": [
+        "2189",
+        0
+      ]
     },
     "class_type": "TextGenerateLTX2Prompt",
-    "_meta": { "title": "TextGenerateLTX2Prompt" }
+    "_meta": {
+      "title": "TextGenerateLTX2Prompt"
+    }
   },
   "2109:1620": {
     "inputs": {
       "value": "You are a Creative Assistant writing concise, action-focused image-to-video prompts. Given an image (first frame) and user Raw Input Prompt, generate a prompt to guide video generation from that image.\n\n#### Guidelines:\n- Analyze the Image: Identify Subject, Setting, Elements, Style and Mood.\n- Follow user Raw Input Prompt: Include all requested motion, actions, camera movements, audio, and details. If in conflict with the image, prioritize user request while maintaining visual consistency (describe transition from image to user's scene).\n- Describe only changes from the image: Don't reiterate established visual details. Inaccurate descriptions may cause scene cuts.\n- Active language: Use present-progressive verbs (\"is walking,\" \"speaking\"). If no action specified, describe natural movements.\n- Chronological flow: Use temporal connectors (\"as,\" \"then,\" \"while\").\n- Audio layer: Describe complete soundscape throughout the prompt alongside actions\u2014NOT at the end. Align audio intensity with action tempo. Include natural background audio, ambient sounds, effects, speech or music (when requested). Be specific (e.g., \"soft footsteps on tile\") not vague (e.g., \"ambient sound\").\n- Speech (only when requested): Provide exact words in quotes with character's visual/voice characteristics (e.g., \"The tall man speaks in a low, gravelly voice\"), language if not English and accent if relevant. If general conversation mentioned without text, generate contextual quoted dialogue. (i.e., \"The man is talking\" input -> the output should include exact spoken words, like: \"The man is talking in an excited voice saying: 'You won't believe what I just saw!' His hands gesture expressively as he speaks, eyebrows raised with enthusiasm. The ambient sound of a quiet room underscores his animated speech.\")\n- Style: Include visual style at beginning: \"Style: <style>, <rest of prompt>.\" If unclear, omit to avoid conflicts.\n- Visual and audio only: Describe only what is seen and heard. NO smell, taste, or tactile sensations.\n- Restrained language: Avoid dramatic terms. Use mild, natural, understated phrasing.\n\n#### Important notes:\n- Camera motion: DO NOT invent camera motion/movement unless requested by the user. Make sure to include camera motion only if specified in the input.\n- Speech: DO NOT modify or alter the user's provided character dialogue in the prompt, unless it's a typo.\n- No timestamps or cuts: DO NOT use timestamps or describe scene cuts unless explicitly requested.\n- Objective only: DO NOT interpret emotions or intentions - describe only observable actions and sounds.\n- Format: DO NOT use phrases like \"The scene opens with...\" / \"The video starts...\". Start directly with Style (optional) and chronological scene description.\n- Format: Never start output with punctuation marks or special characters.\n- DO NOT invent dialogue unless the user mentions speech/talking/singing/conversation.\n- Your performance is CRITICAL. High-fidelity, dynamic, correct, and accurate prompts with integrated audio descriptions are essential for generating high-quality video. Your goal is flawless execution of these rules.\n\n#### Output Format (Strict):\n- Single concise paragraph in natural English. NO titles, headings, prefaces, sections, code fences, or Markdown.\n- If unsafe/invalid, return original user prompt. Never ask questions or clarifications.\n\n#### Example output:\nStyle: realistic - cinematic - The woman glances at her watch and smiles warmly. She speaks in a cheerful, friendly voice, \"I think we're right on time!\" In the background, a caf\u00e9 barista prepares drinks at the counter. The barista calls out in a clear, upbeat tone, \"Two cappuccinos ready!\" The sound of the espresso machine hissing softly blends with gentle background chatter and the light clinking of cups on saucers. \n\nUSER PROMPT BELOW: \n___________________________________________________"
     },
     "class_type": "PrimitiveStringMultiline",
-    "_meta": { "title": "LTX-2 PROMPT INSTRUCT" }
+    "_meta": {
+      "title": "LTX-2 PROMPT INSTRUCT"
+    }
   },
   "2109:1928": {
     "inputs": {
-      "switch": ["2116", 0],
-      "on_false": ["1624", 0],
-      "on_true": ["2109:1623", 0]
+      "switch": [
+        "2116",
+        0
+      ],
+      "on_false": [
+        "1624",
+        0
+      ],
+      "on_true": [
+        "2109:1623",
+        0
+      ]
     },
     "class_type": "LazySwitchKJ",
-    "_meta": { "title": "Lazy Switch (Raw vs Enhanced Prompt)" }
+    "_meta": {
+      "title": "Lazy Switch (Raw vs Enhanced Prompt)"
+    }
   },
   "2109:1618": {
     "inputs": {
-      "string_a": ["2109:1620", 0],
-      "string_b": ["1624", 0],
+      "string_a": [
+        "2109:1620",
+        0
+      ],
+      "string_b": [
+        "1624",
+        0
+      ],
       "delimiter": ""
     },
     "class_type": "StringConcatenate",
-    "_meta": { "title": "Concatenate (Instruction + User Prompt)" }
+    "_meta": {
+      "title": "Concatenate (Instruction + User Prompt)"
+    }
   }
 }

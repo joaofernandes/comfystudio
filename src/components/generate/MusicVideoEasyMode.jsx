@@ -87,8 +87,8 @@ const DEFAULT_VIDEO_WORKFLOW_OPTIONS = Object.freeze([
   },
   {
     id: 'music-video-shot-ltx23-16gb',
-    label: 'LTX 2.3 Music GGUF',
-    description: '16GB VRAM pass using GGUF LTX/Gemma loaders with song-audio conditioning.',
+    label: 'LTX 2.3 Music FP8',
+    description: '16GB VRAM pass using LTX 2.3 1.1 MXFP8, FP8 Gemma, SageAttention3, and song-audio conditioning.',
   },
   {
     id: 'wan22-i2v',

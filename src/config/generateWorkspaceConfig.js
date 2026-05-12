@@ -97,7 +97,7 @@ export const YOLO_AD_PROFILES = Object.freeze({
 
 // Music Video defaults to an audio-conditioned per-shot LTX 2.3 workflow for
 // vocal grounding. Alternate local i2v passes can be used for animation tests,
-// while the LTX GGUF 16GB pass keeps the same song-audio conditioning path.
+// while the LTX FP8 16GB pass keeps the same song-audio conditioning path.
 export const YOLO_MUSIC_PROFILES = Object.freeze({
   draft: Object.freeze({
     storyboardWorkflowId: 'image-edit',
@@ -146,8 +146,8 @@ export const YOLO_MUSIC_VIDEO_WORKFLOW_OPTIONS = Object.freeze([
   },
   {
     id: 'music-video-shot-ltx23-16gb',
-    label: 'LTX 2.3 Music GGUF',
-    description: '16GB VRAM music-video pass using GGUF LTX/Gemma loaders and audio conditioning.',
+    label: 'LTX 2.3 Music FP8',
+    description: '16GB VRAM music-video pass using LTX 2.3 1.1 MXFP8, FP8 Gemma, SageAttention3, and audio conditioning.',
   },
   {
     id: 'wan22-i2v',
@@ -337,7 +337,7 @@ const WORKFLOW_DISPLAY_LABELS = Object.freeze({
   'seedance2-r2v': 'Seedance 2.0 Reference to Video',
   [TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID]: 'Topaz Video Upscale',
   [MUSIC_VIDEO_SHOT_WORKFLOW_ID]: 'Music Video Shot (LTX 2.3 + Audio)',
-  'music-video-shot-ltx23-16gb': 'Music Video Shot (LTX 2.3 GGUF - 16GB)',
+  'music-video-shot-ltx23-16gb': 'Music Video Shot (LTX 2.3 FP8 - 16GB)',
   [VOCAL_EXTRACT_WORKFLOW_ID]: 'Vocal Extract (Mel-Band)',
   [ELEVENLABS_TTS_WORKFLOW_ID]: 'ElevenLabs Text to Speech',
   'caption-qwen-asr': 'Caption Transcription (Qwen ASR)',
