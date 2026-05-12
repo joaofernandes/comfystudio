@@ -28,7 +28,7 @@ export const MUSIC_VIDEO_SHOT_TYPE_OPTIONS = Object.freeze([
     cameraLoraOn: false,
     cameraLoraStrength: 0.3,
     defaultImageStrength: 0.8,
-    promptSuffix: 'The artist performs, lip-syncing naturally to the attached vocals. Believable facial performance.',
+    promptSuffix: 'The artist performs, lip-syncing naturally to the attached vocals. Believable facial performance with visible mouth shapes matching the sung words.',
     needsVocalAlignment: true,
   },
   {
@@ -40,7 +40,7 @@ export const MUSIC_VIDEO_SHOT_TYPE_OPTIONS = Object.freeze([
     cameraLoraOn: false,
     cameraLoraStrength: 0.3,
     defaultImageStrength: 0.82,
-    promptSuffix: 'The artist performs in a wider shot, natural body motion, lip-sync present but not emphasized.',
+    promptSuffix: 'The artist performs in a wider shot, natural body motion, lip-sync present but not emphasized, with mouth movement following the sung words.',
     needsVocalAlignment: true,
   },
   {

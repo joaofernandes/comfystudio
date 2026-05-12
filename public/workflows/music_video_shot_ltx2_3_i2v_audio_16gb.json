@@ -165,6 +165,16 @@
     "class_type": "LoadAudio",
     "_meta": { "title": "Load Audio (Full Track or Vocal Stem)" }
   },
+  "1598": {
+    "inputs": {
+      "model_name": "htdemucs",
+      "device": "cpu",
+      "audio_file_path": "",
+      "audio": ["1594", 0]
+    },
+    "class_type": "VRGDG_GetStems",
+    "_meta": { "title": "Vocal Stem Extract (Demucs, CPU)" }
+  },
   "1603": {
     "inputs": {
       "samples": ["1605", 0],
@@ -199,10 +209,10 @@
     "inputs": {
       "switch": false,
       "on_false": ["1594", 0],
-      "on_true": ["1594", 0]
+      "on_true": ["1598", 0]
     },
     "class_type": "ComfySwitchNode",
-    "_meta": { "title": "Audio Source Pass-Through" }
+    "_meta": { "title": "USE VOCALS ONLY" }
   },
   "1621": {
     "inputs": {

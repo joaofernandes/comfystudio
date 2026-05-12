@@ -977,7 +977,7 @@ function composeMusicShotVideoPrompt({
   const parts = [
     motion,
     shotSuffix,
-    lyricCue ? `Lyric moment: "${lyricCue}".` : '',
+    lyricCue ? `The artist visibly sings this exact lyric phrase: "${lyricCue}".` : '',
     conceptLine ? `Concept: ${conceptLine}.` : '',
     styleLine ? `Style: ${styleLine}.` : '',
   ].filter(Boolean)
