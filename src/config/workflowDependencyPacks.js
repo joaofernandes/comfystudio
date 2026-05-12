@@ -1154,13 +1154,13 @@ export const WORKFLOW_DEPENDENCY_PACKS = Object.freeze({
       {
         classType: 'VAELoader',
         inputKey: 'vae_name',
-        filename: 'ltx-2.3-distilled-video-vae.safetensors',
+        filename: 'LTX23_video_vae_bf16.safetensors',
         targetSubdir: 'vae',
       },
       {
         classType: 'VAELoaderKJ',
         inputKey: 'vae_name',
-        filename: 'ltx-2.3-distilled-audio-vae.safetensors',
+        filename: 'LTX23_audio_vae_bf16.safetensors',
         targetSubdir: 'vae',
       },
       {

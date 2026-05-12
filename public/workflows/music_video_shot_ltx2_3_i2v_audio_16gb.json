@@ -108,7 +108,7 @@
     "_meta": { "title": "Start Seed" }
   },
   "1559": {
-    "inputs": { "vae_name": "ltx-2.3-distilled-video-vae.safetensors" },
+    "inputs": { "vae_name": "LTX23_video_vae_bf16.safetensors" },
     "class_type": "VAELoader",
     "_meta": { "title": "Load VAE (LTX 2.3 Video)" }
   },
@@ -129,7 +129,7 @@
   },
   "1567": {
     "inputs": {
-      "vae_name": "ltx-2.3-distilled-audio-vae.safetensors",
+      "vae_name": "LTX23_audio_vae_bf16.safetensors",
       "device": "main_device",
       "weight_dtype": "bf16"
     },
