@@ -9839,6 +9839,32 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
           type: blob.type || asset.mimeType || 'application/octet-stream',
         })
       }
+      const createSilentWavFile = (durationSeconds = 16, filename = `silent_${Date.now()}.wav`) => {
+        const sampleRate = 16000
+        const channels = 1
+        const bitsPerSample = 16
+        const sampleCount = Math.max(sampleRate, Math.ceil((Number(durationSeconds) || 16) * sampleRate))
+        const dataSize = sampleCount * channels * (bitsPerSample / 8)
+        const buffer = new ArrayBuffer(44 + dataSize)
+        const view = new DataView(buffer)
+        const writeString = (offset, value) => {
+          for (let i = 0; i < value.length; i += 1) view.setUint8(offset + i, value.charCodeAt(i))
+        }
+        writeString(0, 'RIFF')
+        view.setUint32(4, 36 + dataSize, true)
+        writeString(8, 'WAVE')
+        writeString(12, 'fmt ')
+        view.setUint32(16, 16, true)
+        view.setUint16(20, 1, true)
+        view.setUint16(22, channels, true)
+        view.setUint32(24, sampleRate, true)
+        view.setUint32(28, sampleRate * channels * (bitsPerSample / 8), true)
+        view.setUint16(32, channels * (bitsPerSample / 8), true)
+        view.setUint16(34, bitsPerSample, true)
+        writeString(36, 'data')
+        view.setUint32(40, dataSize, true)
+        return new File([buffer], filename, { type: 'audio/wav' })
+      }
       const outputPrefix = (
         isSingleVideoWorkflowId(job.workflowId) ||
         job.workflowId === 'ltx23-t2v' ||
@@ -9954,10 +9980,19 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       // upload it to Comfy's input folder, and keep the returned filename so
       // the modifier can reference it on the LoadAudio node.
       let uploadedAudioFilename = null
-      const audioUploadAssetId = (job.workflowId === MUSIC_VIDEO_SHOT_WORKFLOW_ID || job.workflowId === 'music-video-shot-ltx23-16gb')
-        ? job.musicAudioAssetId
+      const isMusicVideoShotWorkflow = job.workflowId === MUSIC_VIDEO_SHOT_WORKFLOW_ID || job.workflowId === 'music-video-shot-ltx23-16gb'
+      const musicShotNeedsVocalAlignment = Boolean(isMusicVideoShotWorkflow && job.musicShot?.shotType
+        && getMusicVideoShotTypeOption(job.musicShot.shotType)?.needsVocalAlignment)
+      const shouldUseSilentMusicVideoAudio = Boolean(isMusicVideoShotWorkflow && !musicShotNeedsVocalAlignment)
+      const audioUploadAssetId = isMusicVideoShotWorkflow
+        ? (shouldUseSilentMusicVideoAudio ? null : job.musicAudioAssetId)
         : (job.workflowId === 'ltx23-ia2v' || job.workflowId === SHORT_FILM_DIALOGUE_VIDEO_WORKFLOW_ID ? job.audioAssetId : null)
-      if (audioUploadAssetId) {
+      if (shouldUseSilentMusicVideoAudio) {
+        const silentDuration = Math.max(16, Number(job.musicShot?.length || job.duration) || 0)
+        const file = createSilentWavFile(silentDuration, `silent_broll_${Date.now()}.wav`)
+        const uploadResult = await comfyui.uploadFile(file)
+        uploadedAudioFilename = uploadResult?.name || file.name
+      } else if (audioUploadAssetId) {
         const audioAsset = findJobAsset(audioUploadAssetId, 'audio')
         if (!audioAsset) {
           throw new Error(job.workflowId === MUSIC_VIDEO_SHOT_WORKFLOW_ID
@@ -10144,6 +10179,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
           modifiedWorkflow = modifyMusicVideoShotWorkflow(workflowJson, {
             shot: {
               ...job.musicShot,
+              audioStart: shouldUseSilentMusicVideoAudio ? 0 : job.musicShot?.audioStart,
               seed: job.seed,
             },
             inputImage: uploadedFilename,
