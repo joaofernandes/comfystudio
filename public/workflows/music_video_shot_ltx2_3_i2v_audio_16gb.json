@@ -496,8 +496,8 @@
       "images": ["1318", 0],
       "resize_type": {
         "resize_type": "target dimensions",
-        "width": ["1606", 0],
-        "height": ["1591", 0]
+        "width": 1920,
+        "height": 1080
       },
       "quality": "HIGH"
     },
