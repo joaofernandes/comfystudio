@@ -885,6 +885,58 @@ function createYoloPlanSignature(payload = {}) {
   }
 }
 
+const MUSIC_PLAN_SIGNATURE_FIELD_LABELS = Object.freeze({
+  audioAssetId: 'song audio',
+  audioKind: 'audio kind',
+  artistAssetId: 'legacy artist image',
+  castSignature: 'cast',
+  lyrics: 'lyrics/timing',
+  script: 'director script',
+  concept: 'concept',
+  styleNotes: 'style notes',
+  targetDuration: 'target duration',
+  qualityProfile: 'quality profile',
+})
+
+const AD_PLAN_SIGNATURE_FIELD_LABELS = Object.freeze({
+  script: 'director script',
+  styleNotes: 'style notes',
+  referenceStyleNotes: 'reference style notes',
+  targetDuration: 'target duration',
+  shotsPerScene: 'shots per scene',
+  anglesPerShot: 'angles per shot',
+  takesPerAngle: 'takes per angle',
+  productAssetId: 'product image',
+  modelAssetId: 'model image',
+  voiceoverAssetId: 'voiceover',
+  productName: 'product name',
+  brandName: 'brand name',
+  colorPalette: 'color palette',
+  logoConstraints: 'logo constraints',
+  spokespersonRole: 'spokesperson role',
+  wardrobeNotes: 'wardrobe notes',
+  formatPreset: 'format preset',
+  platformPreset: 'platform preset',
+  consistency: 'consistency',
+})
+
+function getPlanSignatureDiffLabels(savedSignature, currentSignature, labels = {}) {
+  if (!savedSignature || !currentSignature || savedSignature === currentSignature) return []
+  try {
+    const saved = JSON.parse(savedSignature)
+    const current = JSON.parse(currentSignature)
+    const keys = Array.from(new Set([
+      ...Object.keys(saved || {}),
+      ...Object.keys(current || {}),
+    ]))
+    return keys
+      .filter((key) => JSON.stringify(saved?.[key] ?? '') !== JSON.stringify(current?.[key] ?? ''))
+      .map((key) => labels[key] || key)
+  } catch (_) {
+    return ['plan inputs']
+  }
+}
+
 function formatReferenceConsistencyLabel(consistency = 'medium') {
   if (consistency === 'strict') return 'Strict'
   if (consistency === 'soft') return 'Soft'
@@ -4525,6 +4577,16 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
   )
   const yoloAdPlanIsStale = yoloPlan.length > 0 && yoloPlanSignature !== currentYoloAdPlanSignature
   const yoloMusicPlanIsStale = yoloMusicPlan.length > 0 && yoloMusicPlanSignature !== currentYoloMusicPlanSignature
+  const yoloAdPlanStaleReasons = useMemo(() => (
+    yoloAdPlanIsStale
+      ? getPlanSignatureDiffLabels(yoloPlanSignature, currentYoloAdPlanSignature, AD_PLAN_SIGNATURE_FIELD_LABELS)
+      : []
+  ), [currentYoloAdPlanSignature, yoloAdPlanIsStale, yoloPlanSignature])
+  const yoloMusicPlanStaleReasons = useMemo(() => (
+    yoloMusicPlanIsStale
+      ? getPlanSignatureDiffLabels(yoloMusicPlanSignature, currentYoloMusicPlanSignature, MUSIC_PLAN_SIGNATURE_FIELD_LABELS)
+      : []
+  ), [currentYoloMusicPlanSignature, yoloMusicPlanIsStale, yoloMusicPlanSignature])
   // Per-alt-slot staleness: a slot's plan is stale if it was built (plan.length > 0)
   // AND its persisted signature disagrees with a freshly-computed signature of its
   // current script. Keyed by slot id so the tab strip + stale-plan banner can read it.
@@ -4541,10 +4603,26 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     }
     return out
   }, [yoloMusicAltScripts, makeMusicPlanSignature])
+  const yoloMusicAltPlanStaleReasons = useMemo(() => {
+    const out = {}
+    for (const alt of yoloMusicAltScripts) {
+      const plan = Array.isArray(alt.plan) ? alt.plan : []
+      if (plan.length === 0) {
+        out[alt.id] = []
+        continue
+      }
+      const currentSig = makeMusicPlanSignature({ script: alt.script })
+      out[alt.id] = getPlanSignatureDiffLabels(alt.planSignature || '', currentSig, MUSIC_PLAN_SIGNATURE_FIELD_LABELS)
+    }
+    return out
+  }, [yoloMusicAltScripts, makeMusicPlanSignature])
   const yoloMusicActiveTargetPlanIsStale = yoloMusicActiveScriptId
     ? Boolean(yoloMusicAltPlanStaleness[yoloMusicActiveScriptId])
     : yoloMusicPlanIsStale
   const yoloActivePlanIsStale = isYoloMusicMode ? yoloMusicActiveTargetPlanIsStale : yoloAdPlanIsStale
+  const yoloActivePlanStaleReasons = isYoloMusicMode
+    ? (yoloMusicActiveScriptId ? (yoloMusicAltPlanStaleReasons[yoloMusicActiveScriptId] || []) : yoloMusicPlanStaleReasons)
+    : yoloAdPlanStaleReasons
   // Active-target planner warnings: master warnings live in yoloMusicPlanWarnings,
   // alt-target warnings live on the slot itself. The UI consumer reads this
   // derived value so a single panel works for both.
@@ -10705,6 +10783,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                     yoloStoryboardAssetMap={yoloStoryboardAssetMap}
                     yoloStoryboardReadyCount={yoloStoryboardReadyCount}
                     yoloActivePlanIsStale={yoloActivePlanIsStale}
+                    yoloActivePlanStaleReasons={yoloActivePlanStaleReasons}
                     yoloDependencyCheckInProgress={yoloDependencyCheckInProgress}
                     yoloScript={yoloScript}
                     setYoloScript={setYoloScript}
@@ -10780,6 +10859,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                     yoloStoryboardAssetMap={yoloStoryboardAssetMap}
                     yoloStoryboardReadyCount={yoloStoryboardReadyCount}
                     yoloActivePlanIsStale={yoloActivePlanIsStale}
+                    yoloActivePlanStaleReasons={yoloActivePlanStaleReasons}
                     yoloDependencyCheckInProgress={yoloDependencyCheckInProgress}
                     handleBuildActiveYoloPlan={handleBuildActiveYoloPlan}
                     handleQueueYoloStoryboards={handleQueueYoloStoryboards}

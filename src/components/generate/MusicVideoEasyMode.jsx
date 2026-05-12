@@ -405,6 +405,7 @@ export default function MusicVideoEasyMode({
   yoloStoryboardAssetMap,
   yoloStoryboardReadyCount,
   yoloActivePlanIsStale,
+  yoloActivePlanStaleReasons = [],
   yoloDependencyCheckInProgress,
   handleBuildActiveYoloPlan,
   handleQueueYoloStoryboards,
@@ -768,10 +769,18 @@ export default function MusicVideoEasyMode({
 
   const renderStalePlanNotice = () => {
     if (!yoloActivePlanIsStale) return null
+    const reasons = Array.isArray(yoloActivePlanStaleReasons)
+      ? yoloActivePlanStaleReasons.filter(Boolean)
+      : []
     return (
       <div className="mt-3 flex flex-col gap-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-100 md:flex-row md:items-center md:justify-between">
         <div>
           The director script or setup changed after the plan was parsed. Parse the script again before queueing keyframes or videos.
+          {reasons.length > 0 && (
+            <div className="mt-1 text-[11px] text-amber-100/80">
+              Changed: {reasons.slice(0, 4).join(', ')}{reasons.length > 4 ? `, +${reasons.length - 4} more` : ''}.
+            </div>
+          )}
         </div>
         <button
           type="button"
