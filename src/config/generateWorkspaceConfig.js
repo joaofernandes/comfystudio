@@ -147,7 +147,7 @@ export const YOLO_MUSIC_VIDEO_WORKFLOW_OPTIONS = Object.freeze([
   {
     id: 'music-video-shot-ltx23-16gb',
     label: 'LTX 2.3 Music FP8',
-    description: '16GB VRAM music-video pass using LTX 2.3 1.1 MXFP8, FP8 Gemma, SageAttention3, and audio conditioning.',
+    description: '16GB VRAM music-video pass using LTX 2.3 1.1 MXFP8, FP8 Gemma, SageAttention3, chunks 4 / dim 4096, and audio conditioning.',
   },
   {
     id: 'wan22-i2v',

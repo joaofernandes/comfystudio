@@ -638,13 +638,8 @@ export default function MusicVideoEasyMode({
     if (flatShots.length === 0) return []
     const valid = (Array.isArray(selectedShotIndexes) ? selectedShotIndexes : [])
       .filter((index) => Number.isInteger(index) && index >= 0 && index < flatShots.length)
-    const unique = Array.from(new Set(valid))
-    if (unique.length === 0) {
-      const fallback = Math.max(0, Math.min(selectedShotIndex, flatShots.length - 1))
-      return [fallback]
-    }
-    return unique.sort((a, b) => a - b)
-  }, [flatShots.length, selectedShotIndex, selectedShotIndexes])
+    return Array.from(new Set(valid)).sort((a, b) => a - b)
+  }, [flatShots.length, selectedShotIndexes])
   const selectedShotIndexSet = useMemo(() => new Set(normalizedSelectedShotIndexes), [normalizedSelectedShotIndexes])
   const selectedShotRows = useMemo(() => (
     normalizedSelectedShotIndexes
@@ -653,7 +648,7 @@ export default function MusicVideoEasyMode({
   ), [flatShots, normalizedSelectedShotIndexes])
   const hasMultipleSelectedShots = selectedShotRows.length > 1
   const selectedShotCount = selectedShotRows.length
-  const selectedShotRow = flatShots[selectedShotIndex] || flatShots[0] || null
+  const selectedShotRow = selectedShotRows.find((row) => row.index === selectedShotIndex) || selectedShotRows[0] || null
   const keyframeStatusIsWarning = keyframeStatus.startsWith('All your keyframes')
 
   useEffect(() => {
@@ -672,9 +667,8 @@ export default function MusicVideoEasyMode({
       const valid = (Array.isArray(current) ? current : [])
         .filter((index) => Number.isInteger(index) && index >= 0 && index < flatShots.length)
       const unique = Array.from(new Set(valid)).sort((a, b) => a - b)
-      const next = unique.length > 0 ? unique : [clampedSelectedIndex]
-      if (next.length === current.length && next.every((value, index) => value === current[index])) return current
-      return next
+      if (unique.length === current.length && unique.every((value, index) => value === current[index])) return current
+      return unique
     })
   }, [flatShots.length, selectedShotIndex])
 
@@ -783,9 +777,9 @@ export default function MusicVideoEasyMode({
       const next = isRemoving
         ? valid.filter((value) => value !== index)
         : [...valid, index]
-      const normalized = (next.length > 0 ? Array.from(new Set(next)) : [index]).sort((a, b) => a - b)
+      const normalized = Array.from(new Set(next)).sort((a, b) => a - b)
       setSelectedShotIndexes(normalized)
-      setSelectedShotIndex(isRemoving && normalized[0] !== index ? normalized[0] : index)
+      setSelectedShotIndex(isRemoving && normalized.length > 0 && normalized[0] !== index ? normalized[0] : index)
       setSelectionAnchorIndex(index)
       return
     }
