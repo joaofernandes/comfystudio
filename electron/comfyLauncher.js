@@ -526,56 +526,67 @@ class ComfyLauncher extends EventEmitter {
    * leave orphan directories behind). The name no longer tells the full
    * story but the behavior is documented above.
    */
-  async _installStdoutGuard(launcherScript) {
+  async _installComfyStudioCustomNodes(launcherScript) {
     const portable = detectPortableLayout(launcherScript)
     if (!portable) {
-      this._appendLog('system', 'runtime guard skipped: non-portable ComfyUI layout')
+      this._appendLog('system', 'ComfyStudio custom nodes skipped: non-portable ComfyUI layout')
       return
     }
     const customNodesDir = path.join(portable.cwd, 'ComfyUI', 'custom_nodes')
     try {
       const stat = await fsp.stat(customNodesDir)
       if (!stat.isDirectory()) {
-        this._appendLog('system', `runtime guard skipped: ${customNodesDir} is not a directory`)
+        this._appendLog('system', `ComfyStudio custom nodes skipped: ${customNodesDir} is not a directory`)
         return
       }
     } catch {
-      this._appendLog('system', `runtime guard skipped: no custom_nodes dir at ${customNodesDir}`)
+      this._appendLog('system', `ComfyStudio custom nodes skipped: no custom_nodes dir at ${customNodesDir}`)
       return
     }
 
-    const sourceDir = path.join(__dirname, 'comfyui-injected', '_comfystudio_stdout_guard')
-    const targetDir = path.join(customNodesDir, '_comfystudio_stdout_guard')
-    await fsp.mkdir(targetDir, { recursive: true })
-
-    let filenames
+    const injectedRoot = path.join(__dirname, 'comfyui-injected')
+    let entries
     try {
-      filenames = await fsp.readdir(sourceDir)
+      entries = await fsp.readdir(injectedRoot, { withFileTypes: true })
     } catch (err) {
-      throw new Error(`runtime guard source missing: ${err.message}`)
+      throw new Error(`ComfyStudio injected custom nodes source missing: ${err.message}`)
     }
 
-    let written = 0
-    for (const filename of filenames) {
-      if (!/\.py$/i.test(filename)) continue
-      const src = path.join(sourceDir, filename)
-      const dst = path.join(targetDir, filename)
-      const desired = await fsp.readFile(src)
-      let current = null
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const sourceDir = path.join(injectedRoot, entry.name)
+      const targetDir = path.join(customNodesDir, entry.name)
+      await fsp.mkdir(targetDir, { recursive: true })
+
+      let filenames
       try {
-        current = await fsp.readFile(dst)
-      } catch {
-        // No existing file — fall through to write.
+        filenames = await fsp.readdir(sourceDir)
+      } catch (err) {
+        throw new Error(`ComfyStudio custom node source missing (${entry.name}): ${err.message}`)
       }
-      if (current && Buffer.isBuffer(current) && current.equals(desired)) continue
-      await fsp.writeFile(dst, desired)
-      written += 1
-    }
 
-    if (written > 0) {
-      this._appendLog('system', `runtime guard installed (${written} file${written === 1 ? '' : 's'} written to ${targetDir})`)
-    } else {
-      this._appendLog('system', `runtime guard up to date at ${targetDir}`)
+      let written = 0
+      for (const filename of filenames) {
+        if (!/\.py$/i.test(filename)) continue
+        const src = path.join(sourceDir, filename)
+        const dst = path.join(targetDir, filename)
+        const desired = await fsp.readFile(src)
+        let current = null
+        try {
+          current = await fsp.readFile(dst)
+        } catch {
+          // No existing file - fall through to write.
+        }
+        if (current && Buffer.isBuffer(current) && current.equals(desired)) continue
+        await fsp.writeFile(dst, desired)
+        written += 1
+      }
+
+      if (written > 0) {
+        this._appendLog('system', `ComfyStudio custom node ${entry.name} installed (${written} file${written === 1 ? '' : 's'} written to ${targetDir})`)
+      } else {
+        this._appendLog('system', `ComfyStudio custom node ${entry.name} up to date at ${targetDir}`)
+      }
     }
   }
 
@@ -1008,9 +1019,9 @@ class ComfyLauncher extends EventEmitter {
     // custom nodes probing pip/git/ffmpeg at boot don't flash cmd windows
     // on screen. Best-effort — if it fails we log and keep going.
     try {
-      await this._installStdoutGuard(launcherScript)
+      await this._installComfyStudioCustomNodes(launcherScript)
     } catch (err) {
-      this._appendLog('system', `runtime guard install skipped: ${err?.message || err}`)
+      this._appendLog('system', `ComfyStudio custom node install skipped: ${err?.message || err}`)
     }
 
     let child

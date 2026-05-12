@@ -1141,7 +1141,7 @@ export const WORKFLOW_DEPENDENCY_PACKS = Object.freeze({
       { classType: 'TrimAudioDuration' },
       { classType: 'ComfySwitchNode' },
       { classType: 'SimpleCalculatorKJ' },
-      { classType: 'VRGDG_GetStems' },
+      { classType: 'ComfyStudioCachedVocalStem' },
       { classType: 'VRGDG_TrimImageBatch_SRTOnly' },
       { classType: 'CreateVideo' },
       { classType: 'SaveVideo' },

@@ -177,8 +177,8 @@
       "audio_file_path": "",
       "audio": ["1594", 0]
     },
-    "class_type": "VRGDG_GetStems",
-    "_meta": { "title": "Vocal Stem Extract (Demucs, CPU)" }
+    "class_type": "ComfyStudioCachedVocalStem",
+    "_meta": { "title": "Cached Vocal Stem Extract (Demucs, CPU)" }
   },
   "1603": {
     "inputs": {
