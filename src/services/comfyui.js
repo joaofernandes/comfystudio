@@ -2700,6 +2700,7 @@ export function modifyMusicVideoShotWorkflow(workflow, options = {}) {
   // should not be driven by vocals. Otherwise a visible cast member can start
   // mouthing the song even when Shot type is b_roll and no Lyric moment exists.
   if (modified['1523']?.inputs && !shotTypeOption?.needsVocalAlignment) {
+    if ('audio_scale' in modified['1523'].inputs) modified['1523'].inputs.audio_scale = 0
     if ('audio_to_video_scale' in modified['1523'].inputs) modified['1523'].inputs.audio_to_video_scale = 0
     if ('video_to_audio_scale' in modified['1523'].inputs) modified['1523'].inputs.video_to_audio_scale = 0
   }
