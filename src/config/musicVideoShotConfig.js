@@ -361,6 +361,82 @@ export function normalizeMusicVideoShot(rawShot = {}) {
   }
 }
 
+export function normalizeMusicVideoPlanMatchText(value = '') {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function buildMusicVideoShotPlanMatchSignature({
+  workflowId = '',
+  variantKey = '',
+  shotType = '',
+  audioStart = 0,
+  length = 0,
+  shotPrompt = '',
+} = {}) {
+  const safeNumber = (value) => {
+    const numeric = Number(value)
+    return Number.isFinite(numeric) ? Number(numeric.toFixed(2)) : 0
+  }
+
+  return JSON.stringify({
+    workflowId: String(workflowId || '').trim(),
+    variantKey: String(variantKey || '').trim(),
+    shotType: String(shotType || '').trim(),
+    audioStart: safeNumber(audioStart),
+    length: safeNumber(length),
+    shotPrompt: normalizeMusicVideoPlanMatchText(shotPrompt),
+  })
+}
+
+export function musicVideoAssetMatchesCurrentShot(asset, {
+  workflowId = '',
+  variantKey = '',
+  shotType = '',
+  audioStart = 0,
+  length = 0,
+  shotPrompt = '',
+} = {}) {
+  if (!asset || asset.type !== 'video') return false
+  const meta = asset.yolo || {}
+  if (meta.mode !== 'music' || meta.stage !== 'video') return false
+  const currentWorkflowId = String(workflowId || '').trim()
+  const currentVariantKey = String(variantKey || '').trim()
+  if (currentWorkflowId && String(meta.workflowId || '').trim() !== currentWorkflowId) return false
+  if (currentVariantKey && String(meta.variantKey || '').trim() !== currentVariantKey) return false
+
+  const expectedSignature = buildMusicVideoShotPlanMatchSignature({
+    workflowId,
+    variantKey,
+    shotType,
+    audioStart,
+    length,
+    shotPrompt,
+  })
+  if (meta.shotPlanSignature) {
+    return String(meta.shotPlanSignature) === expectedSignature
+  }
+
+  const expectedPrompt = normalizeMusicVideoPlanMatchText(shotPrompt)
+  const assetPrompt = normalizeMusicVideoPlanMatchText(asset.prompt)
+  if (expectedPrompt && assetPrompt && expectedPrompt !== assetPrompt) return false
+
+  const expectedLength = Number(length)
+  const assetDuration = Number(asset?.settings?.duration ?? asset?.duration ?? meta?.length ?? meta?.durationSeconds)
+  if (Number.isFinite(expectedLength) && expectedLength > 0 && Number.isFinite(assetDuration) && assetDuration > 0) {
+    if (Math.abs(assetDuration - expectedLength) > 0.25) return false
+  }
+
+  const expectedAudioStart = Number(audioStart)
+  const assetAudioStart = Number(meta.audioStart)
+  if (Number.isFinite(assetAudioStart) && Number.isFinite(expectedAudioStart)) {
+    if (Math.abs(assetAudioStart - expectedAudioStart) > 0.25) return false
+  }
+
+  return true
+}
+
 /**
  * Derive distribution targets for the shot-list planner from a preset + user overrides.
  * Used to nudge the LLM when it's generating the shot list.

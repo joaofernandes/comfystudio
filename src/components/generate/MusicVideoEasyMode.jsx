@@ -17,6 +17,7 @@ import {
   MUSIC_VIDEO_SHOT_WORKFLOW_ID,
   getMusicVideoAudioKindOption,
   getMusicVideoShotTypeOption,
+  musicVideoAssetMatchesCurrentShot,
 } from '../../config/musicVideoShotConfig'
 
 const DRAFT_STORAGE_KEY = 'comfystudio-music-video-easy-mode-draft-v1'
@@ -579,16 +580,37 @@ export default function MusicVideoEasyMode({
     }
     return map
   }, [assets])
+  const currentShotByVariantKey = useMemo(() => {
+    const map = new Map()
+    for (const { scene, shot } of flatShots) {
+      const angle = Array.isArray(shot?.angles) && shot.angles.length > 0 ? shot.angles[0] : 'Medium shot'
+      const key = `${scene?.id || ''}|${shot?.id || ''}|${angle}|T1`
+      if (key !== '||T1') map.set(key, shot)
+    }
+    return map
+  }, [flatShots])
   const plannedShotCount = flatShots.length
   const queueVariantCount = Array.isArray(yoloQueueVariants) ? yoloQueueVariants.length : 0
+  const getVideoAssetForVariant = (variant, workflowId = selectedVideoWorkflowId) => {
+    if (!variant?.key) return null
+    const scopedKey = getVideoWorkflowScopedKey(variant.key, workflowId)
+    const candidates = [
+      scopedKey ? videoAssetMap.get(scopedKey) : null,
+      workflowId === defaultVideoWorkflowId ? videoAssetMap.get(variant.key) : null,
+    ].filter(Boolean)
+    const shot = currentShotByVariantKey.get(variant.key) || null
+    return candidates.find((asset) => musicVideoAssetMatchesCurrentShot(asset, {
+      workflowId,
+      variantKey: variant.key,
+      shotType: shot?.musicShotType || variant?.musicShotType || '',
+      audioStart: shot?.audioStart ?? 0,
+      length: shot?.length ?? shot?.durationSeconds ?? variant?.durationSeconds ?? 0,
+      shotPrompt: shot?.shotPrompt || shot?.videoBeat || shot?.beat || variant?.videoPrompt || variant?.prompt || '',
+    })) || null
+  }
   const videoReadyCount = useMemo(
-    () => (yoloQueueVariants || []).filter((variant) => {
-      if (!variant?.key) return false
-      const scopedKey = getVideoWorkflowScopedKey(variant.key, selectedVideoWorkflowId)
-      if (scopedKey && videoAssetMap.has(scopedKey)) return true
-      return selectedVideoWorkflowId === defaultVideoWorkflowId && videoAssetMap.has(variant.key)
-    }).length,
-    [defaultVideoWorkflowId, selectedVideoWorkflowId, videoAssetMap, yoloQueueVariants]
+    () => (yoloQueueVariants || []).filter((variant) => Boolean(getVideoAssetForVariant(variant))).length,
+    [currentShotByVariantKey, defaultVideoWorkflowId, selectedVideoWorkflowId, videoAssetMap, yoloQueueVariants]
   )
   const timedLineCount = Array.isArray(yoloMusicParsedLyrics?.lines) ? yoloMusicParsedLyrics.lines.length : 0
   const selectedAudioKindOption = getMusicVideoAudioKindOption(yoloMusicAudioKind) || getMusicVideoAudioKindOption('mixed_track')
@@ -706,13 +728,6 @@ export default function MusicVideoEasyMode({
   const getVariantForShot = (sceneId, shotId) => (
     variantByShotKey.get(`${sceneId || ''}|${shotId || ''}`) || null
   )
-
-  const getVideoAssetForVariant = (variant, workflowId = selectedVideoWorkflowId) => {
-    if (!variant?.key) return null
-    const scopedKey = getVideoWorkflowScopedKey(variant.key, workflowId)
-    if (scopedKey && videoAssetMap.has(scopedKey)) return videoAssetMap.get(scopedKey)
-    return workflowId === defaultVideoWorkflowId ? videoAssetMap.get(variant.key) || null : null
-  }
 
   const getKeyframeCardState = (variant, asset) => {
     if (asset) return { state: 'ready', label: 'Keyframe ready', job: null }

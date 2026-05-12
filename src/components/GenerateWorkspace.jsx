@@ -100,8 +100,10 @@ import {
   findLyricLineIndex,
   findTimedLyricLineByText,
   formatSecondsAsMMSS,
+  buildMusicVideoShotPlanMatchSignature,
   getMusicVideoAudioKindOption,
   getMusicVideoShotTypeOption,
+  musicVideoAssetMatchesCurrentShot,
   normalizeCastSlug,
   normalizeMusicVideoShot,
   parseLyricLines,
@@ -7381,6 +7383,14 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       const key = `${variant?.sceneId || ''}|${variant?.shotId || ''}`
       if (key !== '|' && !variantByShotKey.has(key)) variantByShotKey.set(key, variant)
     }
+    const musicShotByVariantKey = new Map()
+    for (const scene of planForAssembly || []) {
+      for (const shot of scene?.shots || []) {
+        const angle = Array.isArray(shot?.angles) && shot.angles.length > 0 ? shot.angles[0] : 'Medium shot'
+        const key = `${scene?.id || ''}|${shot?.id || ''}|${angle}|T1`
+        if (key !== '||T1') musicShotByVariantKey.set(key, shot)
+      }
+    }
 
     const latestVideoAssetByKey = new Map()
     for (const asset of assets || []) {
@@ -7406,7 +7416,20 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       for (const shot of scene?.shots || []) {
         scannedShots += 1
         const variant = variantByShotKey.get(`${scene?.id || ''}|${shot?.id || ''}`) || null
-        const videoAsset = variant?.key ? latestVideoAssetByKey.get(variant.key) || null : null
+        const currentShot = variant?.key ? musicShotByVariantKey.get(variant.key) || shot : shot
+        const videoAsset = variant?.key
+          ? ([
+              latestVideoAssetByKey.get(`${variant.key}::${String(variant?.workflowId || yoloDefaultVideoWorkflowId || '').trim()}`),
+              latestVideoAssetByKey.get(variant.key),
+            ].filter(Boolean).find((asset) => musicVideoAssetMatchesCurrentShot(asset, {
+              workflowId: yoloDefaultVideoWorkflowId,
+              variantKey: variant.key,
+              shotType: currentShot?.musicShotType || variant?.musicShotType || '',
+              audioStart: currentShot?.audioStart ?? 0,
+              length: currentShot?.length ?? currentShot?.durationSeconds ?? variant?.durationSeconds ?? 0,
+              shotPrompt: currentShot?.shotPrompt || currentShot?.videoBeat || currentShot?.beat || variant?.videoPrompt || variant?.prompt || '',
+            })) || null)
+          : null
         if (!variant || !videoAsset) {
           missingRows.push({ scene, shot, variant })
           continue
@@ -7595,6 +7618,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     yoloMusicAudioAsset,
     yoloMusicScript,
     yoloMusicSongDurationSeconds,
+    yoloDefaultVideoWorkflowId,
     yoloQueueVariants,
     yoloVideoFps,
   ])
@@ -8159,6 +8183,17 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
           angle: variant.angle,
           take: variant.take,
           durationSeconds: variant.durationSeconds,
+          audioStart: isYoloMusicMode ? (musicShotPayload?.audioStart ?? null) : null,
+          length: isYoloMusicMode ? (musicShotPayload?.length ?? null) : null,
+          shotType: isYoloMusicMode ? (musicShotPayload?.shotType || '') : '',
+          shotPlanSignature: isYoloMusicMode ? buildMusicVideoShotPlanMatchSignature({
+            workflowId: effectiveWorkflowId,
+            variantKey: variant.key,
+            shotType: musicShotPayload?.shotType || '',
+            audioStart: musicShotPayload?.audioStart ?? 0,
+            length: musicShotPayload?.length ?? variant.durationSeconds,
+            shotPrompt: musicShotPayload?.shotPrompt || '',
+          }) : '',
           adBeat: !isYoloMusicMode ? (variant.adBeat || '') : '',
           productMode: !isYoloMusicMode ? (variant.productMode || '') : '',
           talentMode: !isYoloMusicMode ? (variant.talentMode || '') : '',
