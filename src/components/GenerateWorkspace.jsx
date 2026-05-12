@@ -7873,6 +7873,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     return jobs.length
   }, [
     addComfyLog,
+    assets,
     confirmLargeQueueBatch,
     createQueuedJob,
     generationQueue,
@@ -8084,13 +8085,6 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         ))
         .map((job) => job.yolo.key)
     )
-    const variantsToQueue = variants.filter((variant) => {
-      if (!variant?.key) return false
-      const variantScopedKey = buildVideoVariantKey(variant.key, resolveVariantWorkflowId(variant))
-      if (activeVideoKeys.has(variantScopedKey) || activeVideoKeys.has(variant.key)) return false
-      if (!allowExistingDoneKeys && (existingKeys.has(variantScopedKey) || existingKeys.has(variant.key))) return false
-      return true
-    })
 
     // Build a lookup from variant.key back to the source shot so we can pull
     // music-video-specific fields (musicShotType, audioStart, shotPrompt, etc.)
@@ -8107,6 +8101,64 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         }
       }
     }
+
+    const existingVideoAssetByKey = new Map()
+    for (const asset of assets || []) {
+      if (asset?.type !== 'video') continue
+      if (asset?.yolo?.stage !== 'video') continue
+      const assetMode = asset?.yolo?.mode
+      const modeMatches = isYoloMusicMode
+        ? assetMode === 'music'
+        : assetMode !== 'music'
+      if (!modeMatches) continue
+      const assetWorkflowId = String(asset?.yolo?.workflowId || '').trim()
+      const variantKey = String(asset?.yolo?.variantKey || '').trim()
+      const keys = [
+        asset?.yolo?.key,
+        variantKey && assetWorkflowId ? buildVideoVariantKey(variantKey, assetWorkflowId) : '',
+        variantKey && !assetWorkflowId ? variantKey : '',
+      ].filter(Boolean)
+      const assetTime = new Date(asset.createdAt || 0).getTime()
+      for (const key of keys) {
+        const existing = existingVideoAssetByKey.get(key)
+        const existingTime = existing ? new Date(existing.createdAt || 0).getTime() : -1
+        if (!existing || assetTime >= existingTime) existingVideoAssetByKey.set(key, asset)
+      }
+    }
+
+    const findExistingVideoAssetForVariant = (variant, variantWorkflowId) => {
+      if (!variant?.key) return null
+      const variantScopedKey = buildVideoVariantKey(variant.key, variantWorkflowId)
+      const candidates = [
+        existingVideoAssetByKey.get(variantScopedKey),
+        existingVideoAssetByKey.get(variant.key),
+      ].filter(Boolean)
+      if (!isYoloMusicMode) {
+        return candidates.find((asset) => {
+          const assetWorkflowId = String(asset?.yolo?.workflowId || '').trim()
+          return !assetWorkflowId || assetWorkflowId === String(variantWorkflowId || '').trim()
+        }) || null
+      }
+      const musicShot = musicShotByKey.get(variant.key) || null
+      return candidates.find((asset) => musicVideoAssetMatchesCurrentShot(asset, {
+        workflowId: variantWorkflowId,
+        variantKey: variant.key,
+        shotType: musicShot?.musicShotType || variant?.musicShotType || '',
+        audioStart: musicShot?.audioStart ?? 0,
+        length: musicShot?.length ?? musicShot?.durationSeconds ?? variant?.durationSeconds ?? 0,
+        shotPrompt: musicShot?.shotPrompt || musicShot?.videoBeat || musicShot?.beat || variant?.videoPrompt || variant?.prompt || '',
+      })) || null
+    }
+
+    const variantsToQueue = variants.filter((variant) => {
+      if (!variant?.key) return false
+      const variantWorkflowId = resolveVariantWorkflowId(variant)
+      const variantScopedKey = buildVideoVariantKey(variant.key, variantWorkflowId)
+      if (activeVideoKeys.has(variantScopedKey) || activeVideoKeys.has(variant.key)) return false
+      if (!allowExistingDoneKeys && (existingKeys.has(variantScopedKey) || existingKeys.has(variant.key))) return false
+      if (!allowExistingDoneKeys && findExistingVideoAssetForVariant(variant, variantWorkflowId)) return false
+      return true
+    })
 
     const jobs = []
     let missing = 0

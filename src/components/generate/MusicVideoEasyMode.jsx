@@ -902,16 +902,15 @@ export default function MusicVideoEasyMode({
   const handleRegenerateAllVideos = async () => {
     if (plannedShotCount === 0) return
     setIsQueuingVideos(true)
-    setVideoStatus(`Queueing ${selectedVideoWorkflowLabel} video regeneration for all shots...`)
+    setVideoStatus(`Queueing missing ${selectedVideoWorkflowLabel} videos...`)
     try {
       const queued = await handleQueueYoloVideos({
-        allowExistingDoneKeys: true,
         skipConfirm: true,
-        sourceLabel: `Music Video Easy Mode ${selectedVideoWorkflowLabel} video regeneration pass`,
+        sourceLabel: `Music Video Easy Mode ${selectedVideoWorkflowLabel} missing video pass`,
         targetWorkflowIds: selectedVideoWorkflowId ? [selectedVideoWorkflowId] : null,
         resolutionOverride: outputResolution,
       })
-      setVideoStatus(queued > 0 ? `Queued ${plural(queued, `${selectedVideoWorkflowLabel} video regeneration job`)}.` : 'No video regeneration jobs were queued. Check whether those shots are already running.')
+      setVideoStatus(queued > 0 ? `Queued ${plural(queued, `missing ${selectedVideoWorkflowLabel} video job`)}.` : `No missing ${selectedVideoWorkflowLabel} videos to queue.`)
     } finally {
       setIsQueuingVideos(false)
     }
@@ -1699,10 +1698,10 @@ export default function MusicVideoEasyMode({
         <div className="rounded-lg border border-sf-dark-700 bg-sf-dark-950/50 p-3">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <div className="text-[10px] uppercase tracking-[0.14em] text-sf-text-muted">Batch rerender</div>
-              <div className="mt-1 text-sm font-semibold text-sf-text-primary">Regenerate every planned video shot</div>
+              <div className="text-[10px] uppercase tracking-[0.14em] text-sf-text-muted">Batch fill</div>
+              <div className="mt-1 text-sm font-semibold text-sf-text-primary">Queue only missing planned videos</div>
               <p className="mt-1 max-w-3xl text-xs leading-5 text-sf-text-secondary">
-                Use this when you intentionally want to replace or create a full new pass with the current model and rerender size.
+                Ready videos are kept as-is. Use the selected-shot rerun button when you intentionally want to replace one shot.
               </p>
             </div>
             <button
@@ -1711,7 +1710,7 @@ export default function MusicVideoEasyMode({
               disabled={!canQueueVideos || isQueuingVideos || yoloDependencyCheckInProgress}
               className="rounded-lg border border-sf-dark-600 px-3 py-2 text-xs font-semibold text-sf-text-secondary transition-colors hover:border-sf-dark-500 hover:text-sf-text-primary disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Regenerate All With {selectedVideoWorkflowLabel}
+              Queue Missing With {selectedVideoWorkflowLabel}
             </button>
           </div>
         </div>
