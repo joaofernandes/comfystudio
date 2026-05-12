@@ -112,6 +112,20 @@ export const CURATED_NODE_PACKS = Object.freeze([
     classTypes: ['ImageResizeKJv2', 'GetImagesFromBatchIndexed'],
   }),
   createAutoNodePack({
+    id: 'ltxvideo',
+    displayName: 'ComfyUI-LTXVideo',
+    repoUrl: 'https://github.com/Lightricks/ComfyUI-LTXVideo',
+    installDirName: 'ComfyUI-LTXVideo',
+    docsUrl: 'https://github.com/Lightricks/ComfyUI-LTXVideo',
+    requirementsStrategy: 'requirements-txt',
+    notes: 'Provides LTX IC-LoRA guide nodes used by the 16GB music-video b-roll control path.',
+    classTypes: [
+      'LTXICLoRALoaderModelOnly',
+      'LTXAddVideoICLoRAGuide',
+      'LTXAddVideoICLoRAGuideAdvanced',
+    ],
+  }),
+  createAutoNodePack({
     id: 'videohelpersuite',
     displayName: 'ComfyUI-VideoHelperSuite',
     repoUrl: 'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite',
@@ -716,6 +730,16 @@ export const MODEL_INSTALL_RECIPES = Object.freeze({
     sourceUrl: hfBlob('Lightricks/LTX-2.3', 'ltx-2.3-22b-distilled-lora-384-1.1.safetensors'),
     licenseUrl: 'https://huggingface.co/Lightricks/LTX-2.3',
     notes: 'Downloaded from the official Lightricks repo and saved under the workflow-expected filename.',
+  }),
+  [modelKey('loras', 'ltxv/ltx2/ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors')]: createModelRecipe({
+    filename: 'ltxv/ltx2/ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors',
+    targetSubdir: 'loras',
+    displayName: 'LTX 2.3 22B IC-LoRA Union Control ref0.5',
+    downloadUrl: hfResolve('Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control', 'ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors'),
+    sourceUrl: hfBlob('Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control', 'ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors'),
+    licenseUrl: 'https://huggingface.co/Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control',
+    sizeBytes: 654000000,
+    notes: 'Union Control IC-LoRA used to keep b-roll close to the first frame and reduce hand/identity drift.',
   }),
   [modelKey('latent_upscale_models', 'ltx-2.3-spatial-upscaler-x2-1.1.safetensors')]: createModelRecipe({
     filename: 'ltx-2.3-spatial-upscaler-x2-1.1.safetensors',

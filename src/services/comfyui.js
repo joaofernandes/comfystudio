@@ -2704,6 +2704,39 @@ export function modifyMusicVideoShotWorkflow(workflow, options = {}) {
     if ('audio_to_video_scale' in modified['1523'].inputs) modified['1523'].inputs.audio_to_video_scale = 0
     if ('video_to_audio_scale' in modified['1523'].inputs) modified['1523'].inputs.video_to_audio_scale = 0
   }
+  // IC-LoRA first-frame guide — nodes 6001, 6002, 6003.
+  // Use it only for non-vocal/b-roll shots, where identity/hand stability is
+  // more important than mouth articulation. Performance shots keep the older
+  // graph path so lip-sync conditioning is not over-constrained.
+  const useBrollIcLoraGuide = Boolean(!shotTypeOption?.needsVocalAlignment)
+  if (modified['6001']?.inputs && 'strength_model' in modified['6001'].inputs) {
+    modified['6001'].inputs.strength_model = useBrollIcLoraGuide ? 1 : 0
+  }
+  if (modified['6002']?.inputs && 'strength' in modified['6002'].inputs) {
+    modified['6002'].inputs.strength = useBrollIcLoraGuide ? 0.65 : 0
+  }
+  if (modified['6003']?.inputs && 'strength' in modified['6003'].inputs) {
+    modified['6003'].inputs.strength = useBrollIcLoraGuide ? 0.55 : 0
+  }
+  if (!useBrollIcLoraGuide) {
+    if (modified['2188']?.inputs && 'model' in modified['2188'].inputs) {
+      modified['2188'].inputs.model = ['2150', 0]
+    }
+    if (modified['350']?.inputs && 'video_latent' in modified['350'].inputs) {
+      modified['350'].inputs.video_latent = ['4109', 0]
+    }
+    if (modified['2153']?.inputs && 'video_latent' in modified['2153'].inputs) {
+      modified['2153'].inputs.video_latent = ['2183', 0]
+    }
+    if (modified['2170']?.inputs) {
+      modified['2170'].inputs.positive = ['164', 0]
+      modified['2170'].inputs.negative = ['164', 0]
+    }
+    if (modified['2177']?.inputs) {
+      modified['2177'].inputs.positive = ['164', 0]
+      modified['2177'].inputs.negative = ['164', 1]
+    }
+  }
   // Audio start / length — nodes 5100, 2012, 2013, 2014.
   // Performance shots generate a short preroll for audio/mouth context, then
   // the workflow trims those lead-in frames before saving so timeline timing

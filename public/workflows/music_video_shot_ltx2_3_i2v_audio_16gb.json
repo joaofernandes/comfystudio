@@ -69,7 +69,7 @@
   "350": {
     "inputs": {
       "video_latent": [
-        "4109",
+        "6002",
         0
       ],
       "audio_latent": [
@@ -597,7 +597,7 @@
   "2153": {
     "inputs": {
       "video_latent": [
-        "2183",
+        "6003",
         0
       ],
       "audio_latent": [
@@ -659,12 +659,12 @@
         0
       ],
       "positive": [
-        "164",
+        "6002",
         0
       ],
       "negative": [
-        "164",
-        0
+        "6002",
+        1
       ]
     },
     "class_type": "CFGGuider",
@@ -726,11 +726,11 @@
         0
       ],
       "positive": [
-        "164",
+        "6003",
         0
       ],
       "negative": [
-        "164",
+        "6003",
         1
       ]
     },
@@ -879,7 +879,7 @@
     "inputs": {
       "preview_rate": 8,
       "model": [
-        "2150",
+        "6001",
         0
       ],
       "vae": [
@@ -890,6 +890,96 @@
     "class_type": "LTX2SamplingPreviewOverride",
     "_meta": {
       "title": "LTX2 Sampling Preview Override"
+    }
+  },
+  "6001": {
+    "inputs": {
+      "model": [
+        "2150",
+        0
+      ],
+      "lora_name": "ltxv/ltx2/ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors",
+      "strength_model": 1
+    },
+    "class_type": "LTXICLoRALoaderModelOnly",
+    "_meta": {
+      "title": "LTX IC-LoRA Loader (Union Control)"
+    }
+  },
+  "6002": {
+    "inputs": {
+      "positive": [
+        "164",
+        0
+      ],
+      "negative": [
+        "164",
+        1
+      ],
+      "vae": [
+        "1559",
+        0
+      ],
+      "latent": [
+        "4109",
+        0
+      ],
+      "image": [
+        "446",
+        0
+      ],
+      "frame_idx": 0,
+      "strength": 0.65,
+      "latent_downscale_factor": [
+        "6001",
+        1
+      ],
+      "crop": "disabled",
+      "use_tiled_encode": false,
+      "tile_size": 256,
+      "tile_overlap": 64
+    },
+    "class_type": "LTXAddVideoICLoRAGuide",
+    "_meta": {
+      "title": "LTX IC-LoRA First-Frame Guide (Pass 1 B-roll)"
+    }
+  },
+  "6003": {
+    "inputs": {
+      "positive": [
+        "164",
+        0
+      ],
+      "negative": [
+        "164",
+        1
+      ],
+      "vae": [
+        "1559",
+        0
+      ],
+      "latent": [
+        "2183",
+        0
+      ],
+      "image": [
+        "2189",
+        0
+      ],
+      "frame_idx": 0,
+      "strength": 0.55,
+      "latent_downscale_factor": [
+        "6001",
+        1
+      ],
+      "crop": "disabled",
+      "use_tiled_encode": false,
+      "tile_size": 256,
+      "tile_overlap": 64
+    },
+    "class_type": "LTXAddVideoICLoRAGuide",
+    "_meta": {
+      "title": "LTX IC-LoRA First-Frame Guide (Pass 2 B-roll)"
     }
   },
   "2189": {
