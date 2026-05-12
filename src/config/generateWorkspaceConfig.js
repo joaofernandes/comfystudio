@@ -97,7 +97,7 @@ export const YOLO_AD_PROFILES = Object.freeze({
 
 // Music Video defaults to an audio-conditioned per-shot LTX 2.3 workflow for
 // vocal grounding. Alternate local i2v passes can be used for animation tests,
-// but only the default music workflow consumes song audio for lip-sync.
+// while the LTX GGUF 16GB pass keeps the same song-audio conditioning path.
 export const YOLO_MUSIC_PROFILES = Object.freeze({
   draft: Object.freeze({
     storyboardWorkflowId: 'image-edit',

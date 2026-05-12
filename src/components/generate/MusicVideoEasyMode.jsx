@@ -85,6 +85,11 @@ const DEFAULT_VIDEO_WORKFLOW_OPTIONS = Object.freeze([
     description: 'Default. Uses song timing/audio for performance and lip-sync shots.',
   },
   {
+    id: 'music-video-shot-ltx23-16gb',
+    label: 'LTX 2.3 Music GGUF',
+    description: '16GB VRAM pass using GGUF LTX/Gemma loaders with song-audio conditioning.',
+  },
+  {
     id: 'wan22-i2v',
     label: 'WAN 2.2',
     description: 'Alternate animation pass. Strong physical motion, no song-audio lip-sync conditioning.',
@@ -206,6 +211,11 @@ function resolveOutputResolution(aspectRatio, resolutionPreset) {
 }
 
 function workflowSupports1080Resolution(workflowId) {
+  const normalized = String(workflowId || '').trim()
+  return normalized === MUSIC_VIDEO_SHOT_WORKFLOW_ID || normalized === 'music-video-shot-ltx23-16gb'
+}
+
+function workflowUsesSongAudio(workflowId) {
   const normalized = String(workflowId || '').trim()
   return normalized === MUSIC_VIDEO_SHOT_WORKFLOW_ID || normalized === 'music-video-shot-ltx23-16gb'
 }
@@ -485,6 +495,7 @@ export default function MusicVideoEasyMode({
   const selectedKeyframeWorkflowLabel = selectedKeyframeWorkflow?.label || selectedKeyframeWorkflowId || 'Keyframe model'
   const defaultVideoWorkflowId = videoWorkflowOptions[0]?.id || MUSIC_VIDEO_SHOT_WORKFLOW_ID
   const selectedVideoWorkflowSupports1080 = workflowSupports1080Resolution(selectedVideoWorkflowId)
+  const selectedVideoWorkflowUsesSongAudio = workflowUsesSongAudio(selectedVideoWorkflowId)
   const storyboardJobMap = useMemo(() => {
     const map = new Map()
     for (const job of generationQueue || []) {
@@ -1592,7 +1603,7 @@ export default function MusicVideoEasyMode({
             </div>
           </div>
         </div>
-        {selectedVideoWorkflowId !== defaultVideoWorkflowId && (
+        {!selectedVideoWorkflowUsesSongAudio && (
           <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs leading-5 text-yellow-100">
             {selectedVideoWorkflowLabel} uses the generated keyframes and motion prompts, but it will not use the song audio for lip-sync. Keep the LTX 2.3 Music pass for vocal-sync coverage.
           </div>
