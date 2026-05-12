@@ -177,6 +177,23 @@ function isSingleVideoWorkflowId(workflowId = '') {
   return SINGLE_VIDEO_WORKFLOW_IDS.has(String(workflowId || '').trim())
 }
 
+function assertGenerationResultMatchesJob(result, job) {
+  if (!result || !job) return
+  const category = String(job.category || '').trim()
+  const workflowId = String(job.workflowId || '').trim()
+  const expectedType = (category === 'video' || isSingleVideoWorkflowId(workflowId))
+    ? 'video'
+    : category === 'audio'
+      ? 'audio'
+      : category === 'image'
+        ? 'images'
+        : ''
+  if (!expectedType || result.type === expectedType) return
+  const foundLabel = result.type === 'images' ? 'image output' : `${result.type || 'unknown'} output`
+  const expectedLabel = expectedType === 'images' ? 'image output' : `${expectedType} output`
+  throw new Error(`Workflow returned ${foundLabel}, but this queued job expected ${expectedLabel}. Check that the correct Generate step/button was used.`)
+}
+
 const YOLO_AD_STAGE_TIER_OPTIONS = Object.freeze({
   local: Object.freeze([
     { id: 'low', label: 'Low VRAM' },
@@ -4036,6 +4053,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     || (generationMode === 'single' && selectedWorkflowManifest && !selectedWorkflowManifest.runnable)
     || (generationMode === 'single' && (dependencyCheckInProgress || hasBlockingDependencies))
     || (generationMode === 'yolo' && yoloDependencyCheckInProgress)
+    || (generationMode === 'yolo' && directorSubTab === 'video-pass' && yoloStoryboardReadyCount === 0)
   )
 
   // Build full prompt with tags
@@ -8537,7 +8555,11 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       void startComfyLauncher()
     }
     if (generationMode === 'yolo') {
-      void handleQueueYoloStoryboards()
+      if (directorSubTab === 'video-pass') {
+        void handleQueueYoloVideos()
+      } else {
+        void handleQueueYoloStoryboards()
+      }
       return
     }
     if (selectedWorkflowManifest && !selectedWorkflowManifest.runnable) {
@@ -9507,6 +9529,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         }, outputPrefix)
 
         if (result) {
+          assertGenerationResultMatchesJob(result, job)
           updateJob(job.id, { status: 'saving', progress: 95 })
           const saveResult = await saveGenerationResult(result, job.workflowId, job)
           importedAssets = saveResult?.importedAssets || []
@@ -10013,6 +10036,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
 
       // Save result to assets
       if (result) {
+        assertGenerationResultMatchesJob(result, job)
         updateJob(job.id, { status: 'saving', progress: 95 })
         const saveResult = await saveGenerationResult(result, job.workflowId, job)
         importedAssets = saveResult?.importedAssets || []
@@ -13040,7 +13064,9 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
             >
               <Sparkles className="w-4 h-4" />
               {generationMode === 'yolo'
-                ? `Queue ${yoloModeLabel} Keyframes`
+                ? (directorSubTab === 'video-pass'
+                  ? `Queue ${yoloModeLabel} Videos`
+                  : `Queue ${yoloModeLabel} Keyframes`)
                 : `Queue ${selectedWorkflowManifest?.outputType === 'audio' || category === 'audio' ? 'Audio' : selectedWorkflowManifest?.outputType === 'image' || category === 'image' ? 'Image' : 'Video'}`}
             </button>
             <div className="mt-2 flex gap-2">
