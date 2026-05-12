@@ -1921,9 +1921,9 @@ function buildMusicVideoCoveragePlanPrompt(coveragePlan) {
     } else if (section.type === 'story_broll') {
       lines.push('    Shot rule: use b_roll shots for cast/story cutaway coverage across the full song timeline. Every shot in this story b-roll section MUST include an Artist field and show that artist or non-singing cast member on camera, but never lip-syncing. Do not create empty locations, landscapes, or pure atmosphere here; those belong only in environmental_broll. Do not create macro inserts or object-only details here; those belong only in detail_broll.')
     } else if (section.type === 'environmental_broll') {
-      lines.push('    Shot rule: use b_roll shots only across the full song timeline. Show places, atmosphere, empty rooms, exterior locations, weather, vehicles, landscapes, and environmental texture. Do not include lip-sync.')
+      lines.push('    Shot rule: use b_roll shots only across the full song timeline. NEVER include Artist in this section. Do not show any cast member or performer. Show places, atmosphere, empty rooms, exterior locations, weather, vehicles without occupants, landscapes, and environmental texture. Do not include lip-sync.')
     } else if (section.type === 'detail_broll') {
-      lines.push('    Shot rule: use b_roll shots only across the full song timeline; focus on short macro/detail inserts, textures, props, instruments, hands, and atmosphere.')
+      lines.push('    Shot rule: use b_roll shots only across the full song timeline. NEVER include Artist in this section. Do not show recognizable cast faces or performer bodies. Focus on short macro/detail inserts, textures, props, instruments, isolated hands/feet only when identity is not recognizable, and atmosphere.')
     } else {
       lines.push('    Shot rule: this is the primary sequence and may mix performance, performance_wide, and b_roll based on the song.')
     }
@@ -2056,6 +2056,7 @@ function buildMusicVideoLLMPrompt(options = {}) {
     '  4. "Shot type:" must be one of: performance, performance_wide, b_roll. Use performance/performance_wide when the singer\'s face is visible and lip-syncing; use b_roll for everything else.',
     '  4a. A b_roll shot may include Artist only as a visual/non-singing reference. If a band/performance cast member is singing or mouthing lyrics, the shot type MUST be performance or performance_wide, not b_roll.',
     '  4b. If the coverage section is story_broll, every shot MUST include Artist and show that person/cast member as the subject. Empty places, abstract atmosphere, and object-only inserts are reserved for environmental_broll/detail_broll sections.',
+    '  4c. If the coverage section is environmental_broll or detail_broll, NEVER include Artist and never show recognizable cast/performers.',
     '  5. For vocal lines, add "Lyric moment:" quoting the specific lyric line. For instrumentals or b_roll, omit Lyric moment.',
     '  5a. When SRT/LRC is provided, a Lyric moment can only appear at that lyric line\'s actual timestamp. Do not move later lyrics to the beginning of the song.',
     '  6. Use "Artist:" to pick who appears. Use band/performance roles for performance shots. Use non-singing cast roles such as "other" / "never_sings" for b_roll shots. Omit Artist when b_roll has no person visible. If b_roll uses a band/performance Artist for story continuity, describe them as not singing.',
