@@ -477,6 +477,10 @@ function sanitizeAssetSnapshotForStorage(asset) {
 
 function sanitizeGenerationJobForStorage(job) {
   if (!job?.id) return null
+  // Only persist jobs that have actually been submitted to ComfyUI. Plain
+  // local queued jobs can be rebuilt from the current plan, and restoring
+  // them after relaunch can resume stale/out-of-order batches.
+  if (!job.promptId) return null
   const assetFields = job.sourceAssets?.assetFields && typeof job.sourceAssets.assetFields === 'object'
     ? Object.fromEntries(
       Object.entries(job.sourceAssets.assetFields)
@@ -506,6 +510,7 @@ function normalizePersistedGenerationJob(job) {
   if (!job?.id || !RECOVERABLE_JOB_STATUSES.has(job.status)) return null
   const originProject = sanitizeProjectOriginForStorage(job.originProject)
   const hasPromptId = Boolean(job.promptId)
+  if (!hasPromptId) return null
   const status = job.status === 'paused'
     ? 'paused'
     : 'queued'
