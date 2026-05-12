@@ -132,7 +132,7 @@
   },
   "504": {
     "inputs": {
-      "chunks": 4,
+      "chunks": 8,
       "dim_threshold": 4096,
       "model": [
         "268",
@@ -141,7 +141,7 @@
     },
     "class_type": "LTXVChunkFeedForward",
     "_meta": {
-      "title": "LTXV Chunk FeedForward (16GB VRAM Test: chunks 4, dim 4096)"
+      "title": "LTXV Chunk FeedForward (16GB VRAM Test: chunks 8, dim 4096)"
     }
   },
   "1318": {
