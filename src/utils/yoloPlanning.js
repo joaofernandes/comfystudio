@@ -656,6 +656,7 @@ export function flattenYoloPlanVariants(plan = []) {
       const endCard = sanitizeSnippet(shot?.endCard || '', 260)
       const dialogue = sanitizeSnippet(shot?.dialogue || '', 260)
       const musicShotType = sanitizeSnippet(shot?.musicShotType || shot?.shotType || '', 80)
+      const resolvedArtistSource = sanitizeSnippet(shot?.resolvedArtistSource || '', 80)
       const coverage = {
         type: sanitizeSnippet(shot?.coverageType || sceneCoverage.type || '', 80),
         label: sanitizeSnippet(shot?.coverageLabel || sceneCoverage.label || '', 100),
@@ -705,13 +706,10 @@ export function flattenYoloPlanVariants(plan = []) {
             'Do not create split-screen, collage, diptych, triptych, storyboard grid, comic panels, or multiple images in one frame.',
             'Do not depict a before/after sequence or montage in a single image.',
             'Show one primary subject instance only unless the script explicitly requires extra characters.',
-            'No on-screen text, no captions, no subtitles, no labels, no watermarks, no signs, no posters, no banners, no billboards, no license plates, no UI glyphs, no letters, no numbers, no text-like marks.',
-            'Use plain unmarked surfaces for walls, screens, clothing, windows, vehicles, props, and backgrounds.',
             strictConsistency
               ? 'Keep the same person identity and wardrobe fully locked to references.'
               : 'Keep character identity and wardrobe reasonably consistent with adjacent shots.',
             scene.styleNotes,
-            'Hard rule: do not render overlay words, end-card words, scene numbers, shot codes, captions, subtitles, labels, watermarks, random letters, fake typography, signage, or alphanumeric symbols in the image.',
           ]
             .filter(Boolean)
             .join(' ')
@@ -733,6 +731,7 @@ export function flattenYoloPlanVariants(plan = []) {
             endCard,
             dialogue,
             musicShotType,
+            resolvedArtistSource,
             // Music-video-only pass-throughs. Unset for ads. The queue code
             // reads resolvedArtistAssetIds (ordered list of up to 2 cast asset
             // ids) in music mode to override the default-artist reference.

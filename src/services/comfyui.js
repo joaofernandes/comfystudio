@@ -1378,6 +1378,7 @@ export function modifyMultipleAnglesWorkflow(workflow, options = {}) {
 export function modifyQwenImageEdit2509Workflow(workflow, options = {}) {
   const {
     prompt = 'edit the image',
+    negativePrompt: negativePromptOverride = '',
     inputImage = '',
     seed = Math.floor(Math.random() * 1000000000000),
     width = null,
@@ -1405,7 +1406,8 @@ export function modifyQwenImageEdit2509Workflow(workflow, options = {}) {
     const title = String(node?._meta?.title || '')
     return /load\s*product/i.test(title)
   })
-  const negativePrompt = 'text, captions, subtitles, labels, watermarks, logos, signs, posters, banners, billboards, license plates, UI glyphs, letters, numbers, random letters, fake typography, pseudo-text, scene codes, shot numbers, alphanumeric symbols'
+  const negativePrompt = String(negativePromptOverride || '').trim()
+    || 'text, captions, subtitles, labels, watermarks, logos, signs, posters, banners, billboards, license plates, UI glyphs, letters, numbers, random letters, fake typography, pseudo-text, scene codes, shot numbers, alphanumeric symbols'
   const negativeConditioningNodeIds = new Set()
   for (const [nodeId, node] of Object.entries(modified)) {
     if (!node?.inputs || !String(node.class_type || '').includes('Sampler')) continue
@@ -1672,6 +1674,7 @@ export function modifyFrameInterpolationWorkflow(workflow, options = {}) {
 export function modifyZImageTurboWorkflow(workflow, options = {}) {
   const {
     prompt = '',
+    negativePrompt = '',
     seed = Math.floor(Math.random() * 1000000000000),
     width = 1024,
     height = 1024,
@@ -1686,8 +1689,10 @@ export function modifyZImageTurboWorkflow(workflow, options = {}) {
 
   for (const node of Object.values(modified)) {
     if (!node?.inputs) continue
-    if (node.class_type === 'CLIPTextEncode' && (node._meta?.title || '').includes('Prompt')) {
-      node.inputs.text = prompt
+    if (node.class_type === 'CLIPTextEncode' && typeof node.inputs.text === 'string') {
+      const title = String(node._meta?.title || '')
+      const looksNegative = /negative/i.test(title) || isLikelyNegativePromptText(node.inputs.text)
+      node.inputs.text = looksNegative ? negativePrompt : prompt
     }
     if (node.class_type === 'KSampler' && 'seed' in node.inputs) {
       node.inputs.seed = seed

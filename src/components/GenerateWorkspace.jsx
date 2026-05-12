@@ -830,6 +830,39 @@ function buildAdVideoNegativePrompt(baseNegativePrompt = '') {
     .join(', ')
 }
 
+const DIRECTOR_KEYFRAME_NEGATIVE_PROMPT = [
+  'text',
+  'captions',
+  'subtitles',
+  'labels',
+  'watermarks',
+  'logos',
+  'signs',
+  'posters',
+  'banners',
+  'billboards',
+  'license plates',
+  'UI glyphs',
+  'letters',
+  'numbers',
+  'random letters',
+  'fake typography',
+  'pseudo-text',
+  'scene codes',
+  'shot numbers',
+  'alphanumeric symbols',
+].join(', ')
+
+function buildDirectorKeyframeNegativePrompt(baseNegativePrompt = '') {
+  return [
+    baseNegativePrompt,
+    DIRECTOR_KEYFRAME_NEGATIVE_PROMPT,
+  ]
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .join(', ')
+}
+
 const DIRECTOR_STYLE_NOTE_CONTAMINATION_PATTERNS = Object.freeze([
   /strict continuity:\s*same person identity,\s*same hairstyle,\s*same outfit colors and fit,\s*same coral\/pink sneaker with teal swoosh;\s*no logo\/color\/shape drift\.?/gi,
 ])
@@ -985,7 +1018,13 @@ function composeMusicShotVideoPrompt({
 }
 
 function buildMusicVideoNegativePrompt(baseNegativePrompt = '', shotType = '') {
-  return String(baseNegativePrompt || '').trim()
+  return [
+    baseNegativePrompt,
+    'text, captions, subtitles, labels, watermarks, logos, signs, posters, banners, billboards, license plates, UI glyphs, random letters, fake typography, pseudo-text',
+  ]
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .join(', ')
 }
 
 /**
@@ -1018,9 +1057,6 @@ function composeMusicShotReferencePrompt({
     styleLine ? `Style: ${styleLine}.` : '',
     'Render one cinematic keyframe still, no collage, no split screen, no multiple panels.',
     'Maintain consistent subject identity and wardrobe across the video.',
-    'No visible text, captions, subtitles, labels, watermarks, logos, signs, posters, banners, billboards, license plates, UI glyphs, letters, numbers, or text-like marks.',
-    'Use plain unmarked surfaces for walls, screens, clothing, windows, vehicles, props, and backgrounds.',
-    'Hard rule: do not render shot codes, scene numbers, random letters, fake typography, signage, or alphanumeric symbols in the image.',
   ].filter(Boolean)
   return parts.join(' ')
 }
@@ -1295,7 +1331,9 @@ function buildMusicVideoPlanFromScript(options = {}) {
           }
         }
       }
-      const defaultCastMember = pickDefaultMusicCastMemberForShotType(safeCast, shotTypeId)
+      const defaultCastMember = shotTypeId === 'b_roll'
+        ? null
+        : pickDefaultMusicCastMemberForShotType(safeCast, shotTypeId)
       if (resolvedMembers.length === 0 && defaultCastMember) {
         resolvedMembers = [defaultCastMember]
         resolvedSource = 'default-cast'
@@ -1761,7 +1799,7 @@ function buildMusicVideoCoveragePlanPrompt(coveragePlan) {
     } else if (section.type === 'story_broll') {
       lines.push('    Shot rule: use b_roll shots for story/cutaway coverage across the full song timeline; include Artist only when a cast member is visible but not lip-syncing.')
     } else if (section.type === 'environmental_broll') {
-      lines.push('    Shot rule: use b_roll shots only across the full song timeline. Show places, atmosphere, empty rooms, exterior locations, weather, signage, vehicles, landscapes, and environmental texture. Do not include lip-sync.')
+      lines.push('    Shot rule: use b_roll shots only across the full song timeline. Show places, atmosphere, empty rooms, exterior locations, weather, vehicles, landscapes, and environmental texture. Do not include lip-sync.')
     } else if (section.type === 'detail_broll') {
       lines.push('    Shot rule: use b_roll shots only across the full song timeline; focus on short macro/detail inserts, textures, props, instruments, hands, and atmosphere.')
     } else {
@@ -1895,7 +1933,7 @@ function buildMusicVideoLLMPrompt(options = {}) {
     '  4. "Shot type:" must be one of: performance, performance_wide, b_roll. Use performance/performance_wide when the singer\'s face is visible and lip-syncing; use b_roll for everything else.',
     '  5. For vocal lines, add "Lyric moment:" quoting the specific lyric line. For instrumentals or b_roll, omit Lyric moment.',
     '  5a. When SRT/LRC is provided, a Lyric moment can only appear at that lyric line\'s actual timestamp. Do not move later lyrics to the beginning of the song.',
-    '  6. Use "Artist:" to pick which cast member appears. Omit when the shot is b_roll with no performer visible.',
+    '  6. Use "Artist:" to pick who appears. Use band/performance roles for performance shots. Use non-singing cast roles such as "other" / "never_sings" for b_roll shots. Omit Artist when b_roll has no person visible.',
     '  7. "Keyframe prompt:" describes the opening still and must include location, subject, wardrobe/props, lighting, color palette, and composition.',
     '  8. "Motion prompt:" describes what moves in the clip: lip-sync/performance action, body movement, camera movement, atmosphere, and any story action.',
     '  9. Keep wardrobe, location, and lighting consistent across adjacent shots unless the script deliberately calls for a hard cut.',
@@ -2341,7 +2379,7 @@ function buildMusicVideoPassRules(pass, variantDescriptor) {
         '  - Every shot MUST use Shot type: b_roll.',
         '  - Do NOT include Artist: or Lyric moment: fields on any shot — omit them entirely.',
         '  - Do NOT show any performer\'s face or body in frame. The cast is absent from this pass.',
-        '  - Imagery should establish PLACES and ATMOSPHERE: empty rooms, exterior locations, weather, landscapes, signage, vehicles without occupants, environmental textures.',
+        '  - Imagery should establish PLACES and ATMOSPHERE: empty rooms, exterior locations, weather, landscapes, vehicles without occupants, environmental textures.',
         '  - REUSE the Start at: and Length: values from the master script below so this pass lines up frame-accurately in an NLE. If the master has no shot at a given moment, invent one that fills the gap.',
         '  - Favor medium-to-wide framings. Shot lengths should skew 4–7s. Let shots breathe.',
         '  - INVENT NEW IMAGERY. Do NOT copy the master script\'s Keyframe prompt or Motion prompt text.',
@@ -7560,14 +7598,32 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       const parsed = match ? Number(match[0]) : fallback
       return Number.isFinite(parsed) ? parsed : fallback
     }
-    const usesModelProductStoryboardWorkflow = yoloStoryboardWorkflowId === 'image-edit-model-product'
-    const usesQwenMusicStoryboardWorkflow = isYoloMusicMode && yoloStoryboardWorkflowId === 'image-edit'
+    const selectedStoryboardWorkflowId = String(yoloStoryboardWorkflowId || '').trim()
+    const referenceFreeMusicStoryboardWorkflowId = 'z-image-turbo-16gb'
+    const getMusicStoryboardWorkflowIdForVariant = (variant) => {
+      if (!isYoloMusicMode) return selectedStoryboardWorkflowId
+      const musicShotType = String(variant?.musicShotType || '').trim().toLowerCase()
+      const resolvedArtistIds = Array.isArray(variant?.resolvedArtistAssetIds)
+        ? variant.resolvedArtistAssetIds.filter(Boolean)
+        : []
+      if (
+        musicShotType === 'b_roll' &&
+        resolvedArtistIds.length === 0 &&
+        (selectedStoryboardWorkflowId === 'image-edit' || selectedStoryboardWorkflowId === 'image-edit-model-product')
+      ) {
+        return referenceFreeMusicStoryboardWorkflowId
+      }
+      return selectedStoryboardWorkflowId
+    }
+    const usesModelProductStoryboardWorkflow = selectedStoryboardWorkflowId === 'image-edit-model-product'
+    const usesQwenMusicStoryboardWorkflow = isYoloMusicMode && selectedStoryboardWorkflowId === 'image-edit'
     if (usesQwenMusicStoryboardWorkflow) {
       const missingReference = variantsToQueue.some((variant) => {
+        if (getMusicStoryboardWorkflowIdForVariant(variant) !== 'image-edit') return false
         const musicShotType = String(variant?.musicShotType || '').trim().toLowerCase()
         return !(
           variant?.resolvedArtistAssetIds?.[0] ||
-          pickDefaultMusicCastMemberForShotType(yoloMusicResolvedCast, musicShotType)?.assetId
+          (musicShotType === 'b_roll' ? null : pickDefaultMusicCastMemberForShotType(yoloMusicResolvedCast, musicShotType)?.assetId)
         )
       })
       if (missingReference) {
@@ -7590,6 +7646,11 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       height: Number(resolutionOverride?.height) || Number(baseStoryboardResolution?.height) || effectiveImageResolution.height,
     }
     const jobs = variantsToQueue.map((variant, index) => {
+      const effectiveStoryboardWorkflowId = isYoloMusicMode
+        ? getMusicStoryboardWorkflowIdForVariant(variant)
+        : selectedStoryboardWorkflowId
+      const effectiveUsesModelProductStoryboardWorkflow = effectiveStoryboardWorkflowId === 'image-edit-model-product'
+      const effectiveUsesQwenMusicStoryboardWorkflow = isYoloMusicMode && effectiveStoryboardWorkflowId === 'image-edit'
       const sceneNum = extractNumericId(variant.sceneId, index + 1)
       const shotNum = extractNumericId(variant.shotId, 1)
       const angleNum = extractNumericId(variant.angle, 1)
@@ -7616,7 +7677,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         .filter(Boolean)
       const roleMatchedMusicMembers = filterMusicCastMembersForShotType(explicitMusicMembers, musicShotType)
       const defaultMusicCastMember = isYoloMusicMode
-        ? pickDefaultMusicCastMemberForShotType(yoloMusicResolvedCast, musicShotType)
+        ? (musicShotType === 'b_roll' ? null : pickDefaultMusicCastMemberForShotType(yoloMusicResolvedCast, musicShotType))
         : null
       const musicReferenceAssetId1 = isYoloMusicMode
         ? (roleMatchedMusicMembers[0]?.assetId || defaultMusicCastMember?.assetId || null)
@@ -7624,24 +7685,25 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       const musicReferenceAssetId2 = isYoloMusicMode
         ? (roleMatchedMusicMembers[1]?.assetId || null)
         : null
-      const qwenMusicInputAsset = usesQwenMusicStoryboardWorkflow && musicReferenceAssetId1
+      const qwenMusicInputAsset = (effectiveUsesQwenMusicStoryboardWorkflow || effectiveUsesModelProductStoryboardWorkflow) && musicReferenceAssetId1
         ? (assets.find((asset) => asset?.id === musicReferenceAssetId1) || null)
         : null
-      const storyboardInputAsset = usesModelProductStoryboardWorkflow
-        ? adStoryboardInputAsset
+      const storyboardInputAsset = effectiveUsesModelProductStoryboardWorkflow
+        ? (isYoloMusicMode ? qwenMusicInputAsset : adStoryboardInputAsset)
         : qwenMusicInputAsset
       const storyboardReferenceAssetId1 = isYoloMusicMode
-        ? (usesQwenMusicStoryboardWorkflow ? musicReferenceAssetId2 : musicReferenceAssetId1)
+        ? (effectiveUsesQwenMusicStoryboardWorkflow || effectiveUsesModelProductStoryboardWorkflow ? musicReferenceAssetId2 : musicReferenceAssetId1)
         : (effectiveAdProductAsset?.id || null)
       const storyboardReferenceAssetId2 = isYoloMusicMode
-        ? (usesQwenMusicStoryboardWorkflow ? null : musicReferenceAssetId2)
+        ? (effectiveUsesQwenMusicStoryboardWorkflow || effectiveUsesModelProductStoryboardWorkflow ? null : musicReferenceAssetId2)
         : (effectiveAdModelAsset?.id || null)
       return createQueuedJob({
         category: 'image',
-        workflowId: yoloStoryboardWorkflowId,
-        workflowLabel: `${DIRECTOR_MODE_BETA_LABEL} ${yoloModeLabel} Keyframe (${yoloStoryboardWorkflowId})`,
-        needsImage: usesModelProductStoryboardWorkflow || Boolean(qwenMusicInputAsset),
+        workflowId: effectiveStoryboardWorkflowId,
+        workflowLabel: `${DIRECTOR_MODE_BETA_LABEL} ${yoloModeLabel} Keyframe (${effectiveStoryboardWorkflowId})`,
+        needsImage: effectiveUsesModelProductStoryboardWorkflow || Boolean(qwenMusicInputAsset),
         prompt: variant.storyboardPrompt || variant.prompt,
+        negativePrompt: buildDirectorKeyframeNegativePrompt(negativePrompt),
         seed: storyboardSeed,
         resolution: storyboardResolution,
         inputAssetId: storyboardInputAsset?.id || null,
@@ -7669,6 +7731,9 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
           endCard: !isYoloMusicMode ? (variant.endCard || '') : '',
           dialogue: !isYoloMusicMode ? (variant.dialogue || '') : '',
           profile: isYoloMusicMode ? yoloMusicQualityProfile : yoloNormalizedAdStoryboardTier,
+          workflowId: effectiveStoryboardWorkflowId,
+          musicShotType: isYoloMusicMode ? (variant.musicShotType || '') : '',
+          resolvedArtistSource: isYoloMusicMode ? (variant.resolvedArtistSource || '') : '',
           profileRuntime: !isYoloMusicMode ? yoloStoryboardProfileRuntime : null,
           referenceConsistency: !isYoloMusicMode ? yoloAdConsistency : null,
           // Origin pass (music mode only). flattenYoloPlanVariants threads this
@@ -9652,6 +9717,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         case 'image-edit-model-product':
           modifiedWorkflow = modifyQwenImageEdit2509Workflow(workflowJson, {
             prompt: job.prompt,
+            negativePrompt: job.negativePrompt,
             inputImage: uploadedFilename,
             seed: job.seed,
             width: job.resolution?.width,
@@ -9664,6 +9730,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         case 'z-image-turbo-16gb':
           modifiedWorkflow = modifyZImageTurboWorkflow(workflowJson, {
             prompt: job.prompt,
+            negativePrompt: job.negativePrompt,
             seed: job.seed,
             width: job.resolution?.width,
             height: job.resolution?.height,
