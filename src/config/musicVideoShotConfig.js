@@ -51,8 +51,8 @@ export const MUSIC_VIDEO_SHOT_TYPE_OPTIONS = Object.freeze([
     talkingHeadLoraStrength: 0,
     cameraLoraOn: false,
     cameraLoraStrength: 0.3,
-    defaultImageStrength: 0.92,
-    promptSuffix: 'B-roll cutaway. Focus on the environment, action, or objects described in the director script. No singing, no lip-sync, no mouthing words; any visible person keeps a closed or neutral mouth.',
+    defaultImageStrength: 1,
+    promptSuffix: 'B-roll cutaway. Preserve the exact first-frame subject, identity, clothing, composition, location, and lighting. Use subtle natural motion only. No singing, no lip-sync, no mouthing words; any visible person keeps a closed or neutral mouth.',
     needsVocalAlignment: false,
   },
 ])

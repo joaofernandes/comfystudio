@@ -2649,7 +2649,10 @@ export function modifyMusicVideoShotWorkflow(workflow, options = {}) {
         ? Number(shotTypeOption.defaultImageStrength)
         : shot.imageStrength)
 
-  const resolvedPrompt = [shot.shotPrompt, shotTypeOption.promptSuffix]
+  const preserveFirstFramePrompt = shotTypeOption?.needsVocalAlignment
+    ? ''
+    : 'Preserve the exact person, face, wardrobe, pose, environment, camera framing, and lighting from the first frame. Do not replace the subject or change to a different scene.'
+  const resolvedPrompt = [shot.shotPrompt, preserveFirstFramePrompt, shotTypeOption.promptSuffix]
     .map((value) => String(value || '').trim())
     .filter(Boolean)
     .join('\n\n')
