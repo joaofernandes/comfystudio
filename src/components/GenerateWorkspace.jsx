@@ -1371,8 +1371,8 @@ function buildMusicVideoPlanFromScript(options = {}) {
         const names = splitCastNameList(artistOverrideRaw)
         const { members, unresolved } = resolveCastMembersFromNameList(names, safeCast)
         const shotTypeMembers = filterMusicCastMembersForShotType(members, shotTypeId)
-        if (shotTypeMembers.length > 0) {
-          resolvedMembers = shotTypeMembers
+        if (members.length > 0) {
+          resolvedMembers = members
           resolvedSource = 'script-override'
         }
         const excludedMembers = members.filter((member) => !shotTypeMembers.includes(member))
@@ -1382,7 +1382,8 @@ function buildMusicVideoPlanFromScript(options = {}) {
             shotLabel: scriptShot.label || `Shot ${flatShotIndex}`,
             kind: 'artist-role-mismatch',
             raw: member?.label || member?.slug || '',
-            message: `Shot ${flatShotIndex}${scriptShot.label ? ` (${scriptShot.label})` : ''}: "${member?.label || member?.slug || 'cast member'}" was skipped because ${shotTypeId === 'b_roll' ? 'b-roll uses b-roll cast roles only' : 'performance shots use band/performance roles only'}.`,
+            message: `Shot ${flatShotIndex}${scriptShot.label ? ` (${scriptShot.label})` : ''}: "${member?.label || member?.slug || 'cast member'}" has a role that does not usually match ${shotTypeId === 'b_roll' ? 'b-roll' : 'performance'} shots, but the explicit Artist field was honored as the visual reference.`,
+            severity: 'info',
           })
         }
         for (const name of unresolved) {
@@ -7823,15 +7824,17 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       const explicitMusicMembers = (Array.isArray(variant?.resolvedArtistAssetIds) ? variant.resolvedArtistAssetIds : [])
         .map((assetId) => musicCastByAssetId.get(assetId))
         .filter(Boolean)
-      const roleMatchedMusicMembers = filterMusicCastMembersForShotType(explicitMusicMembers, musicShotType)
+      const referenceMusicMembers = explicitMusicMembers.length > 0
+        ? explicitMusicMembers
+        : filterMusicCastMembersForShotType(explicitMusicMembers, musicShotType)
       const defaultMusicCastMember = isYoloMusicMode
         ? (musicShotType === 'b_roll' ? null : pickDefaultMusicCastMemberForShotType(yoloMusicResolvedCast, musicShotType))
         : null
       const musicReferenceAssetId1 = isYoloMusicMode
-        ? (roleMatchedMusicMembers[0]?.assetId || defaultMusicCastMember?.assetId || null)
+        ? (referenceMusicMembers[0]?.assetId || defaultMusicCastMember?.assetId || null)
         : null
       const musicReferenceAssetId2 = isYoloMusicMode
-        ? (roleMatchedMusicMembers[1]?.assetId || null)
+        ? (referenceMusicMembers[1]?.assetId || null)
         : null
       const qwenMusicInputAsset = (effectiveUsesQwenMusicStoryboardWorkflow || effectiveUsesModelProductStoryboardWorkflow) && musicReferenceAssetId1
         ? (assets.find((asset) => asset?.id === musicReferenceAssetId1) || null)
