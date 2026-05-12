@@ -2605,6 +2605,13 @@ export function modifyMusicVideoShotWorkflow(workflow, options = {}) {
   const numericWidth = Math.max(256, Math.round(Number(width) || MUSIC_VIDEO_SHOT_DEFAULTS.width))
   const numericHeight = Math.max(256, Math.round(Number(height) || MUSIC_VIDEO_SHOT_DEFAULTS.height))
   const numericFps = Math.max(1, Math.round(Number(fps) || MUSIC_VIDEO_SHOT_DEFAULTS.fps))
+  const requestedPrerollSeconds = shotTypeOption?.needsVocalAlignment
+    ? Math.max(0, Number(rawShot?.prerollSeconds ?? MUSIC_VIDEO_SHOT_DEFAULTS.prerollSeconds) || 0)
+    : 0
+  const resolvedPrerollSeconds = Math.min(requestedPrerollSeconds, shot.audioStart)
+  const generationAudioStart = Math.max(0, shot.audioStart - resolvedPrerollSeconds)
+  const generationLength = shot.length + resolvedPrerollSeconds
+  const prerollFrames = Math.max(0, Math.round(resolvedPrerollSeconds * numericFps))
 
   const modified = JSON.parse(JSON.stringify(workflow))
 
@@ -2622,12 +2629,21 @@ export function modifyMusicVideoShotWorkflow(workflow, options = {}) {
   if (modified['1616']?.inputs && 'switch' in modified['1616'].inputs) {
     modified['1616'].inputs.switch = Boolean(useVocalsOnly)
   }
-  // Audio start / length — nodes 5100 and 2012
+  // Audio start / length — nodes 5100, 2012, 2013, 2014.
+  // Performance shots generate a short preroll for audio/mouth context, then
+  // the workflow trims those lead-in frames before saving so timeline timing
+  // remains based on the visible shot length.
   if (modified['5100']?.inputs && 'value' in modified['5100'].inputs) {
-    modified['5100'].inputs.value = shot.audioStart
+    modified['5100'].inputs.value = Number(generationAudioStart.toFixed(3))
   }
   if (modified['2012']?.inputs && 'value' in modified['2012'].inputs) {
-    modified['2012'].inputs.value = shot.length
+    modified['2012'].inputs.value = Number(generationLength.toFixed(3))
+  }
+  if (modified['2013']?.inputs && 'value' in modified['2013'].inputs) {
+    modified['2013'].inputs.value = Number(shot.length.toFixed(3))
+  }
+  if (modified['2014']?.inputs && 'value' in modified['2014'].inputs) {
+    modified['2014'].inputs.value = prerollFrames
   }
   // Video geometry — nodes 1586 (FPS), 1606 (WIDTH), 1591 (HEIGHT)
   if (modified['1586']?.inputs && 'value' in modified['1586'].inputs) {

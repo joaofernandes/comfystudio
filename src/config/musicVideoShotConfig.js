@@ -169,6 +169,7 @@ export const MUSIC_VIDEO_SHOT_DEFAULTS = Object.freeze({
   useVocalsOnly: false,
   enablePromptEnhancer: false,
   lipSyncIllustrateLyrics: false,
+  prerollSeconds: 0.5,
   minShotLengthSeconds: 1.5,
   maxShotLengthSeconds: 15,
 })

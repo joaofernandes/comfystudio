@@ -256,12 +256,21 @@
   },
   "1651": {
     "inputs": {
-      "expression": "((round((a * b -1) / 8)) * 8) + 1 ",
+      "expression": "((floor(((a * b - 1) + 7.999) / 8)) * 8) + 1",
       "variables.a": ["2012", 0],
       "variables.b": ["1586", 0]
     },
     "class_type": "SimpleCalculatorKJ",
-    "_meta": { "title": "Frame Count (length * fps, aligned to 8+1)" }
+    "_meta": { "title": "Generation Frame Count (includes preroll, aligned to 8+1)" }
+  },
+  "1652": {
+    "inputs": {
+      "expression": "round(a * b)",
+      "variables.a": ["2013", 0],
+      "variables.b": ["1586", 0]
+    },
+    "class_type": "SimpleCalculatorKJ",
+    "_meta": { "title": "Visible Frame Count (shot length * fps)" }
   },
   "1653": {
     "inputs": {
@@ -280,7 +289,22 @@
   "2012": {
     "inputs": { "value": 5 },
     "class_type": "PrimitiveFloat",
-    "_meta": { "title": "LENGTH (in seconds) - default, overridden by shot config" }
+    "_meta": { "title": "GENERATION LENGTH (seconds, includes preroll)" }
+  },
+  "2013": {
+    "inputs": { "value": 5 },
+    "class_type": "PrimitiveFloat",
+    "_meta": { "title": "VISIBLE LENGTH (seconds, final output)" }
+  },
+  "2014": {
+    "inputs": { "value": 0 },
+    "class_type": "PrimitiveInt",
+    "_meta": { "title": "PREROLL FRAMES (trimmed before saving)" }
+  },
+  "2015": {
+    "inputs": { "value": 1 },
+    "class_type": "PrimitiveInt",
+    "_meta": { "title": "TRIM MODE CHUNK INDEX (1 trims preroll)" }
   },
   "2023": {
     "inputs": {
@@ -497,10 +521,10 @@
   "5000": {
     "inputs": {
       "fps": ["1586", 0],
-      "images": ["1318", 0]
+      "images": ["5002", 0]
     },
     "class_type": "CreateVideo",
-    "_meta": { "title": "Create Video (latent upscaled, silent)" }
+    "_meta": { "title": "Create Video (preroll trimmed, silent)" }
   },
   "5001": {
     "inputs": {
@@ -511,6 +535,17 @@
     },
     "class_type": "SaveVideo",
     "_meta": { "title": "Save Video" }
+  },
+  "5002": {
+    "inputs": {
+      "images": ["1318", 0],
+      "frames_per_scene": ["1652", 1],
+      "pre_frames": ["2014", 0],
+      "chunk_index": ["2015", 0],
+      "fps": ["1586", 0]
+    },
+    "class_type": "VRGDG_TrimImageBatch_SRTOnly",
+    "_meta": { "title": "Trim Preroll Frames" }
   },
   "5100": {
     "inputs": { "value": 0 },
