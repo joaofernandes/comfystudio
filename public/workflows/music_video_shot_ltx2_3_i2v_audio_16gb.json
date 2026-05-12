@@ -160,19 +160,6 @@
     "class_type": "LoadAudio",
     "_meta": { "title": "Load Audio (Full Track or Vocal Stem)" }
   },
-  "1599": {
-    "inputs": {
-      "model": ["1600", 0],
-      "audio": ["1594", 0]
-    },
-    "class_type": "MelBandRoFormerSampler",
-    "_meta": { "title": "Mel-Band RoFormer Sampler (Vocal Extraction)" }
-  },
-  "1600": {
-    "inputs": { "model_name": "MelBandRoFormer/MelBandRoformer_fp16.safetensors" },
-    "class_type": "MelBandRoFormerModelLoader",
-    "_meta": { "title": "Mel-Band RoFormer Model Loader" }
-  },
   "1603": {
     "inputs": {
       "samples": ["1605", 0],
@@ -207,10 +194,10 @@
     "inputs": {
       "switch": false,
       "on_false": ["1594", 0],
-      "on_true": ["1599", 0]
+      "on_true": ["1594", 0]
     },
     "class_type": "ComfySwitchNode",
-    "_meta": { "title": "USE VOCALS ONLY" }
+    "_meta": { "title": "Audio Source Pass-Through" }
   },
   "1621": {
     "inputs": {
