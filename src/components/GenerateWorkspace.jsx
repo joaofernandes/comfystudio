@@ -7478,9 +7478,10 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     const adStoryboardInputAsset = usesModelProductStoryboardWorkflow
       ? (effectiveAdModelAsset || effectiveAdProductAsset || null)
       : null
+    const baseStoryboardResolution = isYoloMusicMode ? resolution : effectiveImageResolution
     const storyboardResolution = {
-      width: Number(resolutionOverride?.width) || effectiveImageResolution.width,
-      height: Number(resolutionOverride?.height) || effectiveImageResolution.height,
+      width: Number(resolutionOverride?.width) || Number(baseStoryboardResolution?.width) || effectiveImageResolution.width,
+      height: Number(resolutionOverride?.height) || Number(baseStoryboardResolution?.height) || effectiveImageResolution.height,
     }
     const jobs = variantsToQueue.map((variant, index) => {
       const sceneNum = extractNumericId(variant.sceneId, index + 1)
@@ -9533,6 +9534,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
             prompt: job.prompt,
             inputImage: uploadedFilename,
             seed: job.seed,
+            width: job.resolution?.width,
+            height: job.resolution?.height,
             referenceImages: referenceFilenames,
             filenamePrefix: outputPrefix || 'image/ComfyStudio_edit',
           })

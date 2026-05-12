@@ -1380,11 +1380,18 @@ export function modifyQwenImageEdit2509Workflow(workflow, options = {}) {
     prompt = 'edit the image',
     inputImage = '',
     seed = Math.floor(Math.random() * 1000000000000),
+    width = null,
+    height = null,
     referenceImages = [],
     filenamePrefix = '',
   } = options
 
   const modified = JSON.parse(JSON.stringify(workflow))
+  const rawWidth = Number(width)
+  const rawHeight = Number(height)
+  const hasExplicitDimensions = Number.isFinite(rawWidth) && rawWidth > 0 && Number.isFinite(rawHeight) && rawHeight > 0
+  const numericWidth = hasExplicitDimensions ? Math.max(256, Math.round(rawWidth)) : null
+  const numericHeight = hasExplicitDimensions ? Math.max(256, Math.round(rawHeight)) : null
   const ref1 = referenceImages[0]
   const ref2 = referenceImages[1]
   const hasDedicatedModelAndProductLoaders = Object.values(modified).some((node) => {
@@ -1441,6 +1448,25 @@ export function modifyQwenImageEdit2509Workflow(workflow, options = {}) {
     )
     if (node.inputs && 'seed' in node.inputs && isSeedTargetNode) {
       node.inputs.seed = seed
+    }
+    if (hasExplicitDimensions && node.inputs) {
+      const titleLooksLikeResize = /resize|scale|resolution|size/i.test(title)
+      const canSetDirectSize = (
+        cls === 'ImageResizeKJv2' ||
+        cls === 'ImageResize' ||
+        cls === 'ImageScale' ||
+        cls === 'ImageScaleBy' ||
+        (titleLooksLikeResize && typeof node.inputs.width === 'number' && typeof node.inputs.height === 'number')
+      )
+      if (canSetDirectSize) {
+        if (typeof node.inputs.width === 'number') node.inputs.width = numericWidth
+        if (typeof node.inputs.height === 'number') node.inputs.height = numericHeight
+        if ('keep_proportion' in node.inputs) node.inputs.keep_proportion = 'stretch'
+        if ('crop_position' in node.inputs) node.inputs.crop_position = 'center'
+        if ('divisible_by' in node.inputs) node.inputs.divisible_by = Math.max(2, Number(node.inputs.divisible_by) || 2)
+      }
+      if (cls === 'PrimitiveInt' && /width/i.test(title) && 'value' in node.inputs) node.inputs.value = numericWidth
+      if (cls === 'PrimitiveInt' && /height/i.test(title) && 'value' in node.inputs) node.inputs.value = numericHeight
     }
     // Save Image: set prefix
     if (cls === 'SaveImage' && node.inputs && 'filename_prefix' in node.inputs) {
