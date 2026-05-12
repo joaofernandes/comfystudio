@@ -2009,6 +2009,7 @@ function buildMusicVideoLLMPrompt(options = {}) {
         castBlock.push(`  - ${slug}: ${label}${role}`)
       }
       castBlock.push('For duets, use "Artist: slug1, slug2". For the full cast, use "Artist: all".')
+      castBlock.push('When a shot uses Artist, treat the attached cast image as the source of truth for face, hair, age, build, and wardrobe. Do not invent or restate facial/hair traits unless the user explicitly wrote them.')
       sections.push(castBlock.join('\n'))
     } else {
       sections.push('Cast: (no cast defined — you may omit the Artist: field entirely, or use "Artist: artist" as a generic slot).')
@@ -2057,7 +2058,8 @@ function buildMusicVideoLLMPrompt(options = {}) {
     '  5. For vocal lines, add "Lyric moment:" quoting the specific lyric line. For instrumentals or b_roll, omit Lyric moment.',
     '  5a. When SRT/LRC is provided, a Lyric moment can only appear at that lyric line\'s actual timestamp. Do not move later lyrics to the beginning of the song.',
     '  6. Use "Artist:" to pick who appears. Use band/performance roles for performance shots. Use non-singing cast roles such as "other" / "never_sings" for b_roll shots. Omit Artist when b_roll has no person visible. If b_roll uses a band/performance Artist for story continuity, describe them as not singing.',
-    '  7. "Keyframe prompt:" describes the opening still and must include location, subject, wardrobe/props, lighting, color palette, and composition.',
+    '  6a. For cast identity, write the slug/name only (for example "Jorge at the wall of documents"). Do NOT describe mutable identity traits such as hair length, hair color, beard, glasses, age, face shape, body build, or wardrobe unless those details are explicitly supplied by the user. The reference image controls those traits.',
+    '  7. "Keyframe prompt:" describes the opening still and must include location, subject action, props, lighting, color palette, and composition. Keep identity details reference-driven instead of text-driven.',
     '  8. "Motion prompt:" describes what moves in the clip: lip-sync/performance action, body movement, camera movement, atmosphere, and any story action.',
     '  9. Keep wardrobe, location, and lighting consistent across adjacent shots unless the script deliberately calls for a hard cut.',
     '  10. Do NOT invent lyrics. If the song is instrumental at a given moment, omit Lyric moment for that shot.',
