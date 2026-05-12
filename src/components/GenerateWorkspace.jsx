@@ -1914,6 +1914,15 @@ function buildMusicVideoCoveragePlanPrompt(coveragePlan) {
     'Each coverage section contains normal Shot blocks. Every shot still needs Start at, Shot type, Keyframe prompt, Motion prompt, Camera, and Length.',
     'Do not write one long take for any pass. Break every pass into 2-8 second clips aligned to the song timing.',
     'Use the exact Coverage type and Coverage label fields shown below so ComfyStudio can group the shots later.',
+    '',
+    'B-roll story architecture:',
+    '  - Before writing shots, silently design ONE coherent b-roll narrative with a clear start, middle, and end.',
+    '  - The story_broll, environmental_broll, and detail_broll sections must all express the SAME narrative, only with different focus.',
+    '  - story_broll shows the person/cast actions that carry the story.',
+    '  - environmental_broll shows the same story world: locations, atmosphere, public pressure, aftermath, and spatial transitions.',
+    '  - detail_broll shows the same story through objects, textures, symbols, hands, props, screens, alarms, clothing, tools, and physical traces.',
+    '  - Do not create random fragments. Every b-roll shot must feel like a beat from the shared story arc.',
+    '  - Make the b-roll blocks swappable in editing: each coverage section should still make sense on its own, but all three should reinforce the same beginning, escalation, crisis, and resolution.',
   ]
   plan.sections.forEach((section, index) => {
     lines.push(`  Coverage ${index + 1}: ${section.label}`)
@@ -1921,18 +1930,81 @@ function buildMusicVideoCoveragePlanPrompt(coveragePlan) {
     lines.push(`    Coverage label: ${section.label}`)
     if (section.intent) lines.push(`    Purpose: ${section.intent}`)
     if (section.type === 'performance_pass') {
-      lines.push('    Shot rule: use only performance or performance_wide shots for lyric/vocal moments. Keep Artist and Lyric moment fields on every shot. Use exact SRT lyric starts. It is OK and expected for this pass to have gaps during instrumental or non-vocal sections.')
+      lines.push('    Shot rule: use only performance or performance_wide shots for lyric/vocal moments. Keep Artist and Lyric moment fields on every shot. Use exact SRT lyric starts. It is OK and expected for this pass to have gaps during instrumental or non-vocal sections. Keep performance emotion, body language, and camera grammar consistent across this pass.')
     } else if (section.type === 'story_broll') {
-      lines.push('    Shot rule: use b_roll shots for cast/story cutaway coverage across the full song timeline. Every shot in this story b-roll section MUST include an Artist field and show that artist or non-singing cast member on camera, but never lip-syncing. Do not create empty locations, landscapes, or pure atmosphere here; those belong only in environmental_broll. Do not create macro inserts or object-only details here; those belong only in detail_broll.')
+      lines.push('    Shot rule: use b_roll shots for cast/story cutaway coverage across the full song timeline. Every shot in this story b-roll section MUST include an Artist field and show that artist or non-singing cast member on camera, but never lip-syncing. Give the character specific goals and actions that advance the shared b-roll story. Do not create empty locations, landscapes, or pure atmosphere here; those belong only in environmental_broll. Do not create macro inserts or object-only details here; those belong only in detail_broll.')
     } else if (section.type === 'environmental_broll') {
-      lines.push('    Shot rule: use b_roll shots only across the full song timeline. NEVER include Artist in this section. Do not show any cast member or performer. Show places, atmosphere, empty rooms, exterior locations, weather, vehicles without occupants, landscapes, and environmental texture. Do not include lip-sync.')
+      lines.push('    Shot rule: use b_roll shots only across the full song timeline. NEVER include Artist in this section. Do not show any cast member or performer. Show the same story arc through places, atmosphere, empty rooms, exterior locations, weather, vehicles without occupants, landscapes, screens, crowds, public pressure, aftermath, and environmental texture. Do not include lip-sync.')
     } else if (section.type === 'detail_broll') {
-      lines.push('    Shot rule: use b_roll shots only across the full song timeline. NEVER include Artist in this section. Do not show recognizable cast faces or performer bodies. Focus on short macro/detail inserts, textures, props, instruments, isolated hands/feet only when identity is not recognizable, and atmosphere.')
+      lines.push('    Shot rule: use b_roll shots only across the full song timeline. NEVER include Artist in this section. Do not show recognizable cast faces or performer bodies. Show the same story arc through short macro/detail inserts, textures, props, instruments, isolated hands/feet only when identity is not recognizable, alarms, screens, documents, tools, damage, clothing, and atmosphere.')
     } else {
-      lines.push('    Shot rule: this is the primary sequence and may mix performance, performance_wide, and b_roll based on the song.')
+      lines.push('    Shot rule: this is the primary sequence and may mix performance, performance_wide, and b_roll based on the song. If you use b_roll here, make it part of the same story arc rather than isolated atmosphere.')
     }
   })
   return lines.join('\n')
+}
+
+function buildMusicVideoBehaviorGuidancePrompt(hasCoveragePlan = false) {
+  const cameraMoves = [
+    'Slow push-in',
+    'Low-angle tracking shot',
+    'Handheld follow',
+    'Dolly backward',
+    'Orbit shot',
+    'Track right',
+    'Over-the-shoulder push-in',
+    'Slow pan left',
+    'Crane rising move',
+    'Slow zoom-in',
+    'Arc around subject',
+    'Tilt down',
+  ]
+  const characterActions = [
+    'Walks slowly through the crowd with shoulders squared',
+    'Adjusts the iron glove while staring upward',
+    'Strides beneath flashing screens with controlled aggression',
+    'Stops abruptly as red sirens pulse around him',
+    'Raises one hand toward the floodlights like a warning',
+    'Pushes through riot shields with heavy force',
+    'Turns sharply toward unseen voices in the subway crowd',
+    'Leans forward over a control console with clenched fists',
+    'Drags the iron glove across a concrete wall',
+    'Stands motionless while smoke drifts around his boots',
+    'Slowly removes the tactical jacket with visible exhaustion',
+    'Paces through the apartment hallway with restless tension',
+    'Tilts his head back beneath the propaganda screens',
+    'Steps backward from the crowd as panic erupts around him',
+    'Drops the iron glove to the rooftop floor and walks toward the skyline',
+  ]
+  const emotions = [
+    'Cold authority',
+    'Controlled intimidation',
+    'Public confidence',
+    'Suppressed rage',
+    'Militant pride',
+    'Paranoid vigilance',
+    'Emotional numbness',
+    'Inner conflict',
+    'Rising guilt',
+    'Isolation',
+    'Disillusionment',
+    'Fear beneath composure',
+    'Moral exhaustion',
+    'Defiance',
+    'Quiet resolve',
+  ]
+  return [
+    'Sequence behavior guidance:',
+    '  - Every sequence needs deliberate behavior, not generic mood.',
+    '  - Camera: each shot must name one or more camera movements that fit the story beat. Choose from or adapt this vocabulary: ' + cameraMoves.join('; ') + '.',
+    '  - Character movement: when an Artist/person is present, give them a specific physical goal and action, not just a pose. Examples to adapt: ' + characterActions.join('; ') + '.',
+    '  - Artist emotion: when an Artist/person is present, choose an emotion that fits the current story beat. Examples to adapt: ' + emotions.join('; ') + '.',
+    '  - Put character movement and emotion inside Motion prompt. Put camera language inside Camera.',
+    '  - Avoid repeating the same camera move in adjacent shots unless the repetition is an intentional sequence motif.',
+    hasCoveragePlan
+      ? '  - For b-roll coverage, the character actions, environments, and details must all point to the same start/middle/end story rather than separate ideas.'
+      : '  - If you include b-roll, make it part of a small story beat with cause and effect, not an unrelated fragment.',
+  ].join('\n')
 }
 
 /**
@@ -2050,6 +2122,7 @@ function buildMusicVideoLLMPrompt(options = {}) {
     ? buildMusicVideoCoveragePlanPrompt(effectiveCoveragePlan)
     : ''
   if (coveragePlanPrompt) sections.push(coveragePlanPrompt)
+  sections.push(buildMusicVideoBehaviorGuidancePrompt(Boolean(effectiveCoveragePlan)))
 
   const rules = [
     'Rules:',
@@ -2067,6 +2140,9 @@ function buildMusicVideoLLMPrompt(options = {}) {
     '  6a. For cast identity, write the slug/name only (for example "Jorge at the wall of documents"). Do NOT describe mutable identity traits such as hair length, hair color, beard, glasses, age, face shape, body build, or wardrobe unless those details are explicitly supplied by the user. The reference image controls those traits.',
     '  7. "Keyframe prompt:" describes the opening still and must include location, subject action, props, lighting, color palette, and composition. Keep identity details reference-driven instead of text-driven.',
     '  8. "Motion prompt:" describes what moves in the clip: lip-sync/performance action, body movement, camera movement, atmosphere, and any story action.',
+    '  8a. For shots with Artist/person visible, Motion prompt MUST include a concrete character action and emotional state. For b_roll with Artist, this action must be non-singing and must advance the b-roll story.',
+    '  8b. For environmental_broll and detail_broll, Motion prompt MUST describe how the place/object/detail expresses the same story beat as the matching story_broll section.',
+    '  8c. "Camera:" MUST include a deliberate camera movement or locked-off choice plus lens/framing language. Avoid generic "cinematic camera".',
     '  9. Keep wardrobe, location, and lighting consistent across adjacent shots unless the script deliberately calls for a hard cut.',
     '  10. Do NOT invent lyrics. If the song is instrumental at a given moment, omit Lyric moment for that shot.',
   ]
@@ -2511,6 +2587,8 @@ function buildMusicVideoPassRules(pass, variantDescriptor) {
         '  - Do NOT include Artist: or Lyric moment: fields on any shot — omit them entirely.',
         '  - Do NOT show any performer\'s face or body in frame. The cast is absent from this pass.',
         '  - Imagery should establish PLACES and ATMOSPHERE: empty rooms, exterior locations, weather, landscapes, vehicles without occupants, environmental textures.',
+        '  - Build a clear environmental story with start, middle, and end. Reuse the same locations, symbols, and public pressure as the main/story b-roll idea instead of inventing unrelated places.',
+        '  - Every environmental shot should reveal a story consequence: buildup, escalation, threat, aftermath, escape route, public reaction, or final quiet.',
         '  - REUSE the Start at: and Length: values from the master script below so this pass lines up frame-accurately in an NLE. If the master has no shot at a given moment, invent one that fills the gap.',
         '  - Favor medium-to-wide framings. Shot lengths should skew 4–7s. Let shots breathe.',
         '  - INVENT NEW IMAGERY. Do NOT copy the master script\'s Keyframe prompt or Motion prompt text.',
@@ -2522,6 +2600,8 @@ function buildMusicVideoPassRules(pass, variantDescriptor) {
         '  - Do NOT include Artist: or Lyric moment: fields on any shot — omit them entirely.',
         '  - You MAY show hands, fingers, feet, backs of heads, silhouettes, or isolated body parts — but NEVER a recognizable face and NEVER a visible lip-sync.',
         '  - Imagery should be TIGHT and TEXTURAL: macro shots of gear (frets, strings, picks, pedals, drums, amp grilles, cables, VU meters), small story objects, close-ups of textures, materials, and details.',
+        '  - Build a clear detail story with start, middle, and end using recurring symbols/props/materials from the same b-roll narrative. Details should feel like evidence from the larger story, not random inserts.',
+        '  - Every detail shot should reveal a story clue, emotional pressure point, transformation, damage, warning, decision, or aftermath.',
         '  - You do NOT need to match the master script\'s shot boundaries. It is ENCOURAGED to subdivide longer master shots into multiple shorter detail shots.',
         '  - Shot lengths should skew SHORTER: 2–4s is ideal, occasionally up to 5s.',
         '  - Still cover the full song with no gaps >3s.',
