@@ -1025,6 +1025,34 @@ function composeMusicShotReferencePrompt({
   return parts.join(' ')
 }
 
+function getMusicCastRole(entry = {}) {
+  return String(entry?.role || '').trim().toLowerCase()
+}
+
+function isMusicBrollCastRole(entry = {}) {
+  const role = getMusicCastRole(entry)
+  return ['never_sings', 'cast', 'actor', 'model', 'other', 'b_roll', 'broll'].includes(role)
+}
+
+function isMusicPerformanceCastRole(entry = {}) {
+  const role = getMusicCastRole(entry)
+  if (isMusicBrollCastRole(entry)) return false
+  return ['lead', 'co_lead', 'backing', 'instrumentalist', 'singer', 'vocalist', 'performer', 'band'].includes(role) || !role
+}
+
+function filterMusicCastMembersForShotType(members = [], shotTypeId = '') {
+  const safeMembers = Array.isArray(members) ? members.filter(Boolean) : []
+  if (String(shotTypeId || '').trim().toLowerCase() === 'b_roll') {
+    return safeMembers.filter(isMusicBrollCastRole)
+  }
+  return safeMembers.filter(isMusicPerformanceCastRole)
+}
+
+function pickDefaultMusicCastMemberForShotType(cast = [], shotTypeId = '') {
+  const filtered = filterMusicCastMembersForShotType(cast, shotTypeId)
+  return filtered[0] || null
+}
+
 /**
  * Build a music-video plan from a director-format script (ad-style grammar
  * extended with `Lyric moment:`, `Length:`, `Artist:`, and `Start at:`).
@@ -1120,7 +1148,6 @@ function buildMusicVideoPlanFromScript(options = {}) {
   const effectiveLyricLines = lyricLineTexts.length > 0 ? lyricLineTexts : lyricLinesLegacy
 
   const safeCast = Array.isArray(cast) ? cast.filter((c) => c?.assetId) : []
-  const defaultCastMember = safeCast[0] || null
   const safeTargetDuration = Math.max(10, Number(targetDuration) || 30)
   const safeSongDuration = Math.max(0, Number(songDurationSeconds) || 0)
   const result = []
@@ -1202,7 +1229,7 @@ function buildMusicVideoPlanFromScript(options = {}) {
       // Artist resolution priority:
       //   1. Per-shot `Artist:` override from the script
       //   2. The `[Name]` tag on the matched lyric line (if any)
-      //   3. The first cast member ("default lead"), if a cast exists
+      //   3. Role-aware default cast member for this shot type, if one exists
       //   4. No reference (model improvises)
       //
       // We short-circuit as soon as a non-empty resolution is produced, so
@@ -1213,9 +1240,20 @@ function buildMusicVideoPlanFromScript(options = {}) {
       if (artistOverrideRaw) {
         const names = splitCastNameList(artistOverrideRaw)
         const { members, unresolved } = resolveCastMembersFromNameList(names, safeCast)
-        if (members.length > 0) {
-          resolvedMembers = members
+        const shotTypeMembers = filterMusicCastMembersForShotType(members, shotTypeId)
+        if (shotTypeMembers.length > 0) {
+          resolvedMembers = shotTypeMembers
           resolvedSource = 'script-override'
+        }
+        const excludedMembers = members.filter((member) => !shotTypeMembers.includes(member))
+        for (const member of excludedMembers) {
+          warnings.push({
+            shotIndex: flatShotIndex,
+            shotLabel: scriptShot.label || `Shot ${flatShotIndex}`,
+            kind: 'artist-role-mismatch',
+            raw: member?.label || member?.slug || '',
+            message: `Shot ${flatShotIndex}${scriptShot.label ? ` (${scriptShot.label})` : ''}: "${member?.label || member?.slug || 'cast member'}" was skipped because ${shotTypeId === 'b_roll' ? 'b-roll uses b-roll cast roles only' : 'performance shots use band/performance roles only'}.`,
+          })
         }
         for (const name of unresolved) {
           warnings.push({
@@ -1231,9 +1269,20 @@ function buildMusicVideoPlanFromScript(options = {}) {
         const tags = taggedLyricLines[lineIdx]?.tags || []
         if (tags.length > 0) {
           const { members, unresolved } = resolveCastMembersFromNameList(tags, safeCast)
-          if (members.length > 0) {
-            resolvedMembers = members
+          const shotTypeMembers = filterMusicCastMembersForShotType(members, shotTypeId)
+          if (shotTypeMembers.length > 0) {
+            resolvedMembers = shotTypeMembers
             resolvedSource = 'lyric-tag'
+          }
+          const excludedMembers = members.filter((member) => !shotTypeMembers.includes(member))
+          for (const member of excludedMembers) {
+            warnings.push({
+              shotIndex: flatShotIndex,
+              shotLabel: scriptShot.label || `Shot ${flatShotIndex}`,
+              kind: 'artist-role-mismatch',
+              raw: member?.label || member?.slug || '',
+              message: `Shot ${flatShotIndex}: lyric tag "[${member?.label || member?.slug || 'cast member'}]" was skipped because ${shotTypeId === 'b_roll' ? 'b-roll uses b-roll cast roles only' : 'performance shots use band/performance roles only'}.`,
+            })
           }
           for (const name of unresolved) {
             warnings.push({
@@ -1246,6 +1295,7 @@ function buildMusicVideoPlanFromScript(options = {}) {
           }
         }
       }
+      const defaultCastMember = pickDefaultMusicCastMemberForShotType(safeCast, shotTypeId)
       if (resolvedMembers.length === 0 && defaultCastMember) {
         resolvedMembers = [defaultCastMember]
         resolvedSource = 'default-cast'
@@ -7513,10 +7563,13 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     const usesModelProductStoryboardWorkflow = yoloStoryboardWorkflowId === 'image-edit-model-product'
     const usesQwenMusicStoryboardWorkflow = isYoloMusicMode && yoloStoryboardWorkflowId === 'image-edit'
     if (usesQwenMusicStoryboardWorkflow) {
-      const missingReference = variantsToQueue.some((variant) => !(
-        variant?.resolvedArtistAssetIds?.[0] ||
-        yoloMusicArtistAsset?.id
-      ))
+      const missingReference = variantsToQueue.some((variant) => {
+        const musicShotType = String(variant?.musicShotType || '').trim().toLowerCase()
+        return !(
+          variant?.resolvedArtistAssetIds?.[0] ||
+          pickDefaultMusicCastMemberForShotType(yoloMusicResolvedCast, musicShotType)?.assetId
+        )
+      })
       if (missingReference) {
         setFormError('Qwen Image Edit keyframes need a cast/reference image. Add at least one person in the Music Video People step, or switch keyframes to Nano Banana 2.')
         return 0
@@ -7552,11 +7605,24 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
             ? mediumSeed
             : softSeed
       )
+      const musicShotType = String(variant?.musicShotType || '').trim().toLowerCase()
+      const musicCastByAssetId = new Map(
+        yoloMusicResolvedCast
+          .filter((member) => member?.assetId)
+          .map((member) => [member.assetId, member])
+      )
+      const explicitMusicMembers = (Array.isArray(variant?.resolvedArtistAssetIds) ? variant.resolvedArtistAssetIds : [])
+        .map((assetId) => musicCastByAssetId.get(assetId))
+        .filter(Boolean)
+      const roleMatchedMusicMembers = filterMusicCastMembersForShotType(explicitMusicMembers, musicShotType)
+      const defaultMusicCastMember = isYoloMusicMode
+        ? pickDefaultMusicCastMemberForShotType(yoloMusicResolvedCast, musicShotType)
+        : null
       const musicReferenceAssetId1 = isYoloMusicMode
-        ? (variant.resolvedArtistAssetIds?.[0] || yoloMusicArtistAsset?.id || null)
+        ? (roleMatchedMusicMembers[0]?.assetId || defaultMusicCastMember?.assetId || null)
         : null
       const musicReferenceAssetId2 = isYoloMusicMode
-        ? (variant.resolvedArtistAssetIds?.[1] || null)
+        ? (roleMatchedMusicMembers[1]?.assetId || null)
         : null
       const qwenMusicInputAsset = usesQwenMusicStoryboardWorkflow && musicReferenceAssetId1
         ? (assets.find((asset) => asset?.id === musicReferenceAssetId1) || null)
@@ -7636,6 +7702,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     yoloMusicArtistAsset,
     yoloMusicArtistAsset?.id,
     yoloMusicQualityProfile,
+    yoloMusicResolvedCast,
     yoloNormalizedAdStoryboardTier,
     yoloAdProductAsset,
     yoloAdProductAsset?.id,

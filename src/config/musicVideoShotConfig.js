@@ -430,12 +430,9 @@ export function parseLyricLines(rawLyrics = '') {
 }
 
 /**
- * Cast roster role taxonomy — used only as an optional label on cast entries
- * today. Planner doesn't branch on role yet; surfaced in the UI so users can
- * note who's a lead vs backing vs instrumentalist for their own reference.
- *
- * `never_sings` is reserved for a future planner rule that would exclude a
- * cast member from performance shots automatically. For now it's documentation.
+ * Cast roster role taxonomy. Music-video planning uses these roles to keep
+ * non-singing cast (`other` / `never_sings`) in b-roll and band/performance
+ * members in singing/performance shots.
  */
 export const MUSIC_VIDEO_CAST_ROLE_OPTIONS = Object.freeze([
   { id: 'lead', label: 'Lead vocal' },

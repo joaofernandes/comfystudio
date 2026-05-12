@@ -655,6 +655,7 @@ export function flattenYoloPlanVariants(plan = []) {
       const textOverlay = sanitizeSnippet(shot?.textOverlay || '', 220)
       const endCard = sanitizeSnippet(shot?.endCard || '', 260)
       const dialogue = sanitizeSnippet(shot?.dialogue || '', 260)
+      const musicShotType = sanitizeSnippet(shot?.musicShotType || shot?.shotType || '', 80)
       const coverage = {
         type: sanitizeSnippet(shot?.coverageType || sceneCoverage.type || '', 80),
         label: sanitizeSnippet(shot?.coverageLabel || sceneCoverage.label || '', 100),
@@ -731,6 +732,7 @@ export function flattenYoloPlanVariants(plan = []) {
             textOverlay,
             endCard,
             dialogue,
+            musicShotType,
             // Music-video-only pass-throughs. Unset for ads. The queue code
             // reads resolvedArtistAssetIds (ordered list of up to 2 cast asset
             // ids) in music mode to override the default-artist reference.
