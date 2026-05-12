@@ -1136,6 +1136,7 @@ export const WORKFLOW_DEPENDENCY_PACKS = Object.freeze({
       { classType: 'LTXVPreprocess' },
       { classType: 'LTXVSeparateAVLatent' },
       { classType: 'LoadAudio' },
+      { classType: 'RTXVideoSuperResolution' },
       { classType: 'CreateVideo' },
       { classType: 'SaveVideo' },
     ]),

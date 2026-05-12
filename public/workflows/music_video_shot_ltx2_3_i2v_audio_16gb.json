@@ -486,10 +486,23 @@
   "5000": {
     "inputs": {
       "fps": ["1586", 0],
-      "images": ["1318", 0]
+      "images": ["6000", 0]
     },
     "class_type": "CreateVideo",
-    "_meta": { "title": "Create Video (silent)" }
+    "_meta": { "title": "Create Video (RTX upscaled, silent)" }
+  },
+  "6000": {
+    "inputs": {
+      "images": ["1318", 0],
+      "resize_type": {
+        "resize_type": "target dimensions",
+        "width": ["1606", 0],
+        "height": ["1591", 0]
+      },
+      "quality": "HIGH"
+    },
+    "class_type": "RTXVideoSuperResolution",
+    "_meta": { "title": "RTX Video Super Resolution (target output size)" }
   },
   "5001": {
     "inputs": {
