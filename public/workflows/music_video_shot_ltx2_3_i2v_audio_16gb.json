@@ -373,7 +373,7 @@
     "_meta": { "title": "BasicScheduler (Pass 2)" }
   },
   "2174": {
-    "inputs": { "sampler_name": "euler_cfg_pp" },
+    "inputs": { "sampler_name": "euler" },
     "class_type": "KSamplerSelect",
     "_meta": { "title": "KSamplerSelect (Pass 2)" }
   },
@@ -386,7 +386,7 @@
     "_meta": { "title": "ModelSamplingSD3 (Pass 2)" }
   },
   "2176": {
-    "inputs": { "sigmas": "0.85, 0.7250, 0.4219, 0.0" },
+    "inputs": { "sigmas": "0.909375, 0.725, 0.421875, 0.0" },
     "class_type": "ManualSigmas",
     "_meta": { "title": "ManualSigmas (Pass 2)" }
   },
@@ -406,7 +406,7 @@
     "_meta": { "title": "RandomNoise (Pass 1)" }
   },
   "2180": {
-    "inputs": { "sampler_name": "euler_ancestral_cfg_pp" },
+    "inputs": { "sampler_name": "euler" },
     "class_type": "KSamplerSelect",
     "_meta": { "title": "KSamplerSelect (Pass 1)" }
   },
@@ -485,7 +485,7 @@
   },
   "4109": {
     "inputs": {
-      "strength": 0.85,
+      "strength": 1,
       "bypass": false,
       "vae": ["1559", 0],
       "image": ["446", 0],
