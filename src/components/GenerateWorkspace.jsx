@@ -1081,8 +1081,9 @@ function normalizePersistedYoloPlan(rawPlan = []) {
 /**
  * Compose the motion/video prompt that gets written into the LTX 2.3
  * audio-conditioned workflow (node 1624). Built from the script's Motion
- * prompt + shot-type suffix + concept/style continuity lines + an optional
- * lyric cue (so the encoder has the line the singer is mouthing).
+ * prompt + concept/style continuity lines + an optional lyric cue (so the
+ * encoder has the line the singer is mouthing). The workflow modifier appends
+ * the shot-type suffix exactly once when it builds the final ComfyUI graph.
  */
 function composeMusicShotVideoPrompt({
   motionPromptRaw = '',
@@ -1100,11 +1101,8 @@ function composeMusicShotVideoPrompt({
   const motion = String(motionPromptRaw || '').trim()
   const conceptLine = String(concept || '').trim()
   const styleLine = String(styleNotes || '').trim()
-  const shotSuffix = String(shotTypeOption?.promptSuffix || '').trim()
-
   const parts = [
     motion,
-    shotSuffix,
     lyricCue ? `The artist visibly sings this exact lyric phrase: "${lyricCue}".` : '',
     conceptLine ? `Concept: ${conceptLine}.` : '',
     styleLine ? `Style: ${styleLine}.` : '',
