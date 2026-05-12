@@ -2481,6 +2481,14 @@ ipcMain.handle('workflowSetup:checkFiles', async (_event, payload = {}) => {
       dirListingCache.set(absoluteDir, lowerSet)
       return lowerSet
     }
+    const getPathVariants = (value) => {
+      const normalized = String(value || '').trim().replace(/\\/g, '/')
+      const parts = normalized.split('/').filter(Boolean)
+      return {
+        normalized,
+        basename: parts[parts.length - 1] || normalized,
+      }
+    }
 
     for (const file of files) {
       const filename = String(file?.filename || '').trim()
@@ -2505,14 +2513,25 @@ ipcMain.handle('workflowSetup:checkFiles', async (_event, payload = {}) => {
 
       let exists = false
       let resolvedPath = ''
-      const lowerTarget = filename.toLowerCase()
+      const targetVariants = getPathVariants(filename)
+      const lowerTarget = targetVariants.normalized.toLowerCase()
+      const lowerTargetBasename = targetVariants.basename.toLowerCase()
+
+      if (targetSubdir) {
+        const directPath = path.join(modelsPath, targetSubdir, targetVariants.normalized)
+        if (await pathExists(directPath)) {
+          exists = true
+          resolvedPath = directPath
+        }
+      }
 
       for (const subdir of candidateSubdirs) {
+        if (exists) break
         const absoluteDir = subdir ? path.join(modelsPath, subdir) : modelsPath
         const listing = await getDirListing(absoluteDir)
-        if (listing.has(lowerTarget)) {
+        if (listing.has(lowerTarget) || listing.has(lowerTargetBasename)) {
           exists = true
-          resolvedPath = path.join(absoluteDir, filename)
+          resolvedPath = path.join(absoluteDir, listing.has(lowerTarget) ? targetVariants.normalized : targetVariants.basename)
           break
         }
       }
