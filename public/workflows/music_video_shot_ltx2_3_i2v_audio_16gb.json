@@ -153,6 +153,11 @@
     "class_type": "PrimitiveFloat",
     "_meta": { "title": "FPS" }
   },
+  "1587": {
+    "inputs": { "value": 24 },
+    "class_type": "PrimitiveInt",
+    "_meta": { "title": "FPS (integer for frame trim)" }
+  },
   "1591": {
     "inputs": { "value": 512 },
     "class_type": "INTConstant",
@@ -542,7 +547,7 @@
       "frames_per_scene": ["1652", 1],
       "pre_frames": ["2014", 0],
       "chunk_index": ["2015", 0],
-      "fps": ["1586", 0]
+      "fps": ["1587", 0]
     },
     "class_type": "VRGDG_TrimImageBatch_SRTOnly",
     "_meta": { "title": "Trim Preroll Frames" }

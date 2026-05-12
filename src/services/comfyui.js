@@ -2649,6 +2649,9 @@ export function modifyMusicVideoShotWorkflow(workflow, options = {}) {
   if (modified['1586']?.inputs && 'value' in modified['1586'].inputs) {
     modified['1586'].inputs.value = numericFps
   }
+  if (modified['1587']?.inputs && 'value' in modified['1587'].inputs) {
+    modified['1587'].inputs.value = numericFps
+  }
   if (modified['1606']?.inputs && 'value' in modified['1606'].inputs) {
     modified['1606'].inputs.value = numericWidth
   }
