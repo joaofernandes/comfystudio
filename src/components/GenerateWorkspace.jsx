@@ -1763,6 +1763,10 @@ function buildMusicVideoLLMPrompt(options = {}) {
   // evenly across the song.
   const lyricsFormat = detectTimedLyricsFormat(lyrics)
   const lyricsIsTimed = lyricsFormat === 'srt' || lyricsFormat === 'lrc'
+  const timedLyricsForPrompt = lyricsIsTimed ? parseTimedLyrics(lyrics) : { lines: [] }
+  const firstTimedLyric = Array.isArray(timedLyricsForPrompt.lines) && timedLyricsForPrompt.lines.length > 0
+    ? timedLyricsForPrompt.lines[0]
+    : null
 
   const sections = []
 
@@ -1808,6 +1812,15 @@ function buildMusicVideoLLMPrompt(options = {}) {
   if (lyricsIsTimed) {
     const formatLabel = lyricsFormat.toUpperCase()
     sections.push(`Lyrics (${formatLabel} — authoritative timings, quote these exact times for "Start at:"):\n${lyrics.trim()}`)
+    if (firstTimedLyric && Number.isFinite(Number(firstTimedLyric.startSec))) {
+      const firstLyricStart = Number(firstTimedLyric.startSec)
+      sections.push([
+        'Timing guard:',
+        `  - The first timed vocal line begins at ${formatSecondsAsMMSS(firstLyricStart)}: "${String(firstTimedLyric.text || '').trim()}".`,
+        `  - Any shots before ${formatSecondsAsMMSS(firstLyricStart)} are intro/instrumental coverage: use Shot type: b_roll or non-singing performance_wide with NO Lyric moment.`,
+        '  - Never place a Lyric moment at 0:00 unless the SRT/LRC itself has that lyric starting at 0:00.',
+      ].join('\n'))
+    }
   } else if (lyrics.trim()) {
     sections.push(`Lyrics (plain text — no timings provided, estimate evenly across the song):\n${lyrics.trim()}`)
   } else {
@@ -1828,6 +1841,7 @@ function buildMusicVideoLLMPrompt(options = {}) {
     '  3. Main sequence and b-roll/detail/environment sections should tile the song with no big gaps. Performance passes may leave gaps during instrumental or non-vocal sections.',
     '  4. "Shot type:" must be one of: performance, performance_wide, b_roll. Use performance/performance_wide when the singer\'s face is visible and lip-syncing; use b_roll for everything else.',
     '  5. For vocal lines, add "Lyric moment:" quoting the specific lyric line. For instrumentals or b_roll, omit Lyric moment.',
+    '  5a. When SRT/LRC is provided, a Lyric moment can only appear at that lyric line\'s actual timestamp. Do not move later lyrics to the beginning of the song.',
     '  6. Use "Artist:" to pick which cast member appears. Omit when the shot is b_roll with no performer visible.',
     '  7. "Keyframe prompt:" describes the opening still and must include location, subject, wardrobe/props, lighting, color palette, and composition.',
     '  8. "Motion prompt:" describes what moves in the clip: lip-sync/performance action, body movement, camera movement, atmosphere, and any story action.',
@@ -1848,7 +1862,7 @@ function buildMusicVideoLLMPrompt(options = {}) {
     sections.push(`Master performance script (for timing and lyric reference ONLY — do NOT copy shots or imagery):\n${masterScript.trim()}`)
   }
 
-  sections.push(buildMusicVideoPassFormatSpec(effectivePass, effectiveCoveragePlan))
+  sections.push(buildMusicVideoPassFormatSpec(effectivePass, effectiveCoveragePlan, firstTimedLyric))
 
   return sections.join('\n\n')
 }
@@ -1927,7 +1941,7 @@ function buildMusicVideoPassRules(pass, variantDescriptor) {
   }
 }
 
-function buildMusicVideoPassFormatSpec(pass, coveragePlan = null) {
+function buildMusicVideoPassFormatSpec(pass, coveragePlan = null, firstTimedLyric = null) {
   const isBrollOnly = pass === 'environmental_broll' || pass === 'detail_broll'
   const plan = normalizeMusicVideoCoveragePlan(coveragePlan)
   const coverageHeader = plan ? [
@@ -1976,6 +1990,12 @@ function buildMusicVideoPassFormatSpec(pass, coveragePlan = null) {
     ].join('\n')
   }
 
+  const firstLyricStart = Number(firstTimedLyric?.startSec)
+  const hasFirstLyricStart = Number.isFinite(firstLyricStart) && firstLyricStart > 0
+  const firstLyricStartText = hasFirstLyricStart ? formatSecondsAsMMSS(firstLyricStart) : '0:08.5'
+  const introLength = hasFirstLyricStart ? Math.max(2, Math.min(8, firstLyricStart)).toFixed(1).replace(/\.0$/, '') : '8.5'
+  const firstLyricText = String(firstTimedLyric?.text || 'You paint your eyelids with correction fluid moons').trim()
+
   return [
     'Required output format (verbatim — one block per shot):',
     '',
@@ -1984,21 +2004,22 @@ function buildMusicVideoPassFormatSpec(pass, coveragePlan = null) {
     '',
     'Shot 1: Wide establishing',
     'Start at: 0:00',
-    'Lyric moment: "You paint your eyelids with correction fluid moons"',
-    'Shot type: performance_wide',
-    'Artist: rose',
-    'Keyframe prompt: Singer leans against a neon-lit phone booth, rain-slick street behind her, warm sodium-lamp glow.',
-    'Motion prompt: Slow push-in on the singer as she mouths the opening line, rain falling around her, headlights flaring in the distance.',
+    'Shot type: b_roll',
+    'Keyframe prompt: Empty neon-lit phone booth on a rain-slick street, warm sodium-lamp glow, no performer singing yet.',
+    'Motion prompt: Slow push-in through rain and headlight flares during the instrumental intro.',
     'Camera: Slow dolly forward, eye level, 35mm lens.',
-    'Length: 4.5',
+    `Length: ${introLength}`,
+    ...(hasFirstLyricStart && firstLyricStart > 8
+      ? ['', `(...continue intro b-roll coverage until the first vocal at ${firstLyricStartText}; do not add Lyric moment before then.)`]
+      : []),
     '',
     'Shot 2: Close-up',
-    'Start at: 0:04.5',
-    'Lyric moment: "Chewed up saints on the floor"',
+    `Start at: ${firstLyricStartText}`,
+    `Lyric moment: "${firstLyricText}"`,
     'Shot type: performance',
     'Artist: rose',
-    'Keyframe prompt: Tight close-up on the singer\'s eyes, mascara starting to run.',
-    'Motion prompt: Hold on her face as she sings, slight tilt down to catch a tear.',
+    'Keyframe prompt: Tight close-up on the singer\'s eyes, mascara starting to run, neon reflections in wet glass.',
+    'Motion prompt: Hold on her face as she sings the exact SRT line, visible mouth shapes matching the vocal.',
     'Camera: Handheld, 85mm, shallow depth of field.',
     'Length: 3.2',
     '',
