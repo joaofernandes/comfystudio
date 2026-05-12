@@ -3203,7 +3203,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
 
   // Hooks
   const { isConnected, wsConnected, queueCount, recheckConnection } = useComfyUI()
-  const { addAsset, generateName, assets } = useAssetsStore()
+  const { addAsset, generateName, removeAsset, assets } = useAssetsStore()
   const { currentProjectHandle, currentProject, saveProject } = useProjectStore()
   const timelineTracks = useTimelineStore((s) => s.tracks)
   const timelineAddTextClip = useTimelineStore((s) => s.addTextClip)
@@ -3212,6 +3212,47 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
   const timelineFps = useTimelineStore((s) => s.timelineFps)
   const frameForAI = useFrameForAIStore((s) => s.frame)
   const clearFrameForAI = useFrameForAIStore((s) => s.clearFrame)
+
+  const pruneMissingYoloStoryboardAssets = useCallback(async (mode = yoloModeKey) => {
+    if (!isElectron() || !window.electronAPI?.exists) return 0
+    const targetMode = String(mode || yoloModeKey || '').trim()
+    const storyboardAssets = assets.filter((asset) => {
+      if (asset?.type !== 'image' || asset?.yolo?.stage !== 'storyboard') return false
+      const assetMode = String(asset?.yolo?.mode || '').trim()
+      return targetMode === 'music' ? assetMode === 'music' : assetMode !== 'music'
+    })
+    if (storyboardAssets.length === 0) return 0
+
+    const missingIds = []
+    for (const asset of storyboardAssets) {
+      let filePath = String(asset?.absolutePath || '').trim()
+      if (!filePath && asset?.path && currentProjectHandle) {
+        try {
+          filePath = await window.electronAPI.pathJoin(currentProjectHandle, asset.path)
+        } catch (_) {
+          filePath = ''
+        }
+      }
+      if (!filePath) continue
+      let exists = true
+      try {
+        exists = await window.electronAPI.exists(filePath)
+      } catch (_) {
+        exists = true
+      }
+      if (!exists && asset?.id) missingIds.push(asset.id)
+    }
+
+    if (missingIds.length === 0) return 0
+    for (const assetId of missingIds) removeAsset(assetId)
+    addComfyLog('status', `Pruned ${missingIds.length} missing keyframe asset record${missingIds.length === 1 ? '' : 's'} from metadata.`)
+    try {
+      await saveProject?.()
+    } catch (error) {
+      console.warn('Failed to save project after pruning missing keyframe metadata:', error)
+    }
+    return missingIds.length
+  }, [addComfyLog, assets, currentProjectHandle, removeAsset, saveProject, yoloModeKey])
 
   // ComfyUI launcher state (drives gating banner and auto-dispatch behavior)
   const [launcherState, setLauncherState] = useState(() => (
@@ -6237,6 +6278,9 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     })
     setYoloPlan(normalizedPlan)
     setYoloPlanSignature(nextPlanSignature)
+    pruneMissingYoloStoryboardAssets('ad').catch((error) => {
+      console.warn('Failed to prune missing ad keyframe metadata:', error)
+    })
     setFormError(null)
     return normalizedPlan
   }, [
@@ -6260,6 +6304,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     yoloAdFormatPreset,
     yoloAdPlatformPreset,
     yoloAdConsistency,
+    pruneMissingYoloStoryboardAssets,
   ])
 
   /**
@@ -6378,6 +6423,9 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       // sensible default.
       setYoloMusicPlanWarnings(safeWarnings)
     }
+    pruneMissingYoloStoryboardAssets('music').catch((error) => {
+      console.warn('Failed to prune missing music keyframe metadata:', error)
+    })
     setFormError(null)
     return normalizedPlan
   }, [
@@ -6393,6 +6441,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     yoloMusicSongDurationSeconds,
     yoloMusicStyleNotes,
     yoloMusicTargetDuration,
+    pruneMissingYoloStoryboardAssets,
   ])
 
   const buildActiveYoloPlan = useCallback((options = {}) => (
