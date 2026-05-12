@@ -629,6 +629,8 @@ function getDirectorWorkflowShortToken(workflowId = '', stage = '') {
     case 'nano-banana-pro':
       return 'keyframe'
     case 'z-image-turbo':
+    case 'z-image-turbo-16gb':
+    case 'z-image-turbo-16gb-ipadapter':
       return 'keyframe'
     case 'grok-text-to-image':
       return 'keyframe'
@@ -9357,6 +9359,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
             job.workflowId === 'image-edit-model-product' ||
             job.workflowId === 'seedream-5-lite-image-edit' ||
             job.workflowId === 'z-image-turbo' ||
+            job.workflowId === 'z-image-turbo-16gb' ||
+            job.workflowId === 'z-image-turbo-16gb-ipadapter' ||
             job.workflowId === 'longcat-text-to-image' ||
             job.workflowId === 'ernie-image-turbo' ||
             job.workflowId === 'flux2-text-to-image' ||
