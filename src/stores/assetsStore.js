@@ -1,6 +1,93 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
+const Z_IMAGE_TURBO_PREFIX = 'z_image_turbo_'
+
+const isLegacyDirectorZImageAsset = (asset) => {
+  if (!asset || asset.type !== 'image') return false
+  if (asset?.yolo?.stage !== 'storyboard') return false
+  const pathValue = asset.path || asset.absolutePath || ''
+  const fileName = pathValue.replace(/\\/g, '/').split('/').pop() || ''
+  return fileName.startsWith(Z_IMAGE_TURBO_PREFIX)
+}
+
+const sanitizeAssetFileName = (name) => {
+  const safeName = String(name || '')
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+
+  return safeName || `keyframe_${Date.now()}`
+}
+
+const replacePathBasename = (pathValue, nextBaseName) => {
+  if (!pathValue) return pathValue
+  const normalized = String(pathValue).replace(/\\/g, '/')
+  const index = normalized.lastIndexOf('/')
+  return index >= 0 ? `${normalized.slice(0, index + 1)}${nextBaseName}` : nextBaseName
+}
+
+const buildLegacyDirectorZImageRepair = async (asset, projectHandle, resolvedAbsolutePath = null) => {
+  if (!isLegacyDirectorZImageAsset(asset)) return null
+  if (!window.electronAPI?.pathJoin || !window.electronAPI?.exists) return null
+
+  const sourceAbsolutePath = resolvedAbsolutePath || asset.absolutePath || (
+    asset.path ? await window.electronAPI.pathJoin(projectHandle, asset.path) : null
+  )
+  if (!sourceAbsolutePath) return null
+
+  const originalBaseName = asset.path || asset.absolutePath || sourceAbsolutePath
+  const originalFileName = originalBaseName.replace(/\\/g, '/').split('/').pop() || ''
+  const originalExtMatch = originalFileName.match(/\.[^.]+$/)
+  const extension = originalExtMatch?.[0] || '.png'
+  const targetFileName = `${sanitizeAssetFileName(asset.name)}${extension}`
+  const nextRelativePath = asset.path
+    ? replacePathBasename(asset.path, targetFileName)
+    : `assets/images/${targetFileName}`
+  const nextAbsolutePath = await window.electronAPI.pathJoin(projectHandle, nextRelativePath)
+
+  const sourceExists = await window.electronAPI.exists(sourceAbsolutePath)
+  const targetExists = await window.electronAPI.exists(nextAbsolutePath)
+
+  if (!sourceExists && targetExists) {
+    return {
+      asset: {
+        ...asset,
+        path: nextRelativePath,
+        absolutePath: nextAbsolutePath,
+      },
+      absolutePath: nextAbsolutePath,
+      renamed: false,
+      recoveredExisting: true,
+    }
+  }
+
+  if (!sourceExists || targetExists || sourceAbsolutePath === nextAbsolutePath) {
+    return null
+  }
+
+  if (!window.electronAPI?.moveFile) return null
+
+  const result = await window.electronAPI.moveFile(sourceAbsolutePath, nextAbsolutePath)
+  if (!result?.success) {
+    console.warn(`[Assets] Could not rename legacy Director keyframe ${originalFileName}:`, result?.error)
+    return null
+  }
+
+  return {
+    asset: {
+      ...asset,
+      path: nextRelativePath,
+      absolutePath: nextAbsolutePath,
+    },
+    absolutePath: nextAbsolutePath,
+    renamed: true,
+    recoveredExisting: false,
+  }
+}
+
 /**
  * Store for managing generated and imported assets
  * Persisted to localStorage for data survival across refreshes
@@ -443,6 +530,7 @@ export const useAssetsStore = create(
     // Load assets - URLs need to be regenerated for imported assets
     const assetsWithUrls = []
     const prunedMissingAssets = []
+    const repairedAssets = []
     let loadedAssetCount = 0
     
     for (const asset of sourceAssets) {
@@ -468,6 +556,19 @@ export const useAssetsStore = create(
               if (await window.electronAPI.exists(candidatePath)) {
                 resolvedAbsolutePath = candidatePath
               }
+            }
+
+            const repairResult = await buildLegacyDirectorZImageRepair(asset, projectHandle, resolvedAbsolutePath)
+            if (repairResult?.asset && repairResult.absolutePath) {
+              Object.assign(asset, repairResult.asset)
+              resolvedAbsolutePath = repairResult.absolutePath
+              repairedAssets.push({
+                id: asset.id,
+                name: asset.name,
+                path: asset.path,
+                renamed: repairResult.renamed,
+                recoveredExisting: repairResult.recoveredExisting,
+              })
             }
 
             if ((hasAbsolutePath || hasPath) && !resolvedAbsolutePath) {
@@ -631,9 +732,13 @@ export const useAssetsStore = create(
     if (prunedMissingAssets.length > 0) {
       console.warn(`Pruned ${prunedMissingAssets.length} missing project asset record${prunedMissingAssets.length === 1 ? '' : 's'} during project load.`)
     }
+    if (repairedAssets.length > 0) {
+      console.warn(`Repaired ${repairedAssets.length} legacy Director keyframe asset path${repairedAssets.length === 1 ? '' : 's'} during project load.`)
+    }
     return {
       assets: assetsWithUrls,
       prunedMissingAssets,
+      repairedAssets,
     }
   },
 

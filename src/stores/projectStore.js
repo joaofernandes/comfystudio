@@ -166,7 +166,9 @@ const hydrateOpenedProjectSession = async (projectHandleOrPath, rawProjectData, 
     (assetLoadResult?.prunedMissingAssets || []).map((asset) => asset?.id).filter(Boolean)
   )
   const shouldPersistPrunedAssets = removedAssetIds.size > 0
-  const openedProjectData = shouldPersistPrunedAssets
+  const repairedAssetCount = assetLoadResult?.repairedAssets?.length || 0
+  const shouldPersistAssetMetadata = shouldPersistPrunedAssets || repairedAssetCount > 0
+  const openedProjectData = shouldPersistAssetMetadata
     ? {
         ...projectData,
         assets: useAssetsStore.getState().getProjectData(),
@@ -177,11 +179,11 @@ const hydrateOpenedProjectSession = async (projectHandleOrPath, rawProjectData, 
       }
     : projectData
 
-  if (shouldPersistPrunedAssets) {
+  if (shouldPersistAssetMetadata) {
     try {
       await saveProjectToFile(projectHandleOrPath, openedProjectData)
     } catch (err) {
-      console.warn('Failed to persist pruned missing asset metadata:', err)
+      console.warn('Failed to persist repaired asset metadata:', err)
     }
   }
 
