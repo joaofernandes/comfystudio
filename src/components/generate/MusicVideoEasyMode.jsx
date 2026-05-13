@@ -346,7 +346,6 @@ function inferPeopleWizardAssetPrefix(asset, fallbackValue = '') {
     .replace(/_(image|sheet)$/i, '')
   return normalizeCastSlug(baseName || fallbackValue || '')
 }
-
 function getVideoWorkflowScopedKey(variantKey, workflowId) {
   const key = String(variantKey || '').trim()
   const workflow = String(workflowId || '').trim()
