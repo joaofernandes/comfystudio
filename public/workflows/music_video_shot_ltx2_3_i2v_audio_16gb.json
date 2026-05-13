@@ -132,7 +132,7 @@
   },
   "504": {
     "inputs": {
-      "chunks": 6,
+      "chunks": 8,
       "dim_threshold": 4096,
       "model": [
         "268",
@@ -141,7 +141,7 @@
     },
     "class_type": "LTXVChunkFeedForward",
     "_meta": {
-      "title": "LTXV Chunk FeedForward (16GB VRAM Test: chunks 6, dim 4096)"
+      "title": "LTXV Chunk FeedForward (16GB VRAM Test: chunks 8, dim 4096)"
     }
   },
   "1318": {
@@ -906,6 +906,23 @@
       "title": "LTX IC-LoRA Loader (Union Control)"
     }
   },
+  "6004": {
+    "inputs": {
+      "preview_rate": 8,
+      "model": [
+        "2150",
+        0
+      ],
+      "vae": [
+        "1569",
+        0
+      ]
+    },
+    "class_type": "LTX2SamplingPreviewOverride",
+    "_meta": {
+      "title": "LTX2 Sampling Preview Override (Base Model Pass 2)"
+    }
+  },
   "6002": {
     "inputs": {
       "positive": [
@@ -929,13 +946,10 @@
         0
       ],
       "frame_idx": 0,
-      "strength": 0.65,
-      "latent_downscale_factor": [
-        "6001",
-        1
-      ],
+      "strength": 0.45,
+      "latent_downscale_factor": 2,
       "crop": "disabled",
-      "use_tiled_encode": false,
+      "use_tiled_encode": true,
       "tile_size": 256,
       "tile_overlap": 64
     },

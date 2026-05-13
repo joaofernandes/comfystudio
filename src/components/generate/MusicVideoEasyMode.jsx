@@ -927,6 +927,7 @@ export default function MusicVideoEasyMode({
         allowExistingDoneKeys: true,
         sourceLabel: `Music Video Easy Mode ${selectedKeyframeWorkflowLabel} keyframe regeneration pass`,
         resolutionOverride: outputResolution,
+        seedBaseOverride: Math.floor(Math.random() * 1000000000),
       })
       setKeyframeStatus(queued > 0 ? `Queued ${plural(queued, `${selectedKeyframeWorkflowLabel} keyframe regeneration job`)}.` : 'No keyframe regeneration jobs were queued. Check whether those shots are already running.')
     } finally {

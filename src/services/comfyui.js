@@ -2708,13 +2708,17 @@ export function modifyMusicVideoShotWorkflow(workflow, options = {}) {
   // Use it only for non-vocal/b-roll shots, where identity/hand stability is
   // more important than mouth articulation. Performance shots keep the older
   // graph path so lip-sync conditioning is not over-constrained.
-  const useBrollIcLoraGuide = Boolean(!shotTypeOption?.needsVocalAlignment)
+  const useBrollIcLoraGuide = false
   const useBrollIcLoraPass2Guide = false
   if (modified['6001']?.inputs && 'strength_model' in modified['6001'].inputs) {
     modified['6001'].inputs.strength_model = useBrollIcLoraGuide ? 1 : 0
   }
   if (modified['6002']?.inputs && 'strength' in modified['6002'].inputs) {
-    modified['6002'].inputs.strength = useBrollIcLoraGuide ? 0.65 : 0
+    modified['6002'].inputs.strength = useBrollIcLoraGuide ? 0.45 : 0
+    modified['6002'].inputs.latent_downscale_factor = useBrollIcLoraGuide ? 2 : modified['6002'].inputs.latent_downscale_factor
+    if ('use_tiled_encode' in modified['6002'].inputs) modified['6002'].inputs.use_tiled_encode = Boolean(useBrollIcLoraGuide)
+    if ('tile_size' in modified['6002'].inputs) modified['6002'].inputs.tile_size = 256
+    if ('tile_overlap' in modified['6002'].inputs) modified['6002'].inputs.tile_overlap = 64
   }
   if (modified['6003']?.inputs && 'strength' in modified['6003'].inputs) {
     modified['6003'].inputs.strength = useBrollIcLoraPass2Guide ? 0.55 : 0
@@ -2738,6 +2742,12 @@ export function modifyMusicVideoShotWorkflow(workflow, options = {}) {
       modified['2177'].inputs.negative = ['164', 1]
     }
   } else if (!useBrollIcLoraPass2Guide) {
+    if (modified['2175']?.inputs && 'model' in modified['2175'].inputs) {
+      modified['2175'].inputs.model = modified['6004'] ? ['6004', 0] : ['2150', 0]
+    }
+    if (modified['2177']?.inputs && 'model' in modified['2177'].inputs) {
+      modified['2177'].inputs.model = modified['6004'] ? ['6004', 0] : ['2150', 0]
+    }
     if (modified['2153']?.inputs && 'video_latent' in modified['2153'].inputs) {
       modified['2153'].inputs.video_latent = ['2183', 0]
     }

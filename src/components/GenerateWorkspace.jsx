@@ -210,6 +210,10 @@ function compareYoloVariantsInPlanOrder(a, b) {
   return (Number(a?.take) || 0) - (Number(b?.take) || 0)
 }
 
+function makeRandomDirectorSeedBase() {
+  return Math.floor(Math.random() * 1000000000)
+}
+
 const YOLO_AD_STAGE_TIER_OPTIONS = Object.freeze({
   local: Object.freeze([
     { id: 'low', label: 'Low VRAM' },
@@ -1961,6 +1965,8 @@ function buildMusicVideoCoveragePlanPrompt(coveragePlan) {
     'Coverage plan:',
     'Return ONE combined script containing these coverage sections in this exact order. Do not return separate files.',
     'Each coverage section contains normal Shot blocks. Every shot still needs Start at, Shot type, Keyframe prompt, Motion prompt, Camera, and Length.',
+    'Every non-performance-only coverage section must cover the full audio duration, not only the span containing lyrics. If the final lyric ends before the music ends, continue with outro/instrumental b-roll until the song ends.',
+    'B-roll shot starts must NOT be constrained to lyric/SRT offsets. Use lyric timings only as emotional/story landmarks, then create continuous b-roll coverage between and beyond those lyric moments.',
     'Do not write one long take for any pass. Break every pass into 2-8 second clips aligned to the song timing.',
     'Use the exact Coverage type and Coverage label fields shown below so ComfyStudio can group the shots later.',
     '',
@@ -2120,6 +2126,19 @@ function buildMusicVideoLLMPrompt(options = {}) {
   songMeta.push(`Target music-video length: ~${targetDuration}s`)
   sections.push(songMeta.join('\n'))
 
+  const fullTimelineDuration = Number(songDurationSeconds) > 0
+    ? Number(songDurationSeconds)
+    : Number(targetDuration)
+  if (Number.isFinite(fullTimelineDuration) && fullTimelineDuration > 0) {
+    sections.push([
+      'Full-song coverage requirement:',
+      `  - The script timeline MUST cover the full audio duration through approximately ${formatSecondsAsMMSS(fullTimelineDuration)} (${fullTimelineDuration.toFixed(1)}s).`,
+      '  - Lyrics/SRT lines are timing anchors for vocal moments only; the last lyric is NOT the end of the music video unless it also reaches the full audio duration.',
+      '  - If the song continues after the final lyric, fill the outro/instrumental tail with b_roll or non-singing performance_wide shots. Omit Lyric moment during those sections.',
+      '  - The final shot should end at, or slightly after, the full song duration. Do not stop the plan at the final lyric line.',
+    ].join('\n'))
+  }
+
   // B-roll-only passes don't need the cast roster — there are no performers
   // to reference. Keeping it out of the prompt avoids tempting the LLM to
   // slip in an Artist: line on a b_roll shot.
@@ -2157,6 +2176,7 @@ function buildMusicVideoLLMPrompt(options = {}) {
         'Timing guard:',
         `  - The first timed vocal line begins at ${formatSecondsAsMMSS(firstLyricStart)}: "${String(firstTimedLyric.text || '').trim()}".`,
         `  - Any shots before ${formatSecondsAsMMSS(firstLyricStart)} are intro/instrumental coverage: use Shot type: b_roll or non-singing performance_wide with NO Lyric moment.`,
+        '  - Any music after the final timed lyric is outro/instrumental coverage: continue the shot plan with b_roll or non-singing performance_wide until the full song duration is covered.',
         '  - Never place a Lyric moment at 0:00 unless the SRT/LRC itself has that lyric starting at 0:00.',
       ].join('\n'))
     }
@@ -2178,7 +2198,7 @@ function buildMusicVideoLLMPrompt(options = {}) {
     '  0. The returned script must be self-contained. Put the story, setting, wardrobe, lighting, color, continuity, and camera language directly inside each shot block.',
     '  1. Every shot MUST include a "Start at:" field with a time like "0:15" or "15.5s". If you pasted SRT/LRC, use the exact start of the matching line.',
     '  2. Every shot MUST include "Length:" in seconds (between 2 and 8 — LTX 2.3 works best here).',
-    '  3. Main sequence and b-roll/detail/environment sections should tile the song with no big gaps. Performance passes may leave gaps during instrumental or non-vocal sections.',
+    '  3. Main sequence and b-roll/detail/environment sections MUST tile the full song/audio duration with no big gaps, including intro, instrumental breaks, and any outro after the final lyric. Performance-only passes may leave gaps during instrumental or non-vocal sections.',
     '  4. "Shot type:" must be one of: performance, performance_wide, b_roll. Use performance/performance_wide when the singer\'s face is visible and lip-syncing; use b_roll for everything else.',
     '  4a. A b_roll shot may include Artist only as a visual/non-singing reference. If a band/performance cast member is singing or mouthing lyrics, the shot type MUST be performance or performance_wide, not b_roll.',
     '  4b. If the coverage section is story_broll, every shot MUST include Artist and show that person/cast member as the subject. Empty places, abstract atmosphere, and object-only inserts are reserved for environmental_broll/detail_broll sections.',
@@ -2194,6 +2214,7 @@ function buildMusicVideoLLMPrompt(options = {}) {
     '  8c. "Camera:" MUST include a deliberate camera movement or locked-off choice plus lens/framing language. Avoid generic "cinematic camera".',
     '  9. Keep wardrobe, location, and lighting consistent across adjacent shots unless the script deliberately calls for a hard cut.',
     '  10. Do NOT invent lyrics. If the song is instrumental at a given moment, omit Lyric moment for that shot.',
+    '  11. Before returning the script, verify the final shot end time reaches the full song duration, not merely the final lyric timestamp.',
   ]
   sections.push(rules.join('\n'))
 
@@ -2204,9 +2225,13 @@ function buildMusicVideoLLMPrompt(options = {}) {
   if (passRules) sections.push(passRules)
 
   // For alt passes, feed the current master script in so the LLM can anchor
-  // timings + lyric moments without us having to re-emit the SRT separately.
+  // lyric moments and story energy without us having to re-emit the SRT
+  // separately. B-roll passes must still create their own continuous timeline.
   if (effectivePass !== 'master' && masterScript.trim()) {
-    sections.push(`Master performance script (for timing and lyric reference ONLY — do NOT copy shots or imagery):\n${masterScript.trim()}`)
+    const masterReferenceLabel = isBrollOnlyPass
+      ? 'Master performance script (for lyric/story landmarks ONLY — do NOT copy shot timings, shots, or imagery; create continuous b-roll coverage across the full song):'
+      : 'Master performance script (for timing and lyric reference ONLY — do NOT copy shots or imagery):'
+    sections.push(`${masterReferenceLabel}\n${masterScript.trim()}`)
   }
 
   sections.push(buildMusicVideoPassFormatSpec(effectivePass, effectiveCoveragePlan, firstTimedLyric))
@@ -2638,7 +2663,8 @@ function buildMusicVideoPassRules(pass, variantDescriptor) {
         '  - Imagery should establish PLACES and ATMOSPHERE: empty rooms, exterior locations, weather, landscapes, vehicles without occupants, environmental textures.',
         '  - Build a clear environmental story with start, middle, and end. Reuse the same locations, symbols, and public pressure as the main/story b-roll idea instead of inventing unrelated places.',
         '  - Every environmental shot should reveal a story consequence: buildup, escalation, threat, aftermath, escape route, public reaction, or final quiet.',
-        '  - REUSE the Start at: and Length: values from the master script below so this pass lines up frame-accurately in an NLE. If the master has no shot at a given moment, invent one that fills the gap.',
+        '  - Do NOT reuse only the master performance shot timings. Create a continuous b-roll shot grid from 0:00 to the full song end, filling every instrumental, intro, outro, and non-vocal gap.',
+        '  - Use the master script and SRT only as landmarks for where the emotional/story energy changes. B-roll Start at values may fall between lyric offsets and should not require Lyric moment.',
         '  - Favor medium-to-wide framings. Shot lengths should skew 4–7s. Let shots breathe.',
         '  - INVENT NEW IMAGERY. Do NOT copy the master script\'s Keyframe prompt or Motion prompt text.',
       ].join('\n')
@@ -2651,7 +2677,7 @@ function buildMusicVideoPassRules(pass, variantDescriptor) {
         '  - Imagery should be TIGHT and TEXTURAL: macro shots of gear (frets, strings, picks, pedals, drums, amp grilles, cables, VU meters), small story objects, close-ups of textures, materials, and details.',
         '  - Build a clear detail story with start, middle, and end using recurring symbols/props/materials from the same b-roll narrative. Details should feel like evidence from the larger story, not random inserts.',
         '  - Every detail shot should reveal a story clue, emotional pressure point, transformation, damage, warning, decision, or aftermath.',
-        '  - You do NOT need to match the master script\'s shot boundaries. It is ENCOURAGED to subdivide longer master shots into multiple shorter detail shots.',
+        '  - You do NOT need to match the master script\'s shot boundaries or lyric offsets. It is ENCOURAGED to subdivide the full song timeline into multiple shorter detail shots.',
         '  - Shot lengths should skew SHORTER: 2–4s is ideal, occasionally up to 5s.',
         '  - Still cover the full song with no gaps >3s.',
         '  - INVENT NEW IMAGERY. Do NOT copy the master script\'s Keyframe prompt or Motion prompt text.',
@@ -7866,6 +7892,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       productAssetIdOverride = undefined,
       modelAssetIdOverride = undefined,
       resolutionOverride = null,
+      seedBaseOverride = null,
     } = options
 
     if (!Array.isArray(variants) || variants.length === 0) {
@@ -7959,6 +7986,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       width: Number(resolutionOverride?.width) || Number(baseStoryboardResolution?.width) || effectiveImageResolution.width,
       height: Number(resolutionOverride?.height) || Number(baseStoryboardResolution?.height) || effectiveImageResolution.height,
     }
+    const baseSeed = Number.isFinite(Number(seedBaseOverride)) ? Number(seedBaseOverride) : Number(seed)
     const jobs = variantsToQueue.map((variant, index) => {
       const effectiveStoryboardWorkflowId = isYoloMusicMode
         ? getMusicStoryboardWorkflowIdForVariant(variant)
@@ -7970,9 +7998,9 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       const angleNum = extractNumericId(variant.angle, 1)
       const takeNum = extractNumericId(variant.take, 1)
       // Keep consistency behavior, but ensure each take gets a distinct seed.
-      const strictSeed = Number(seed) + (sceneNum * 1000) + (shotNum * 10) + takeNum
-      const mediumSeed = Number(seed) + (sceneNum * 100000) + (shotNum * 1000) + (angleNum * 100) + (takeNum * 10)
-      const softSeed = Number(seed) + index + 1
+      const strictSeed = baseSeed + (sceneNum * 1000) + (shotNum * 10) + takeNum
+      const mediumSeed = baseSeed + (sceneNum * 100000) + (shotNum * 1000) + (angleNum * 100) + (takeNum * 10)
+      const softSeed = baseSeed + index + 1
       const storyboardSeed = (
         yoloAdConsistency === 'strict'
           ? strictSeed
@@ -8114,6 +8142,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       productAssetIdOverride = undefined,
       modelAssetIdOverride = undefined,
       resolutionOverride = null,
+      seedBaseOverride = null,
     } = options || {}
     if (!isConnected) {
       setFormError('ComfyUI is not connected yet. Start ComfyUI, then queue keyframes.')
@@ -8168,6 +8197,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       productAssetIdOverride,
       modelAssetIdOverride,
       resolutionOverride,
+      seedBaseOverride,
     })
   }, [
     assets,
@@ -8189,6 +8219,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
   const handleQueueYoloShotStoryboard = useCallback(async (sceneId, shotId, options = {}) => {
     const {
       resolutionOverride = null,
+      seedBaseOverride = makeRandomDirectorSeedBase(),
     } = options || {}
     if (!isConnected) return
     if (yoloActivePlanIsStale) {
@@ -8236,6 +8267,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       skipConfirm: true,
       sourceLabel: `Queued keyframe re-render for ${sceneId} ${shotId}`,
       resolutionOverride,
+      seedBaseOverride,
     })
   }, [
     buildActiveYoloPlan,
@@ -8255,6 +8287,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
   const handleQueueYoloShotStoryboards = useCallback(async (targets = [], options = {}) => {
     const {
       resolutionOverride = null,
+      seedBaseOverride = makeRandomDirectorSeedBase(),
     } = options || {}
     const targetKeys = new Set(
       (Array.isArray(targets) ? targets : [])
@@ -8311,6 +8344,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       skipConfirm: true,
       sourceLabel: `Queued keyframe re-render for ${targetKeys.size} selected shots`,
       resolutionOverride,
+      seedBaseOverride,
     })
   }, [
     buildActiveYoloPlan,
@@ -8335,6 +8369,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       suppressEmptyError = false,
       sourceLabel = `${DIRECTOR_MODE_BETA_LABEL} ${yoloModeLabel.toLowerCase()} video pass`,
       resolutionOverride = null,
+      seedBaseOverride = null,
     } = options
 
     if (!Array.isArray(variants) || variants.length === 0) {
@@ -8469,6 +8504,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       width: Number(resolutionOverride?.width) || resolution.width,
       height: Number(resolutionOverride?.height) || resolution.height,
     }
+    const baseSeed = Number.isFinite(Number(seedBaseOverride)) ? Number(seedBaseOverride) : Number(seed)
     for (const variant of variantsToQueue) {
       const activeStoryboardCreatedAt = activeStoryboardCreatedAtByKey.get(variant.key) || 0
       const shouldWaitForQueuedStoryboard = activeStoryboardKeys.has(variant.key)
@@ -8543,7 +8579,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
           : buildMusicVideoNegativePrompt(negativePrompt, musicShotPayload?.shotType),
         duration: musicShotPayload?.length || videoDuration,
         fps: requestedFps,
-        seed: Number(seed) + seedOffset,
+        seed: baseSeed + seedOffset,
         resolution: videoResolution,
         referenceAssetId1: null,
         referenceAssetId2: null,
@@ -8852,6 +8888,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       skipStaleCheck = false,
       targetWorkflowIds = null,
       resolutionOverride = null,
+      seedBaseOverride = makeRandomDirectorSeedBase(),
     } = options || {}
     if (!isConnected) return
     if (yoloActivePlanIsStale && !skipStaleCheck) {
@@ -8898,6 +8935,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         skipConfirm: true,
         suppressEmptyError: targets.length > 1,
         resolutionOverride,
+        seedBaseOverride,
         sourceLabel: `Queued video re-render for ${sceneId} ${shotId} (${getWorkflowDisplayLabel(targetWorkflowId)})`,
       })
     }
@@ -8920,6 +8958,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       skipStaleCheck = false,
       targetWorkflowIds = null,
       resolutionOverride = null,
+      seedBaseOverride = makeRandomDirectorSeedBase(),
     } = options || {}
     const targetKeys = new Set(
       (Array.isArray(targets) ? targets : [])
@@ -8975,6 +9014,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         skipConfirm: true,
         suppressEmptyError: targetsWorkflowIds.length > 1,
         resolutionOverride,
+        seedBaseOverride,
         sourceLabel: `Queued video re-render for ${targetKeys.size} selected shots (${getWorkflowDisplayLabel(targetWorkflowId)})`,
       })
     }
