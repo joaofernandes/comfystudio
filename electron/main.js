@@ -2399,6 +2399,58 @@ ipcMain.handle('workflowSetup:validateRoot', async (event, rootPath) => {
   }
 })
 
+
+ipcMain.handle('workflowSetup:checkPythonModules', async (_event, payload = {}) => {
+  const modules = (Array.isArray(payload?.modules) ? payload.modules : [])
+    .map((entry) => String(entry?.moduleName || entry || '').trim())
+    .filter(Boolean)
+  const results = []
+
+  try {
+    const validation = await validateWorkflowSetupRootInternal(payload?.comfyRootPath)
+    if (!validation.isValid || !validation.python?.command) {
+      return {
+        success: false,
+        error: validation.error || 'ComfyUI Python is not configured.',
+        results: modules.map((moduleName) => ({ moduleName, available: false, error: validation.error || 'ComfyUI Python is not configured.' })),
+      }
+    }
+
+    for (const moduleName of modules) {
+      const script = [
+        'import importlib.util, importlib, json, sys',
+        `name = ${JSON.stringify('${MODULE_NAME}')} `,
+      ].join('\n').replace('${MODULE_NAME}', moduleName)
+      const probeScript = `${script}\ntry:\n    spec = importlib.util.find_spec(name)\n    if spec is None:\n        print(json.dumps({\"available\": False, \"moduleName\": name}))\n        sys.exit(1)\n    module = importlib.import_module(name)\n    print(json.dumps({\"available\": True, \"moduleName\": name, \"version\": str(getattr(module, \"__version__\", \"\"))}))\nexcept Exception as exc:\n    print(json.dumps({\"available\": False, \"moduleName\": name, \"error\": str(exc)}))\n    sys.exit(1)`
+      const probe = await captureCommandOutput(
+        validation.python.command,
+        [...(validation.python.baseArgs || []), '-c', probeScript],
+        5000
+      )
+      let parsed = null
+      try {
+        parsed = JSON.parse(String(probe.output || '').trim())
+      } catch (_) {
+        parsed = null
+      }
+      results.push({
+        moduleName,
+        available: Boolean(probe.success && parsed?.available),
+        version: String(parsed?.version || '').trim(),
+        error: probe.success ? '' : (String(parsed?.error || probe.error || 'Module was not detected.')),
+      })
+    }
+
+    return { success: true, results }
+  } catch (error) {
+    return {
+      success: false,
+      error: error?.message || 'Could not check ComfyUI Python modules.',
+      results: modules.map((moduleName) => ({ moduleName, available: false, error: error?.message || 'Could not check ComfyUI Python modules.' })),
+    }
+  }
+})
+
 ipcMain.handle('workflowSetup:checkFiles', async (_event, payload = {}) => {
   const results = []
   try {

@@ -9,7 +9,69 @@
  */
 
 export const MUSIC_VIDEO_SHOT_WORKFLOW_ID = 'music-video-shot-ltx23'
+export const MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID = 'music-video-shot-ltx23-low-vram'
+export const MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID = 'music-video-shot-ltx23-low-vram-fast'
+export const MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID = 'music-video-shot-ltx23-16gb'
 export const VOCAL_EXTRACT_WORKFLOW_ID = 'vocal-extract-melband'
+
+export const MUSIC_VIDEO_SHOT_WORKFLOW_ALIASES = Object.freeze({
+  [MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID]: MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID,
+})
+
+export const MUSIC_VIDEO_SHOT_WORKFLOW_IDS = Object.freeze([
+  MUSIC_VIDEO_SHOT_WORKFLOW_ID,
+  MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID,
+  MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID,
+])
+
+export function normalizeMusicVideoShotWorkflowId(workflowId = '') {
+  const normalized = String(workflowId || '').trim()
+  return MUSIC_VIDEO_SHOT_WORKFLOW_ALIASES[normalized] || normalized
+}
+
+export function isMusicVideoShotWorkflowId(workflowId = '') {
+  return MUSIC_VIDEO_SHOT_WORKFLOW_IDS.includes(normalizeMusicVideoShotWorkflowId(workflowId))
+}
+
+export function isMusicVideoFastLowVramWorkflowId(workflowId = '') {
+  return normalizeMusicVideoShotWorkflowId(workflowId) === MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID
+}
+
+export function getMusicVideoShotWorkflowLabel(workflowId = '') {
+  switch (normalizeMusicVideoShotWorkflowId(workflowId)) {
+    case MUSIC_VIDEO_SHOT_WORKFLOW_ID:
+      return 'Music Video Shot (LTX 2.3 + Audio)'
+    case MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID:
+      return 'Music Video Shot (LTX 2.3 Low VRAM)'
+    case MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID:
+      return 'Music Video Shot (LTX 2.3 Fast Low VRAM)'
+    default:
+      return ''
+  }
+}
+
+export function getMusicVideoShotWorkflowHardware(workflowId = '') {
+  switch (normalizeMusicVideoShotWorkflowId(workflowId)) {
+    case MUSIC_VIDEO_SHOT_WORKFLOW_ID:
+      return Object.freeze({
+        tierId: 'pro',
+        runtime: 'local',
+        minimumVramGb: 24,
+        recommendedVramGb: 32,
+      })
+    case MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID:
+    case MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID:
+      return Object.freeze({
+        tierId: 'standard',
+        runtime: 'local',
+        minimumVramGb: 14,
+        recommendedVramGb: 16,
+      })
+    default:
+      return null
+  }
+}
+
 
 /**
  * Shot-type taxonomy.
@@ -358,6 +420,95 @@ export function normalizeMusicVideoShot(rawShot = {}) {
       ? Math.round(Number(rawShot?.seed))
       : null,
   }
+}
+
+export function normalizeMusicVideoPlanMatchText(value = '') {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function buildMusicVideoShotPlanMatchSignature({
+  workflowId = '',
+  variantKey = '',
+  shotType = '',
+  audioStart = 0,
+  length = 0,
+  shotPrompt = '',
+} = {}) {
+  const safeNumber = (value) => {
+    const numeric = Number(value)
+    return Number.isFinite(numeric) ? Number(numeric.toFixed(2)) : 0
+  }
+
+  return JSON.stringify({
+    workflowId: String(workflowId || '').trim(),
+    variantKey: String(variantKey || '').trim(),
+    shotType: String(shotType || '').trim(),
+    audioStart: safeNumber(audioStart),
+    length: safeNumber(length),
+    shotPrompt: normalizeMusicVideoPlanMatchText(shotPrompt),
+  })
+}
+
+export function musicVideoAssetMatchesCurrentShot(asset, {
+  workflowId = '',
+  variantKey = '',
+  shotType = '',
+  audioStart = 0,
+  length = 0,
+  shotPrompt = '',
+} = {}) {
+  if (!asset || asset.type !== 'video') return false
+  const meta = asset.yolo || {}
+  if (meta.mode !== 'music' || meta.stage !== 'video') return false
+  const currentWorkflowId = String(workflowId || '').trim()
+  const currentVariantKey = String(variantKey || '').trim()
+  if (currentWorkflowId && String(meta.workflowId || '').trim() !== currentWorkflowId) return false
+  if (currentVariantKey && String(meta.variantKey || '').trim() !== currentVariantKey) return false
+
+  if (meta.shotPlanSignature) {
+    try {
+      const signature = JSON.parse(String(meta.shotPlanSignature))
+      const expectedLength = Number(length)
+      const signatureLength = Number(signature?.length)
+      const expectedAudioStart = Number(audioStart)
+      const signatureAudioStart = Number(signature?.audioStart)
+      if (currentWorkflowId && String(signature?.workflowId || '').trim() !== currentWorkflowId) return false
+      if (currentVariantKey && String(signature?.variantKey || '').trim() !== currentVariantKey) return false
+      if (shotType && String(signature?.shotType || '').trim() !== String(shotType || '').trim()) return false
+      if (
+        Number.isFinite(expectedLength) &&
+        Number.isFinite(signatureLength) &&
+        Math.abs(signatureLength - expectedLength) > 0.25
+      ) return false
+      if (
+        Number.isFinite(expectedAudioStart) &&
+        Number.isFinite(signatureAudioStart) &&
+        Math.abs(signatureAudioStart - expectedAudioStart) > 0.25
+      ) return false
+    } catch (_) {
+      // Older/corrupt signatures should not make otherwise keyed assets unusable.
+    }
+  }
+
+  const expectedPrompt = normalizeMusicVideoPlanMatchText(shotPrompt)
+  const assetPrompt = normalizeMusicVideoPlanMatchText(asset.prompt)
+  if (!currentVariantKey && expectedPrompt && assetPrompt && expectedPrompt !== assetPrompt) return false
+
+  const expectedLength = Number(length)
+  const assetDuration = Number(asset?.settings?.duration ?? asset?.duration ?? meta?.length ?? meta?.durationSeconds)
+  if (Number.isFinite(expectedLength) && expectedLength > 0 && Number.isFinite(assetDuration) && assetDuration > 0) {
+    if (Math.abs(assetDuration - expectedLength) > 0.25) return false
+  }
+
+  const expectedAudioStart = Number(audioStart)
+  const assetAudioStart = Number(meta.audioStart)
+  if (Number.isFinite(assetAudioStart) && Number.isFinite(expectedAudioStart)) {
+    if (Math.abs(assetAudioStart - expectedAudioStart) > 0.25) return false
+  }
+
+  return true
 }
 
 /**

@@ -4,7 +4,13 @@
  */
 
 import { TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID } from './topazVideoUpscaleConfig'
-import { MUSIC_VIDEO_SHOT_WORKFLOW_ID, VOCAL_EXTRACT_WORKFLOW_ID } from './musicVideoShotConfig'
+import {
+  MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID,
+  MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID,
+  MUSIC_VIDEO_SHOT_WORKFLOW_ID,
+  normalizeMusicVideoShotWorkflowId,
+  VOCAL_EXTRACT_WORKFLOW_ID,
+} from './musicVideoShotConfig'
 import {
   ELEVENLABS_TTS_WORKFLOW_ID,
   SHORT_FILM_DIALOGUE_VIDEO_WORKFLOW_ID,
@@ -459,6 +465,8 @@ export const WORKFLOW_DEPENDENCY_PACKS = Object.freeze({
     requiresComfyOrgApiKey: true,
     docsUrl: COMFY_REGISTRY_URL,
   }),
+
+
 
   [MUSIC_VIDEO_SHOT_WORKFLOW_ID]: Object.freeze({
     id: MUSIC_VIDEO_SHOT_WORKFLOW_ID,
@@ -1049,10 +1057,174 @@ export const WORKFLOW_DEPENDENCY_PACKS = Object.freeze({
     requiredModels: Object.freeze([]),
     docsUrl: COMFY_REGISTRY_URL,
   }),
+
+
+  [MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID]: Object.freeze({
+    id: MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID,
+    displayName: 'Music Video Shot (LTX 2.3 Low VRAM)',
+    requiredNodes: Object.freeze([
+      { classType: 'UnetLoaderGGUF' },
+      { classType: 'DualCLIPLoaderGGUF' },
+      { classType: 'VAELoader' },
+      { classType: 'VAELoaderKJ' },
+      { classType: 'LatentUpscaleModelLoader' },
+      { classType: 'LTXVAudioVAEEncode' },
+      { classType: 'LTXVConcatAVLatent' },
+      { classType: 'LTXVConditioning' },
+      { classType: 'LTXVLatentUpsampler' },
+      { classType: 'LTXVPreprocess' },
+      { classType: 'LTXVSeparateAVLatent' },
+      { classType: 'LTXICLoRALoaderModelOnly' },
+      { classType: 'LTXAddVideoICLoRAGuide' },
+      { classType: 'LoadAudio' },
+      { classType: 'TrimAudioDuration' },
+      { classType: 'ComfySwitchNode' },
+      { classType: 'SimpleCalculatorKJ' },
+      { classType: 'ComfyStudioCachedVocalStem' },
+      { classType: 'VRGDG_TrimImageBatch_SRTOnly' },
+      { classType: 'CreateVideo' },
+      { classType: 'SaveVideo' },
+    ]),
+    requiredModels: Object.freeze([
+      {
+        classType: 'UnetLoaderGGUF',
+        inputKey: 'unet_name',
+        filename: 'LTX-2.3-22B-distilled-1.1-Q6_K.gguf',
+        targetSubdir: 'unet',
+      },
+      {
+        classType: 'DualCLIPLoaderGGUF',
+        inputKey: 'clip_name1',
+        filename: 'gemma-3-12b-it-IQ4_XS.gguf',
+        targetSubdir: 'text_encoders',
+      },
+      {
+        classType: 'DualCLIPLoaderGGUF',
+        inputKey: 'clip_name2',
+        filename: 'ltx-2.3_text_projection_bf16.safetensors',
+        targetSubdir: 'text_encoders',
+      },
+      {
+        classType: 'VAELoader',
+        inputKey: 'vae_name',
+        filename: 'LTX23_video_vae_bf16.safetensors',
+        targetSubdir: 'vae',
+      },
+      {
+        classType: 'VAELoaderKJ',
+        inputKey: 'vae_name',
+        filename: 'LTX23_audio_vae_bf16.safetensors',
+        targetSubdir: 'vae',
+      },
+      {
+        classType: 'LatentUpscaleModelLoader',
+        inputKey: 'model_name',
+        filename: 'ltx-2.3-spatial-upscaler-x2-1.1.safetensors',
+        targetSubdir: 'latent_upscale_models',
+      },
+      {
+        classType: 'LTXICLoRALoaderModelOnly',
+        inputKey: 'lora_name',
+        filename: 'ltxv/ltx2/ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors',
+        targetSubdir: 'loras',
+      },
+    ]),
+    docsUrl: COMFY_REGISTRY_URL,
+  }),
+
+  [MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID]: Object.freeze({
+    id: MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID,
+    displayName: 'Music Video Shot (LTX 2.3 Fast Low VRAM)',
+    requiredNodes: Object.freeze([
+      { classType: 'UNETLoader' },
+      { classType: 'DualCLIPLoader' },
+      { classType: 'VAELoader' },
+      { classType: 'VAELoaderKJ' },
+      { classType: 'LatentUpscaleModelLoader' },
+      { classType: 'PathchSageAttentionKJ' },
+      { classType: 'LTXVAudioVAEEncode' },
+      { classType: 'LTXVChunkFeedForward' },
+      { classType: 'LTXVConcatAVLatent' },
+      { classType: 'LTXVConditioning' },
+      { classType: 'LTXVLatentUpsampler' },
+      { classType: 'LTXVPreprocess' },
+      { classType: 'LTXVSeparateAVLatent' },
+      { classType: 'LTXICLoRALoaderModelOnly' },
+      { classType: 'LTXAddVideoICLoRAGuide' },
+      { classType: 'LoadAudio' },
+      { classType: 'TrimAudioDuration' },
+      { classType: 'ComfySwitchNode' },
+      { classType: 'SimpleCalculatorKJ' },
+      { classType: 'ComfyStudioCachedVocalStem' },
+      { classType: 'VRGDG_TrimImageBatch_SRTOnly' },
+      { classType: 'CreateVideo' },
+      { classType: 'SaveVideo' },
+    ]),
+    requiredModels: Object.freeze([
+      {
+        classType: 'UNETLoader',
+        inputKey: 'unet_name',
+        filename: 'ltx-2.3-22b-distilled-1.1_transformer_only_mxfp8_block32.safetensors',
+        targetSubdir: 'diffusion_models',
+      },
+      {
+        classType: 'VAELoader',
+        inputKey: 'vae_name',
+        filename: 'LTX23_video_vae_bf16.safetensors',
+        targetSubdir: 'vae',
+      },
+      {
+        classType: 'VAELoaderKJ',
+        inputKey: 'vae_name',
+        filename: 'LTX23_audio_vae_bf16.safetensors',
+        targetSubdir: 'vae',
+      },
+      {
+        classType: 'LatentUpscaleModelLoader',
+        inputKey: 'model_name',
+        filename: 'ltx-2.3-spatial-upscaler-x2-1.1.safetensors',
+        targetSubdir: 'latent_upscale_models',
+      },
+      {
+        classType: 'DualCLIPLoader',
+        inputKey: 'clip_name1',
+        filename: 'gemma_3_12B_it_fp8_e4m3fn.safetensors',
+        targetSubdir: 'text_encoders',
+      },
+      {
+        classType: 'DualCLIPLoader',
+        inputKey: 'clip_name2',
+        filename: 'ltx-2.3_text_projection_bf16.safetensors',
+        targetSubdir: 'text_encoders',
+      },
+      {
+        classType: 'LTXICLoRALoaderModelOnly',
+        inputKey: 'lora_name',
+        filename: 'ltxv/ltx2/ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors',
+        targetSubdir: 'loras',
+      },
+    ]),
+    requiredNodeInputChoices: Object.freeze([
+      {
+        classType: 'PathchSageAttentionKJ',
+        inputKey: 'sage_attention',
+        values: Object.freeze(['sageattn3']),
+        displayName: 'Fast low-VRAM acceleration',
+      },
+    ]),
+    requiredPythonModules: Object.freeze([
+      {
+        moduleName: 'sageattention',
+        displayName: 'Fast low-VRAM acceleration',
+        notes: 'Required only for the Fast Low VRAM music-video path.',
+      },
+    ]),
+    docsUrl: COMFY_REGISTRY_URL,
+  }),
 })
 
 export function getWorkflowDependencyPack(workflowId) {
-  const normalized = String(workflowId || '').trim()
+  const normalized = normalizeMusicVideoShotWorkflowId(workflowId)
   const canonicalId = (
     normalized === 'nano-banana-pro'
       ? 'nano-banana-2'

@@ -4,7 +4,12 @@
  */
 import { ALL_WORKFLOWS, getBundledWorkflowPath } from './workflowRegistry'
 import { TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID } from './topazVideoUpscaleConfig'
-import { MUSIC_VIDEO_SHOT_WORKFLOW_ID, VOCAL_EXTRACT_WORKFLOW_ID } from './musicVideoShotConfig'
+import {
+  MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID,
+  MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID,
+  MUSIC_VIDEO_SHOT_WORKFLOW_ID,
+  VOCAL_EXTRACT_WORKFLOW_ID,
+} from './musicVideoShotConfig'
 
 function coverPath(filename) {
   return getBundledWorkflowPath(`setup-covers/${filename}`)
@@ -62,6 +67,16 @@ const VISUAL_BY_WORKFLOW_ID = {
     gradient: 'from-pink-500/25 via-purple-900/25 to-sf-dark-950',
     icon: 'music',
     extraBadges: ['I2V', 'Lip-sync', 'Director Mode'],
+  },
+  [MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID]: {
+    gradient: 'from-pink-500/25 via-purple-900/25 to-sf-dark-950',
+    icon: 'music',
+    extraBadges: ['I2V', 'Lip-sync', 'Low VRAM'],
+  },
+  [MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID]: {
+    gradient: 'from-emerald-500/25 via-teal-900/20 to-sf-dark-950',
+    icon: 'music',
+    extraBadges: ['I2V', 'Lip-sync', 'Fast'],
   },
   [VOCAL_EXTRACT_WORKFLOW_ID]: {
     gradient: 'from-teal-500/25 via-cyan-900/25 to-sf-dark-950',
@@ -153,6 +168,8 @@ const LONG_DESCRIPTIONS = {
   'vidu-q2-i2v': 'Cloud image-to-video with Vidu Q2 Pro Fast. Tuned for quick turnaround and consistent character motion. Requires a Comfy Partner API key.',
   [TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID]: 'Cloud video upscaling with Topaz Video Enhance. Feed it an existing video clip and upscale it with Starlight Precise 2.5 or the Astra variants. Requires a Comfy Partner API key.',
   [MUSIC_VIDEO_SHOT_WORKFLOW_ID]: 'Per-shot music video generator built on LTX 2.3 22B. Takes a reference still and an audio segment and produces a lip-synced shot. Used by Director Mode to render an entire music video one shot at a time. Heavy local workflow — needs a 24GB+ GPU and the LTX 2.3 model stack.',
+  [MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID]: 'Compatibility-first local music-video pass for lower-memory systems. Uses the same Director Mode song timing and audio payload, with GGUF model files and no accelerated runtime requirement.',
+  [MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID]: 'Optional faster local music-video pass for systems where the accelerated runtime is available. If unavailable, ComfyStudio can fall back to the regular Low VRAM pass.',
   [VOCAL_EXTRACT_WORKFLOW_ID]: 'One-time preprocessing workflow that isolates vocals from a mixed song using Mel-Band RoFormer. Runs once when you import a song into a music-video project, so every shot afterward can be conditioned on clean vocals without re-running separation each time.',
   'caption-qwen-asr': 'Local caption and timed-lyrics transcription using Qwen ASR through TTS-Audio-Suite. Used by the timeline caption tool and by Music Video\'s "Transcribe to SRT" button to generate timestamped lyrics before building the director script.',
   'multi-angles': 'One-click character turnaround. Give it one character image and it generates 8 matching camera angles so you can build consistent shot sheets or look-dev reference sets.',
@@ -195,7 +212,14 @@ export const WORKFLOW_SETUP_STARTER_KITS = Object.freeze([
     label: 'Music Video Kit',
     tagline: 'Timed lyrics, vocal prep, and LTX audio-conditioned shot generation.',
     description: 'The fastest setup path for Director Mode music videos and lip-sync-oriented shot passes.',
-    workflowIds: Object.freeze(['caption-qwen-asr', VOCAL_EXTRACT_WORKFLOW_ID, MUSIC_VIDEO_SHOT_WORKFLOW_ID, 'image-edit']),
+    workflowIds: Object.freeze(['caption-qwen-asr', VOCAL_EXTRACT_WORKFLOW_ID, MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID, 'image-edit']),
+  }),
+  Object.freeze({
+    id: 'music-video-fast-low-vram',
+    label: 'Music Video Fast Low VRAM',
+    tagline: 'Optional acceleration pack for compatible NVIDIA systems.',
+    description: 'Installs and checks only the faster local music-video pass. Use after the regular Music Video Kit is ready.',
+    workflowIds: Object.freeze([MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID]),
   }),
 ])
 

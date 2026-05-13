@@ -335,6 +335,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadComfyUiWorkflowGraph: (payload = {}) => ipcRenderer.invoke('comfyui:loadWorkflowGraph', payload),
   validateWorkflowSetupRoot: (rootPath) => ipcRenderer.invoke('workflowSetup:validateRoot', rootPath),
   checkWorkflowSetupFiles: (payload = {}) => ipcRenderer.invoke('workflowSetup:checkFiles', payload),
+  checkWorkflowSetupPythonModules: (payload = {}) => ipcRenderer.invoke('workflowSetup:checkPythonModules', payload),
   openExternalUrl: (url) => ipcRenderer.invoke('shell:openExternal', url),
   installWorkflowSetup: (payload = {}) => ipcRenderer.invoke('workflowSetup:install', payload),
   onWorkflowSetupProgress: (cb) => {

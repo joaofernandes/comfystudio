@@ -400,6 +400,43 @@ async function verifyUnresolvedModelsOnDisk(unresolvedModels, options = {}) {
   }
 }
 
+async function verifyPythonModules(requiredModules = [], options = {}) {
+  const modules = (Array.isArray(requiredModules) ? requiredModules : [])
+    .map((entry) => ({
+      moduleName: String(entry?.moduleName || '').trim(),
+      displayName: String(entry?.displayName || entry?.moduleName || '').trim(),
+      notes: String(entry?.notes || '').trim(),
+    }))
+    .filter((entry) => entry.moduleName)
+  if (modules.length === 0) return []
+
+  const api = typeof window !== 'undefined' ? window.electronAPI : null
+  const comfyRootPath = await resolveComfyRootPath(options)
+  if (!api?.checkWorkflowSetupPythonModules || !comfyRootPath) {
+    return modules.map((entry) => ({
+      ...entry,
+      error: 'Runtime could not be detected. Configure Workflow Setup in the desktop app to use this fast path.',
+    }))
+  }
+
+  try {
+    const response = await api.checkWorkflowSetupPythonModules({ comfyRootPath, modules })
+    const results = Array.isArray(response?.results) ? response.results : []
+    const byModule = new Map(results.map((result) => [String(result?.moduleName || '').trim(), result]))
+    return modules
+      .filter((entry) => !byModule.get(entry.moduleName)?.available)
+      .map((entry) => ({
+        ...entry,
+        error: byModule.get(entry.moduleName)?.error || response?.error || 'Runtime module was not detected.',
+      }))
+  } catch (error) {
+    return modules.map((entry) => ({
+      ...entry,
+      error: error instanceof Error ? error.message : String(error || 'Runtime module was not detected.'),
+    }))
+  }
+}
+
 export async function checkWorkflowDependencies(workflowId, options = {}) {
   const pack = getWorkflowDependencyPack(workflowId)
   const checkedAt = Date.now()
@@ -413,6 +450,8 @@ export async function checkWorkflowDependencies(workflowId, options = {}) {
       missingNodes: [],
       missingModels: [],
       unresolvedModels: [],
+      missingNodeInputChoices: [],
+      missingPythonModules: [],
       missingAuth: false,
       hasBlockingIssues: false,
       hasPriceMetadata: false,
@@ -436,6 +475,8 @@ export async function checkWorkflowDependencies(workflowId, options = {}) {
       missingNodes: [],
       missingModels: [],
       unresolvedModels: [],
+      missingNodeInputChoices: [],
+      missingPythonModules: [],
       missingAuth: false,
       hasBlockingIssues: false,
       hasPriceMetadata: false,
@@ -460,6 +501,29 @@ export async function checkWorkflowDependencies(workflowId, options = {}) {
 
   const missingModels = []
   const unresolvedModels = []
+  const missingNodeInputChoices = uniqueBy(
+    (pack.requiredNodeInputChoices || [])
+      .filter((entry) => {
+        const classType = String(entry?.classType || '').trim()
+        const inputKey = String(entry?.inputKey || '').trim()
+        if (!classType || !inputKey) return false
+        const nodeSchema = objectInfo?.[classType]
+        if (!nodeSchema) return false
+        const choices = extractChoiceListFromSpec(getInputSpec(nodeSchema, inputKey))
+        if (choices.length === 0) return true
+        const installedChoices = new Set(choices.map((choice) => normalizeModelChoice(choice)).filter(Boolean))
+        const expectedValues = Array.isArray(entry.values) ? entry.values : []
+        return !expectedValues.some((value) => installedChoices.has(normalizeModelChoice(value)))
+      })
+      .map((entry) => ({
+        classType: entry.classType,
+        inputKey: entry.inputKey,
+        values: Array.isArray(entry.values) ? entry.values : [],
+        displayName: entry.displayName || entry.classType,
+        notes: entry.notes || '',
+      })),
+    (entry) => `${entry.classType}:${entry.inputKey}`
+  )
 
   for (const model of pack.requiredModels || []) {
     const classType = String(model.classType || '').trim()
@@ -511,6 +575,8 @@ export async function checkWorkflowDependencies(workflowId, options = {}) {
     missingAuth = !String(apiKey || '').trim()
   }
 
+  const missingPythonModules = await verifyPythonModules(pack.requiredPythonModules || [], options)
+
   // Filesystem fallback: ComfyUI's object_info sometimes can't enumerate the
   // list of available filenames for a loader input (for example, nodes that
   // declare the input as a free-form STRING instead of a combo). When that
@@ -560,7 +626,7 @@ export async function checkWorkflowDependencies(workflowId, options = {}) {
 
   const pricing = await buildWorkflowPricingSnapshot(pack, objectInfo, workflowDefinition)
 
-  const hasBlockingIssues = missingNodes.length > 0 || missingModels.length > 0 || missingAuth
+  const hasBlockingIssues = missingNodes.length > 0 || missingModels.length > 0 || missingNodeInputChoices.length > 0 || missingPythonModules.length > 0 || missingAuth
   const status = hasBlockingIssues
     ? 'missing'
     : (unresolvedModels.length > 0 ? 'partial' : 'ready')
@@ -573,6 +639,8 @@ export async function checkWorkflowDependencies(workflowId, options = {}) {
     missingNodes,
     missingModels,
     unresolvedModels,
+    missingNodeInputChoices,
+    missingPythonModules,
     missingAuth,
     hasBlockingIssues,
     hasPriceMetadata: pricing.hasPriceMetadata,
@@ -609,6 +677,8 @@ export async function checkWorkflowDependenciesBatch(workflowIds = []) {
         missingNodes: [],
         missingModels: [],
         unresolvedModels: [],
+        missingNodeInputChoices: [],
+        missingPythonModules: [],
         missingAuth: false,
         hasBlockingIssues: false,
         hasPriceMetadata: false,
@@ -645,6 +715,23 @@ export function buildMissingDependencyClipboardText(checkResult) {
     lines.push('')
   }
 
+  if (checkResult.missingNodeInputChoices?.length > 0) {
+    lines.push('Missing runtime options:')
+    for (const choice of checkResult.missingNodeInputChoices) {
+      const values = Array.isArray(choice.values) && choice.values.length > 0 ? ` (${choice.values.join(', ')})` : ''
+      lines.push(`- ${choice.displayName || choice.classType}${values}`)
+    }
+    lines.push('')
+  }
+
+  if (checkResult.missingPythonModules?.length > 0) {
+    lines.push('Missing Python runtime modules:')
+    for (const module of checkResult.missingPythonModules) {
+      lines.push(`- ${module.displayName || module.moduleName}`)
+    }
+    lines.push('')
+  }
+
   if (checkResult.missingModels?.length > 0) {
     lines.push('Missing models:')
     for (const model of checkResult.missingModels) {
@@ -660,7 +747,7 @@ export function buildMissingDependencyClipboardText(checkResult) {
     lines.push('')
   }
 
-  if ((checkResult.missingNodes?.length || 0) === 0 && (checkResult.missingModels?.length || 0) === 0 && !checkResult.missingAuth) {
+  if ((checkResult.missingNodes?.length || 0) === 0 && (checkResult.missingModels?.length || 0) === 0 && (checkResult.missingNodeInputChoices?.length || 0) === 0 && (checkResult.missingPythonModules?.length || 0) === 0 && !checkResult.missingAuth) {
     lines.push('No blocking dependencies detected.')
   }
 

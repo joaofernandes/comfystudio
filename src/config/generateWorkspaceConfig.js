@@ -1,5 +1,14 @@
 import { TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID } from './topazVideoUpscaleConfig'
-import { MUSIC_VIDEO_SHOT_WORKFLOW_ID, VOCAL_EXTRACT_WORKFLOW_ID } from './musicVideoShotConfig'
+import {
+  MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID,
+  MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID,
+  MUSIC_VIDEO_SHOT_WORKFLOW_ID,
+  VOCAL_EXTRACT_WORKFLOW_ID,
+  getMusicVideoShotWorkflowHardware,
+  getMusicVideoShotWorkflowLabel,
+  isMusicVideoShotWorkflowId,
+  normalizeMusicVideoShotWorkflowId,
+} from './musicVideoShotConfig'
 import {
   ELEVENLABS_TTS_WORKFLOW_ID,
   SHORT_FILM_DIALOGUE_VIDEO_WORKFLOW_ID,
@@ -96,8 +105,8 @@ export const YOLO_AD_PROFILES = Object.freeze({
 })
 
 // Music Video defaults to an audio-conditioned per-shot LTX 2.3 workflow for
-// vocal grounding. Alternate local i2v passes can be used for animation tests,
-// but only the default music workflow consumes song audio for lip-sync.
+// vocal grounding. The low-VRAM profile uses the compatibility-first GGUF pass;
+// the fast low-VRAM pass remains an optional acceleration path.
 export const YOLO_MUSIC_PROFILES = Object.freeze({
   draft: Object.freeze({
     storyboardWorkflowId: 'image-edit',
@@ -110,6 +119,10 @@ export const YOLO_MUSIC_PROFILES = Object.freeze({
   premium: Object.freeze({
     storyboardWorkflowId: 'nano-banana-2',
     videoWorkflowId: MUSIC_VIDEO_SHOT_WORKFLOW_ID,
+  }),
+  '16gb': Object.freeze({
+    storyboardWorkflowId: 'image-edit-model-product',  // Qwen Image Edit - better scene composition + cast identity
+    videoWorkflowId: MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID,
   }),
 })
 
@@ -126,6 +139,12 @@ export const YOLO_MUSIC_KEYFRAME_WORKFLOW_OPTIONS = Object.freeze([
     runtimeLabel: 'Cloud',
     description: 'Cloud keyframes with stronger reference-image and identity consistency.',
   },
+  {
+    id: 'image-edit-model-product',
+    label: 'Qwen Model + Product',
+    runtimeLabel: 'Local',
+    description: 'Local keyframes with model/product reference support. Recommended for 16GB music-video runs.',
+  },
 ])
 
 export const YOLO_MUSIC_VIDEO_WORKFLOW_OPTIONS = Object.freeze([
@@ -133,6 +152,17 @@ export const YOLO_MUSIC_VIDEO_WORKFLOW_OPTIONS = Object.freeze([
     id: MUSIC_VIDEO_SHOT_WORKFLOW_ID,
     label: 'LTX 2.3 Music',
     description: 'Default music-video pass. Uses the song timing/audio payload for performance and lip-sync shots.',
+  },
+  {
+    id: MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID,
+    label: 'LTX 2.3 Music - Low VRAM',
+    description: 'Compatibility-first local music-video pass for lower-memory systems.',
+  },
+  {
+    id: MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID,
+    label: 'LTX 2.3 Music - Fast Low VRAM',
+    description: 'Faster local pass when the accelerated runtime is available. Falls back to Low VRAM when unavailable.',
+    requiresFastRuntime: true,
   },
   {
     id: 'wan22-i2v',
@@ -147,7 +177,7 @@ export const SEEDANCE_VIDEO_DURATION_PRESETS = Object.freeze([5, 7, 10])
 
 export function getVideoDurationPresets(workflowId = '') {
   const normalized = String(workflowId || '').trim()
-  if (['ltx23-i2v', 'ltx23-ia2v', 'ltx23-t2v'].includes(normalized)) {
+  if (['ltx23-i2v', 'ltx23-ia2v', 'ltx23-t2v'].includes(normalized) || isMusicVideoShotWorkflowId(normalized)) {
     return LTX23_VIDEO_DURATION_PRESETS
   }
   if (['seedance2-t2v', 'seedance2-flf2v', 'seedance2-r2v'].includes(normalized)) {
@@ -544,14 +574,14 @@ const WORKFLOW_HARDWARE = Object.freeze({
 })
 
 export function getWorkflowDisplayLabel(workflowId = '') {
-  return WORKFLOW_DISPLAY_LABELS[workflowId] || String(workflowId || '')
+  const normalized = normalizeMusicVideoShotWorkflowId(workflowId)
+  return getMusicVideoShotWorkflowLabel(normalized) || WORKFLOW_DISPLAY_LABELS[normalized] || String(workflowId || '').trim()
 }
 
 export function getWorkflowHardwareInfo(workflowId = '') {
-  const normalized = String(workflowId || '').trim() === 'nano-banana-pro'
-    ? 'nano-banana-2'
-    : String(workflowId || '').trim()
-  return WORKFLOW_HARDWARE[normalized] || null
+  const normalized = normalizeMusicVideoShotWorkflowId(workflowId)
+  const canonicalId = normalized === 'nano-banana-pro' ? 'nano-banana-2' : normalized
+  return getMusicVideoShotWorkflowHardware(canonicalId) || WORKFLOW_HARDWARE[canonicalId] || null
 }
 
 export function getWorkflowTierMeta(workflowId = '') {

@@ -1,5 +1,11 @@
 import { TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID } from './topazVideoUpscaleConfig'
-import { MUSIC_VIDEO_SHOT_WORKFLOW_ID, VOCAL_EXTRACT_WORKFLOW_ID } from './musicVideoShotConfig'
+import {
+  MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID,
+  MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID,
+  MUSIC_VIDEO_SHOT_WORKFLOW_ID,
+  MUSIC_VIDEO_SHOT_WORKFLOW_ALIASES,
+  VOCAL_EXTRACT_WORKFLOW_ID,
+} from './musicVideoShotConfig'
 import {
   ELEVENLABS_TTS_WORKFLOW_ID,
   SHORT_FILM_DIALOGUE_VIDEO_WORKFLOW_ID,
@@ -44,6 +50,8 @@ export const BUILTIN_WORKFLOWS = [
   { id: 'seedance2-r2v', label: 'Reference to Video (Seedance 2.0)', category: 'video', needsImage: false, description: 'Cloud multi-reference video with ByteDance Seedance 2.0', file: 'api_seedance2_0_r2v.json' },
   { id: TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID, label: 'Topaz Video Upscale', category: 'video', needsImage: false, description: 'Cloud video upscaling with Topaz Starlight and Astra models', file: 'api_topaz_video_enhance.json' },
   { id: MUSIC_VIDEO_SHOT_WORKFLOW_ID, label: 'Music Video Shot (LTX 2.3 + Audio)', category: 'video', needsImage: true, description: 'Per-shot image-to-video with audio conditioning and lip-sync, for Director Mode music videos', file: 'music_video_shot_ltx2_3_i2v_audio.json' },
+  { id: MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID, label: 'Music Video Shot (LTX 2.3 Low VRAM)', category: 'video', needsImage: true, description: 'Compatibility-first low-VRAM music-video pass using GGUF models and song-audio conditioning.', file: 'music_video_shot_ltx2_3_i2v_audio_low_vram.json' },
+  { id: MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID, label: 'Music Video Shot (LTX 2.3 Fast Low VRAM)', category: 'video', needsImage: true, description: 'Optional faster low-VRAM pass for systems with the accelerated SageAttention path available.', file: 'music_video_shot_ltx2_3_i2v_audio_16gb.json' },
   { id: SHORT_FILM_DIALOGUE_VIDEO_WORKFLOW_ID, label: 'Short Film Dialogue Shot (LTX 2.3)', category: 'video', needsImage: true, description: 'Fast short-film dialogue image+audio-to-video workflow using structured speech prompts', file: 'short_film_dialogue_ltx2_3_ia2v.json' },
   { id: VOCAL_EXTRACT_WORKFLOW_ID, label: 'Vocal Extract (Mel-Band RoFormer)', category: 'audio', needsImage: false, description: 'Isolate vocals from a mixed song using Mel-Band RoFormer. Used as a one-time preprocessing step for music-video projects.', file: 'vocal_extract_melband.json' },
   { id: 'caption-qwen-asr', label: 'Caption Transcription (Qwen ASR)', category: 'audio', needsImage: false, description: 'Transcribe timeline audio, video audio, or music-video songs into timed SRT captions using Qwen ASR.', file: 'caption_qwen_asr_transcription.json' },
@@ -82,6 +90,18 @@ export const BUILTIN_WORKFLOW_PATHS = {
   'seedance2-r2v': getBundledWorkflowPath('api_seedance2_0_r2v.json'),
   [TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID]: getBundledWorkflowPath('api_topaz_video_enhance.json'),
   [MUSIC_VIDEO_SHOT_WORKFLOW_ID]: getBundledWorkflowPath('music_video_shot_ltx2_3_i2v_audio.json'),
+  [MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID]: getBundledWorkflowPath('music_video_shot_ltx2_3_i2v_audio_low_vram.json'),
+  [MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID]: getBundledWorkflowPath('music_video_shot_ltx2_3_i2v_audio_16gb.json'),
+  ...Object.fromEntries(
+    Object.entries(MUSIC_VIDEO_SHOT_WORKFLOW_ALIASES).map(([aliasId, canonicalId]) => [
+      aliasId,
+      getBundledWorkflowPath(
+        canonicalId === MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID
+          ? 'music_video_shot_ltx2_3_i2v_audio_16gb.json'
+          : 'music_video_shot_ltx2_3_i2v_audio.json'
+      ),
+    ])
+  ),
   [SHORT_FILM_DIALOGUE_VIDEO_WORKFLOW_ID]: getBundledWorkflowPath('short_film_dialogue_ltx2_3_ia2v.json'),
   [VOCAL_EXTRACT_WORKFLOW_ID]: getBundledWorkflowPath('vocal_extract_melband.json'),
   [ELEVENLABS_TTS_WORKFLOW_ID]: getBundledWorkflowPath('api_elevenlabs_text_to_speech.json'),
