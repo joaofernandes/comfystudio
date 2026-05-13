@@ -2708,7 +2708,7 @@ export function modifyMusicVideoShotWorkflow(workflow, options = {}) {
   // Use it only for non-vocal/b-roll shots, where identity/hand stability is
   // more important than mouth articulation. Performance shots keep the older
   // graph path so lip-sync conditioning is not over-constrained.
-  const useBrollIcLoraGuide = Boolean(!shotTypeOption?.needsVocalAlignment)
+  const useBrollIcLoraGuide = false
   if (modified['6001']?.inputs && 'strength_model' in modified['6001'].inputs) {
     modified['6001'].inputs.strength_model = useBrollIcLoraGuide ? 1 : 0
   }
