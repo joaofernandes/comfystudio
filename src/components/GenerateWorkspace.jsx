@@ -5949,6 +5949,30 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     addComfyLog('status', 'Queue resumed')
   }, [addComfyLog])
 
+  const handleRequeueFailedJob = useCallback((failedJob) => {
+    if (!failedJob || failedJob.status !== 'error') return
+    const nextId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    const nextJob = {
+      ...failedJob,
+      id: nextId,
+      createdAt: Date.now(),
+      status: 'queued',
+      progress: 0,
+      error: undefined,
+      node: undefined,
+      promptId: undefined,
+      resultAssetIds: undefined,
+      restoredFromLedger: undefined,
+      isCombiningAngles: undefined,
+      combineError: undefined,
+      retryOfJobId: failedJob.id,
+      retryCount: (Number(failedJob.retryCount) || 0) + 1,
+    }
+    startedJobIdsRef.current.delete(failedJob.id)
+    setGenerationQueue(prev => [...prev, nextJob])
+    addComfyLog('status', `Requeued failed job: ${failedJob.workflowLabel || failedJob.workflowId || failedJob.id}`)
+  }, [addComfyLog])
+
   const createQueuedJob = useCallback((overrides = {}) => {
     const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
     const assetFieldIds = {}
@@ -13918,18 +13942,33 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                         <div className="text-[9px] text-sf-error">{job.error}</div>
                       </div>
                     )}
-                    {canCreateAngleSheet && (
+                    {(canCreateAngleSheet || job.status === 'error') && (
                       <div className="mt-2 flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleCreateAngleSheetForJob(job)}
-                          disabled={Boolean(job.isCombiningAngles)}
-                          className="px-2 py-1 rounded border border-sf-dark-600 bg-sf-dark-700 hover:bg-sf-dark-600 text-[10px] text-sf-text-primary disabled:opacity-60"
-                        >
-                          {job.isCombiningAngles ? 'Creating Sheet...' : 'Create Angle Sheet'}
-                        </button>
-                        {job.combineError && (
-                          <span className="text-[9px] text-sf-error">{job.combineError}</span>
+                        {canCreateAngleSheet && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleCreateAngleSheetForJob(job)}
+                              disabled={Boolean(job.isCombiningAngles)}
+                              className="px-2 py-1 rounded border border-sf-dark-600 bg-sf-dark-700 hover:bg-sf-dark-600 text-[10px] text-sf-text-primary disabled:opacity-60"
+                            >
+                              {job.isCombiningAngles ? 'Creating Sheet...' : 'Create Angle Sheet'}
+                            </button>
+                            {job.combineError && (
+                              <span className="text-[9px] text-sf-error">{job.combineError}</span>
+                            )}
+                          </>
+                        )}
+                        {job.status === 'error' && (
+                          <button
+                            type="button"
+                            onClick={() => handleRequeueFailedJob(job)}
+                            className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded border border-sf-dark-600 bg-sf-dark-700 text-sf-text-muted transition-colors hover:border-sf-accent/50 hover:bg-sf-dark-600 hover:text-sf-text-primary"
+                            title="Requeue this failed job"
+                            aria-label="Requeue failed job"
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" />
+                          </button>
                         )}
                       </div>
                     )}
