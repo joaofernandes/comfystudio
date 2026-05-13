@@ -529,9 +529,11 @@ function ExportPanel() {
 
   const activeExportPresetId = useMemo(() => {
     const isEqual = (a, b) => String(a) === String(b)
-    return EXPORT_PRESETS.find((exportPreset) => (
+    const matchingPresets = EXPORT_PRESETS.filter((exportPreset) => (
       Object.entries(exportPreset.settings).every(([key, value]) => isEqual(settings[key], value))
-    ))?.id || null
+    ))
+    return matchingPresets
+      .sort((a, b) => Object.keys(b.settings).length - Object.keys(a.settings).length)[0]?.id || null
   }, [settings])
 
   const selectedNvencCodecSupported = settings.videoCodec === 'h265'
