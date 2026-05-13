@@ -1966,6 +1966,7 @@ function buildMusicVideoCoveragePlanPrompt(coveragePlan) {
     'Return ONE combined script containing these coverage sections in this exact order. Do not return separate files.',
     'Each coverage section contains normal Shot blocks. Every shot still needs Start at, Shot type, Keyframe prompt, Motion prompt, Camera, and Length.',
     'Every non-performance-only coverage section must cover the full audio duration, not only the span containing lyrics. If the final lyric ends before the music ends, continue with outro/instrumental b-roll until the song ends.',
+    'B-roll, environmental, and detail coverage must tile as adjacent video clips: each shot has a Start at, and its Length should end exactly at the next shot Start at. The final shot must end at the full audio duration.',
     'B-roll shot starts must NOT be constrained to lyric/SRT offsets. Use lyric timings only as emotional/story landmarks, then create continuous b-roll coverage between and beyond those lyric moments.',
     'Do not write one long take for any pass. Break every pass into 2-8 second clips aligned to the song timing.',
     'Use the exact Coverage type and Coverage label fields shown below so ComfyStudio can group the shots later.',
@@ -2135,6 +2136,7 @@ function buildMusicVideoLLMPrompt(options = {}) {
       `  - The script timeline MUST cover the full audio duration through approximately ${formatSecondsAsMMSS(fullTimelineDuration)} (${fullTimelineDuration.toFixed(1)}s).`,
       '  - Lyrics/SRT lines are timing anchors for vocal moments only; the last lyric is NOT the end of the music video unless it also reaches the full audio duration.',
       '  - If the song continues after the final lyric, fill the outro/instrumental tail with b_roll or non-singing performance_wide shots. Omit Lyric moment during those sections.',
+      '  - For b-roll/environment/detail coverage, treat each Start at as a clip boundary: Length must equal the time until the next shot starts, so clips butt together cleanly in the timeline with no manual moving.',
       '  - The final shot should end at, or slightly after, the full song duration. Do not stop the plan at the final lyric line.',
     ].join('\n'))
   }
@@ -2198,7 +2200,8 @@ function buildMusicVideoLLMPrompt(options = {}) {
     '  0. The returned script must be self-contained. Put the story, setting, wardrobe, lighting, color, continuity, and camera language directly inside each shot block.',
     '  1. Every shot MUST include a "Start at:" field with a time like "0:15" or "15.5s". If you pasted SRT/LRC, use the exact start of the matching line.',
     '  2. Every shot MUST include "Length:" in seconds (between 2 and 8 — LTX 2.3 works best here).',
-    '  3. Main sequence and b-roll/detail/environment sections MUST tile the full song/audio duration with no big gaps, including intro, instrumental breaks, and any outro after the final lyric. Performance-only passes may leave gaps during instrumental or non-vocal sections.',
+    '  3. Main sequence and b-roll/detail/environment sections MUST tile the full song/audio duration with no gaps, including intro, instrumental breaks, and any outro after the final lyric. Performance-only passes may leave gaps during instrumental or non-vocal sections.',
+    '  3a. For b-roll/detail/environment sections, every shot Length MUST be calculated from the next shot boundary: current Length = next Start at - current Start at. For the final shot, Length = full song duration - final Start at. Avoid overlaps and avoid uncovered dark gaps.',
     '  4. "Shot type:" must be one of: performance, performance_wide, b_roll. Use performance/performance_wide when the singer\'s face is visible and lip-syncing; use b_roll for everything else.',
     '  4a. A b_roll shot may include Artist only as a visual/non-singing reference. If a band/performance cast member is singing or mouthing lyrics, the shot type MUST be performance or performance_wide, not b_roll.',
     '  4b. If the coverage section is story_broll, every shot MUST include Artist and show that person/cast member as the subject. Empty places, abstract atmosphere, and object-only inserts are reserved for environmental_broll/detail_broll sections.',
@@ -2664,6 +2667,7 @@ function buildMusicVideoPassRules(pass, variantDescriptor) {
         '  - Build a clear environmental story with start, middle, and end. Reuse the same locations, symbols, and public pressure as the main/story b-roll idea instead of inventing unrelated places.',
         '  - Every environmental shot should reveal a story consequence: buildup, escalation, threat, aftermath, escape route, public reaction, or final quiet.',
         '  - Do NOT reuse only the master performance shot timings. Create a continuous b-roll shot grid from 0:00 to the full song end, filling every instrumental, intro, outro, and non-vocal gap.',
+        '  - Each environmental shot must run until the next environmental shot starts. Calculate Length from the next Start at; the last shot runs until the full song end. This pass should drop into the timeline without moving clips.',
         '  - Use the master script and SRT only as landmarks for where the emotional/story energy changes. B-roll Start at values may fall between lyric offsets and should not require Lyric moment.',
         '  - Favor medium-to-wide framings. Shot lengths should skew 4–7s. Let shots breathe.',
         '  - INVENT NEW IMAGERY. Do NOT copy the master script\'s Keyframe prompt or Motion prompt text.',
@@ -2678,8 +2682,9 @@ function buildMusicVideoPassRules(pass, variantDescriptor) {
         '  - Build a clear detail story with start, middle, and end using recurring symbols/props/materials from the same b-roll narrative. Details should feel like evidence from the larger story, not random inserts.',
         '  - Every detail shot should reveal a story clue, emotional pressure point, transformation, damage, warning, decision, or aftermath.',
         '  - You do NOT need to match the master script\'s shot boundaries or lyric offsets. It is ENCOURAGED to subdivide the full song timeline into multiple shorter detail shots.',
+        '  - Each detail shot must run until the next detail shot starts. Calculate Length from the next Start at; the last shot runs until the full song end. This pass should drop into the timeline without moving clips.',
         '  - Shot lengths should skew SHORTER: 2–4s is ideal, occasionally up to 5s.',
-        '  - Still cover the full song with no gaps >3s.',
+        '  - Still cover the full song with no gaps at all.',
         '  - INVENT NEW IMAGERY. Do NOT copy the master script\'s Keyframe prompt or Motion prompt text.',
       ].join('\n')
     case 'master':
