@@ -451,11 +451,17 @@ function App() {
         >
           <ExportPanel />
         </div>
-        {mainTab === 'stock' ? (
+        {mainTab === 'stock' && (
           <StockPanel />
-        ) : mainTab === 'llm-assistant' ? (
+        )}
+        {mainTab === 'llm-assistant' && (
           <LLMAssistantWorkspace />
-        ) : mainTab === 'comfyui' || mainTab === 'generate' || mainTab === 'flow-ai' || mainTab === 'mog' || mainTab === 'export' ? null : (
+        )}
+        {/* Editor tab - keep mounted so preview/timeline media state does not churn on tab switches. */}
+        <div
+          className="flex-1 flex min-h-0 overflow-hidden bg-sf-dark-950"
+          style={{ display: mainTab === 'editor' ? 'flex' : 'none' }}
+        >
           <>
             {/* Left Panel - Full Height Mode (spans entire left side) */}
             {leftPanelFullHeight && (
@@ -517,7 +523,7 @@ function App() {
                 
                 {/* Center - Preview */}
                 <div className="flex-1 min-w-0">
-                  <PreviewPanel />
+                  <PreviewPanel isActive={mainTab === 'editor'} />
                 </div>
                 
                 {/* Resize Handle - Inspector (only when expanded) */}
@@ -601,6 +607,7 @@ function App() {
                 <div className="flex-1 min-h-0">
                   {bottomEditorView === 'timeline' ? (
                     <Timeline
+                      isActive={mainTab === 'editor'}
                       onOpenAudioGenerate={openAudioModal}
                       onActiveToolChange={handleActiveTimelineToolChange}
                     />
@@ -611,7 +618,7 @@ function App() {
               </div>
             </div>
           </>
-        )}
+        </div>
       </div>
       
       {/* Bottom bar: settings menu + undo/redo */}
