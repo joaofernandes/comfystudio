@@ -127,7 +127,7 @@ const buildLegacyDirectorZImageRepair = async (asset, projectHandle, resolvedAbs
 /**
  * Store for managing generated and imported assets
  * Persisted to localStorage for data survival across refreshes
- * 
+ *
  * Asset structure:
  * {
  *   id: string,
@@ -143,7 +143,7 @@ const buildLegacyDirectorZImageRepair = async (asset, projectHandle, resolvedAbs
  *   mimeType: string,
  *   size: number,
  *   folderId: string | null (folder organization),
- *   
+ *
  *   // Mask-specific fields:
  *   sourceAssetId: string (for masks - the asset the mask was generated from),
  *   frameCount: number (for video masks - number of PNG frames),
@@ -155,17 +155,16 @@ export const useAssetsStore = create(
     (set, get) => ({
   // All assets (AI-generated + imported)
   assets: [],
-  
+
   // Folders for organizing assets
   folders: [],
-  
+
   // Currently selected asset for preview
   currentPreview: null,
-  
+
   // Counter for auto-naming
   assetCounter: 1,
   folderCounter: 1,
-
   // Current project handle/path for lazy file URL resolution.
   projectHandle: null,
 
@@ -198,19 +197,19 @@ export const useAssetsStore = create(
       },
     })
   },
-  
+
   // Video playback state (shared between PreviewPanel and TransportControls)
   videoRef: null,
   isPlaying: false,
   currentTime: 0,
   duration: 0,
   volume: 0.75,
-  
+
   // Register video element ref
   registerVideoRef: (ref) => {
     set({ videoRef: ref })
   },
-  
+
   // Playback controls
   setIsPlaying: (playing) => set({ isPlaying: playing }),
   setCurrentTime: (time) => set({ currentTime: time }),
@@ -222,7 +221,7 @@ export const useAssetsStore = create(
     }
     set({ volume: vol })
   },
-  
+
   togglePlay: () => {
     const { videoRef, isPlaying, currentPreview } = get()
     if (videoRef) {
@@ -237,7 +236,7 @@ export const useAssetsStore = create(
       set({ isPlaying: !isPlaying })
     }
   },
-  
+
   seekTo: (time) => {
     const { videoRef, duration } = get()
     const clampedTime = Math.max(0, Math.min(duration, time))
@@ -247,7 +246,7 @@ export const useAssetsStore = create(
     // Always update currentTime state (needed for masks and other non-video assets)
     set({ currentTime: clampedTime })
   },
-  
+
   skip: (seconds) => {
     const { videoRef, currentTime, duration } = get()
     if (videoRef) {
@@ -256,7 +255,7 @@ export const useAssetsStore = create(
       set({ currentTime: newTime })
     }
   },
-  
+
   /**
    * Generate a name from prompt text
    */
@@ -269,11 +268,11 @@ export const useAssetsStore = create(
       .slice(0, 4)
       .join('_')
       .substring(0, 30)
-    
+
     set({ assetCounter: counter + 1 })
     return `${words}_${String(counter).padStart(3, '0')}`
   },
-  
+
   /**
    * Add a new generated asset
    */
@@ -291,47 +290,47 @@ export const useAssetsStore = create(
       createdAt: new Date().toISOString(),
       ...asset
     }
-    
+
     set((state) => ({
       assets: [newAsset, ...state.assets],
       currentPreview: newAsset // Auto-preview new assets
     }))
-    
+
     return newAsset
   },
-  
+
   /**
    * Set the current preview
    * Also resets playback state for the new asset
    */
   setPreview: (asset) => {
-    set({ 
-      currentPreview: asset, 
+    set({
+      currentPreview: asset,
       previewMode: 'asset',
       isPlaying: false,  // Don't auto-play, let user control
       currentTime: 0,    // Reset to start
     })
   },
-  
+
   /**
    * Preview mode: 'asset' (single asset preview) or 'timeline' (playing timeline)
    */
   previewMode: 'asset',
-  
+
   /**
    * Set the preview mode explicitly
    */
   setPreviewMode: (mode) => {
     set({ previewMode: mode })
   },
-  
+
   /**
    * Clear the current preview
    */
   clearPreview: () => {
     set({ currentPreview: null })
   },
-  
+
   /**
    * Remove an asset
    */
@@ -341,16 +340,16 @@ export const useAssetsStore = create(
       currentPreview: state.currentPreview?.id === id ? null : state.currentPreview
     }))
   },
-  
+
   /**
    * Rename an asset
    */
   renameAsset: (id, newName) => {
     set((state) => ({
-      assets: state.assets.map(a => 
+      assets: state.assets.map(a =>
         a.id === id ? { ...a, name: newName } : a
       ),
-      currentPreview: state.currentPreview?.id === id 
+      currentPreview: state.currentPreview?.id === id
         ? { ...state.currentPreview, name: newName }
         : state.currentPreview
     }))
@@ -529,14 +528,13 @@ export const useAssetsStore = create(
         URL.revokeObjectURL(asset.url)
       }
     })
-    
+
     set({
       assets: [],
       folders: [],
       currentPreview: null,
       assetCounter: 1,
       folderCounter: 1,
-      projectHandle: null,
       mediaPreparation: {
         active: false,
         phase: 'idle',
@@ -562,15 +560,143 @@ export const useAssetsStore = create(
     // Clear existing assets first
     get().clearProject()
 
-    const sourceAssets = Array.isArray(projectAssets) ? projectAssets : []
-    const assetsWithUrls = sourceAssets.map((asset) => ({
-      ...asset,
-      url: typeof asset?.url === 'string' && asset.url.startsWith('blob:') ? null : asset?.url ?? null,
-    }))
+    const sourceAssets = projectAssets || []
+    const totalAssets = sourceAssets.length
+    set({
+      mediaPreparation: {
+        active: totalAssets > 0,
+        phase: 'assets',
+        label: 'Loading project assets...',
+        completed: 0,
+        total: totalAssets,
+        critical: true,
+      },
+    })
+
+    // Load assets - URLs need to be regenerated for imported assets
+    const assetsWithUrls = []
+    let loadedAssetCount = 0
+
+    for (const asset of sourceAssets) {
+      const needsUrlRefresh = asset?.url?.startsWith?.('blob:')
+      const hasPath = !!asset?.path
+      const hasAbsolutePath = !!asset?.absolutePath
+
+      if ((asset.isImported || needsUrlRefresh || hasPath || hasAbsolutePath) && projectHandle) {
+        // For imported assets (or stale blob URLs), regenerate URL from file
+        try {
+          const { getProjectFileUrl, getAbsoluteFileUrl, isElectron } = await import('../services/fileSystem')
+          let url = null
+          if (isElectron() && hasAbsolutePath) {
+            url = await getAbsoluteFileUrl(asset.absolutePath)
+          } else if (hasPath) {
+            url = await getProjectFileUrl(projectHandle, asset.path)
+          }
+          // Regenerate playback cache URL if we have a cached transcode
+          let playbackCacheUrl = null
+          let playbackCachePath = asset.playbackCachePath
+          let playbackCacheStatus = asset.playbackCacheStatus
+          if (asset.playbackCachePath) {
+            try {
+              // Validate playback cache exists before generating a file:// URL.
+              // Missing cache files lead to networkState=3 and black flicker during playback.
+              let canUsePlaybackCache = true
+              if (
+                isElectron() &&
+                typeof projectHandle === 'string' &&
+                window.electronAPI?.pathJoin &&
+                window.electronAPI?.exists
+              ) {
+                const absolutePlaybackCachePath = await window.electronAPI.pathJoin(projectHandle, asset.playbackCachePath)
+                canUsePlaybackCache = await window.electronAPI.exists(absolutePlaybackCachePath)
+              }
+
+              if (canUsePlaybackCache) {
+                playbackCacheUrl = await getProjectFileUrl(projectHandle, asset.playbackCachePath)
+              } else {
+                playbackCachePath = null
+                playbackCacheStatus = 'failed'
+                console.warn(`[PlaybackCache] Missing cache file for ${asset.name}; falling back to source`, {
+                  assetId: asset.id,
+                  playbackCachePath: asset.playbackCachePath,
+                })
+              }
+            } catch (e) {
+              playbackCachePath = null
+              playbackCacheStatus = 'failed'
+              console.warn(`Could not load playback cache for ${asset.name}:`, e)
+            }
+          }
+          // Regenerate proxy URL (low-res NLE-style proxy) the same way.
+          // Kept separate from playbackCache so both tiers can coexist:
+          // proxy is strongly preferred for multi-layer preview, playback
+          // cache is used when proxy is missing/disabled.
+          let proxyUrl = null
+          let proxyPath = asset.proxyPath
+          let proxyStatus = asset.proxyStatus
+          if (asset.proxyPath) {
+            try {
+              let canUseProxy = true
+              if (
+                isElectron() &&
+                typeof projectHandle === 'string' &&
+                window.electronAPI?.pathJoin &&
+                window.electronAPI?.exists
+              ) {
+                const absoluteProxyPath = await window.electronAPI.pathJoin(projectHandle, asset.proxyPath)
+                canUseProxy = await window.electronAPI.exists(absoluteProxyPath)
+              }
+
+              if (canUseProxy) {
+                proxyUrl = await getProjectFileUrl(projectHandle, asset.proxyPath)
+              } else {
+                proxyPath = null
+                proxyStatus = 'failed'
+                console.warn(`[ProxyCache] Missing proxy file for ${asset.name}; falling back to source`, {
+                  assetId: asset.id,
+                  proxyPath: asset.proxyPath,
+                })
+              }
+            } catch (e) {
+              proxyPath = null
+              proxyStatus = 'failed'
+              console.warn(`Could not load proxy for ${asset.name}:`, e)
+            }
+          }
+          assetsWithUrls.push({
+            ...asset,
+            url,
+            playbackCachePath: playbackCachePath ?? undefined,
+            playbackCacheStatus,
+            playbackCacheUrl: playbackCacheUrl ?? undefined,
+            proxyPath: proxyPath ?? undefined,
+            proxyStatus,
+            proxyUrl: proxyUrl ?? undefined,
+          })
+        } catch (err) {
+          console.warn(`Could not load asset ${asset.name}:`, err)
+          // Keep asset but mark URL as null
+          assetsWithUrls.push({ ...asset, url: null })
+        }
+      } else {
+        // For AI/external assets, keep the URL as-is (may need ComfyUI to be running)
+        assetsWithUrls.push(asset)
+      }
+      loadedAssetCount += 1
+      set({
+        mediaPreparation: {
+          active: true,
+          phase: 'assets',
+          label: 'Loading project assets...',
+          completed: loadedAssetCount,
+          total: totalAssets,
+          critical: true,
+        },
+      })
+    }
 
     const nextState = {
       assets: assetsWithUrls,
-      projectHandle: projectHandle || null,
       assetCounter: (projectAssets?.length || 0) + 1,
       mediaPreparation: {
         active: false,
@@ -589,11 +715,6 @@ export const useAssetsStore = create(
       nextState.folderCounter = projectFolderCounter
     }
     set(nextState)
-    return {
-      assets: assetsWithUrls,
-      prunedMissingAssets: [],
-      repairedAssets: [],
-    }
   },
 
   /**
@@ -616,10 +737,10 @@ export const useAssetsStore = create(
    */
   updateAssetUrl: (assetId, url) => {
     set((state) => ({
-      assets: state.assets.map(a => 
+      assets: state.assets.map(a =>
         a.id === assetId ? { ...a, url } : a
       ),
-      currentPreview: state.currentPreview?.id === assetId 
+      currentPreview: state.currentPreview?.id === assetId
         ? { ...state.currentPreview, url }
         : state.currentPreview
     }))
@@ -632,10 +753,10 @@ export const useAssetsStore = create(
    */
   updateAssetSprite: (assetId, spriteData) => {
     set((state) => ({
-      assets: state.assets.map(a => 
+      assets: state.assets.map(a =>
         a.id === assetId ? { ...a, sprite: spriteData } : a
       ),
-      currentPreview: state.currentPreview?.id === assetId 
+      currentPreview: state.currentPreview?.id === assetId
         ? { ...state.currentPreview, sprite: spriteData }
         : state.currentPreview
     }))
@@ -681,17 +802,16 @@ export const useAssetsStore = create(
 
     // Mark as generating
     set((state) => ({
-      assets: state.assets.map(a => 
+      assets: state.assets.map(a =>
         a.id === assetId ? { ...a, spriteGenerating: true } : a
       )
     }))
 
     try {
       const { generateThumbnailSprite, saveSpriteToProject } = await import('../services/thumbnailSprites')
-      
-      // Generate sprite. This uses a hidden video element and canvas seeks,
-      // so keep generation bounded across imports/manual actions.
-      const result = await runWithSpriteGenerationSlot(() => generateThumbnailSprite(asset.url, asset.duration || 5))
+
+      // Generate sprite
+      const result = await generateThumbnailSprite(asset.url, asset.duration || 5)
       if (!result) {
         throw new Error('Failed to generate sprite')
       }
@@ -710,10 +830,10 @@ export const useAssetsStore = create(
 
       // Update asset with sprite data
       get().updateAssetSprite(assetId, spriteData)
-      
+
       // Clear generating flag
       set((state) => ({
-        assets: state.assets.map(a => 
+        assets: state.assets.map(a =>
           a.id === assetId ? { ...a, spriteGenerating: false } : a
         )
       }))
@@ -722,14 +842,14 @@ export const useAssetsStore = create(
       return spriteData
     } catch (err) {
       console.error('Failed to generate sprite:', err)
-      
+
       // Clear generating flag
       set((state) => ({
-        assets: state.assets.map(a => 
+        assets: state.assets.map(a =>
           a.id === assetId ? { ...a, spriteGenerating: false } : a
         )
       }))
-      
+
       return null
     }
   },
@@ -847,7 +967,7 @@ export const useAssetsStore = create(
       get().updateAsset(assetId, updates)
     }
 
-   return updates
+    return updates
   },
 
   /**
@@ -855,29 +975,53 @@ export const useAssetsStore = create(
    * Startup intentionally does not call this; use it for explicit/on-demand
    * warming where bounded background work is acceptable.
    * @param {string} projectPath - Project directory path
-   * @param {string} assetId - Asset ID
-   * @returns {Promise<object|null>}
    */
-  loadSpriteForAsset: async (projectPath, assetId) => {
-    if (!projectPath || !assetId) return null
+  loadSpritesFromProject: async (projectPath) => {
+    if (!projectPath) return
 
-    const asset = get().assets.find((entry) => entry?.id === assetId)
-    if (!asset || asset.type !== 'video' || asset.sprite?.url) {
-      return asset?.sprite || null
+    const { loadSpriteFromProject } = await import('../services/thumbnailSprites')
+    const state = get()
+
+    const videoAssets = state.assets.filter(a => a.type === 'video')
+    if (videoAssets.length === 0) {
+      get().clearMediaPreparation()
+      return
     }
 
-    try {
-      const { loadSpriteFromProject } = await import('../services/thumbnailSprites')
-      const sprite = await loadSpriteFromProject(projectPath, assetId)
-      if (sprite) {
-        get().updateAssetSprite(assetId, sprite.spriteData)
-        return sprite.spriteData
+    set({
+      mediaPreparation: {
+        active: true,
+        phase: 'sprites',
+        label: 'Loading video thumbnails...',
+        completed: 0,
+        total: videoAssets.length,
+        critical: false,
+      },
+    })
+
+    for (const [index, asset] of videoAssets.entries()) {
+      try {
+        const sprite = await loadSpriteFromProject(projectPath, asset.id)
+        if (sprite) {
+          get().updateAssetSprite(asset.id, sprite.spriteData)
+          console.log(`Loaded sprite for ${asset.name}`)
+        }
+      } catch (err) {
+        // Sprite might not exist yet, that's OK
+      } finally {
+        set({
+          mediaPreparation: {
+            active: true,
+            phase: 'sprites',
+            label: 'Loading video thumbnails...',
+            completed: index + 1,
+            total: videoAssets.length,
+            critical: false,
+          },
+        })
       }
-    } catch (err) {
-      console.warn('Failed to load sprite on demand:', err)
     }
-
-    return null
+    get().clearMediaPreparation()
   },
 
   /**
@@ -991,58 +1135,10 @@ export const useAssetsStore = create(
     // Use playback cache URL when available (Flame-style: optimized for playback)
     const useCache = !!asset.playbackCacheUrl && asset.playbackCacheStatus !== 'failed'
     const url = useCache ? asset.playbackCacheUrl : (asset.url || null)
-    if (!url && (asset.path || asset.absolutePath)) {
-      get().ensureAssetUrl(assetId).catch(() => {})
-    }
     if (typeof localStorage !== 'undefined' && localStorage.getItem('comfystudio-debug-playback') === '1' && asset.type === 'video') {
       console.log('[PlaybackCache] getAssetUrl:', { assetId, useCache, urlHint: url ? (url.startsWith('file:') ? 'file:// (cache or original)' : url.slice(0, 50) + '...') : 'null' })
     }
     return url
-  },
-
-  /**
-   * Lazily resolve an asset URL from project disk when the asset is first used.
-   * This keeps project-open light and only hydrates the media that a visible clip
-   * or panel actually asks for.
-   */
-  ensureAssetUrl: async (assetId) => {
-    if (!assetId) return null
-    const state = get()
-    const asset = state.assets.find((entry) => entry?.id === assetId)
-    if (!asset) return null
-    const currentUrl = asset.url && !String(asset.url).startsWith('blob:') ? asset.url : null
-    if (currentUrl) return currentUrl
-    if (!state.projectHandle || (!asset.path && !asset.absolutePath)) return null
-
-    const pendingKey = `${String(state.projectHandle || '')}|${assetId}`
-    if (pendingAssetUrlLoads.has(pendingKey)) {
-      return pendingAssetUrlLoads.get(pendingKey)
-    }
-
-    const loadPromise = (async () => {
-      try {
-        const { getProjectFileUrl, getAbsoluteFileUrl, isElectron } = await import('../services/fileSystem')
-        let nextUrl = null
-        if (asset.absolutePath && isElectron()) {
-          nextUrl = await getAbsoluteFileUrl(asset.absolutePath)
-        } else if (asset.path) {
-          nextUrl = await getProjectFileUrl(state.projectHandle, asset.path)
-        }
-        if (nextUrl) {
-          get().updateAssetUrl(assetId, nextUrl)
-          return nextUrl
-        }
-        return null
-      } catch (error) {
-        console.warn(`[Assets] Failed to lazily resolve URL for ${asset.name || assetId}:`, error)
-        return null
-      } finally {
-        pendingAssetUrlLoads.delete(pendingKey)
-      }
-    })()
-
-    pendingAssetUrlLoads.set(pendingKey, loadPromise)
-    return loadPromise
   },
 
   /**
@@ -1176,14 +1272,14 @@ export const useAssetsStore = create(
    */
   regenerateImportedUrls: async (projectHandle) => {
     if (!projectHandle) return
-    
+
     const state = get()
     const assetsNeedingUrls = state.assets.filter(a => a.isImported && a.path && !a.url)
-    
+
     if (assetsNeedingUrls.length === 0) return
-    
+
     console.log(`Regenerating URLs for ${assetsNeedingUrls.length} imported assets...`)
-    
+
     for (const asset of assetsNeedingUrls) {
       try {
         const { getProjectFileUrl } = await import('../services/fileSystem')
@@ -1220,10 +1316,10 @@ export const useAssetsStore = create(
    */
   addMaskAsset: (maskData) => {
     console.log('addMaskAsset called with:', maskData)
-    
+
     const state = get()
     const counter = state.assetCounter
-    
+
     const newMask = {
       id: Date.now().toString(),
       createdAt: new Date().toISOString(),
@@ -1240,17 +1336,17 @@ export const useAssetsStore = create(
       folderId: maskData.folderId || null,
       isImported: false, // Masks are always AI-generated
     }
-    
+
     console.log('Creating mask asset:', newMask)
-    
+
     set((state) => ({
       assets: [newMask, ...state.assets],
       assetCounter: state.assetCounter + 1,
       currentPreview: newMask
     }))
-    
+
     console.log('Mask asset added to store')
-    
+
     return newMask
   }
     }),
