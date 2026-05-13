@@ -3165,7 +3165,8 @@ ipcMain.handle('export:encodeVideo', async (event, options = {}) => {
     duration = null,
     audioCodec = 'aac',
     audioBitrateKbps = 192,
-    audioSampleRate = 44100
+    audioSampleRate = 44100,
+    useHardwareEncoder = false
   } = options
 
   if (!ffmpegPath) {
