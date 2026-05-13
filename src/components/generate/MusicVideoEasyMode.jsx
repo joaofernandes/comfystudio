@@ -266,21 +266,21 @@ function buildCoveragePlan({ performancePassCount, includeStoryBroll, includeEnv
     sections.push({
       type: 'story_broll',
       label: 'Story b-roll pass',
-      intent: 'Non-lip-sync story and cutaway coverage that can be edited over the main timeline.',
+      intent: 'Non-lip-sync cast/person coverage that carries a start-middle-end b-roll story over the main timeline.',
     })
   }
   if (includeEnvironmentalBroll) {
     sections.push({
       type: 'environmental_broll',
       label: 'Environmental b-roll pass',
-      intent: 'Places, atmosphere, empty spaces, exteriors, mood, and world-building coverage across the full timeline.',
+      intent: 'Places, atmosphere, empty spaces, exteriors, mood, and world-building coverage from the same b-roll story arc.',
     })
   }
   if (includeDetailBroll) {
     sections.push({
       type: 'detail_broll',
       label: 'Detail insert pass',
-      intent: 'Short macro, texture, prop, instrument, hand, and atmosphere inserts for editorial cutaways.',
+      intent: 'Short macro, texture, prop, instrument, hand, and atmosphere inserts that reveal clues from the same b-roll story arc.',
     })
   }
   return {
@@ -1157,7 +1157,7 @@ export default function MusicVideoEasyMode({
               {plural(coveragePlan.sections.length, 'section')}: {coverageSummary}
             </div>
             <p className="mt-1 max-w-3xl text-xs leading-5 text-sf-text-secondary">
-              The LLM brief will return one combined director script with labeled coverage sections. Every generated clip still stays in the 2-8 second range.
+              The LLM brief will return one combined director script with labeled coverage sections. B-roll sections are guided to share one start-middle-end story, with environment and detail shots supporting the same arc.
             </p>
           </div>
           {coveragePreset === 'custom' && (
@@ -1233,7 +1233,7 @@ export default function MusicVideoEasyMode({
                 Copy LLM brief
               </div>
               <p className="mt-1 text-xs leading-5 text-sf-text-secondary">
-                The brief includes song timing, cast slugs, and the required script format. Story, look, and continuity should be written into the shot prompts.
+                The brief includes song timing, cast slugs, required script format, b-roll story guidance, camera motion, character movement, and emotion cues.
               </p>
             </div>
             <button
