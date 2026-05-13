@@ -18,6 +18,7 @@ import useViewportClampedPosition from '../hooks/useViewportClampedPosition'
 import { getAllKeyframeTimes } from '../utils/keyframes'
 import { TRANSITION_TYPES, TRANSITION_DURATIONS, FRAME_RATE } from '../constants/transitions'
 import { getAudioClipFadeValues } from '../utils/audioClipFades'
+import { getSpriteFramePosition } from '../services/thumbnailSprites'
 import { getEffectTypeDefinition } from '../utils/effects'
 import { isTextEditingElement } from '../utils/keyboardFocus'
 import {
@@ -46,6 +47,8 @@ const MARQUEE_AUTO_SCROLL_STEP_PX = 24
 const PLAYHEAD_SCRUB_AUTO_SCROLL_EDGE_PX = 40
 const PLAYHEAD_SCRUB_AUTO_SCROLL_MAX_STEP_PX = 28
 const MIN_INTERACTIVE_CLIP_WIDTH_PX = 24
+const TIMELINE_VIDEO_THUMB_WIDTH_PX = 90
+const MAX_TIMELINE_VIDEO_THUMBNAILS = 12
 
 // Resolve-style audio track/waveform colors
 const AUDIO_TRACK_BG = '#2d4038'
@@ -5165,7 +5168,7 @@ function Timeline({ onOpenAudioGenerate, onActiveToolChange }) {
                   const interactiveClipWidth = Math.max(MIN_INTERACTIVE_CLIP_WIDTH_PX, renderedClipWidth)
                   const interactiveClipOffset = Math.max(0, (interactiveClipWidth - renderedClipWidth) / 2)
                   // Calculate how many thumbnail frames to show (roughly one per 60px)
-                  const thumbCount = Math.max(1, Math.floor(renderedClipWidth / 60))
+                  const thumbCount = Math.max(1, Math.min(MAX_TIMELINE_VIDEO_THUMBNAILS, Math.ceil(renderedClipWidth / TIMELINE_VIDEO_THUMB_WIDTH_PX)))
                   const isTextClip = clip.type === 'text'
                   const isAdjustmentClip = clip.type === 'adjustment'
                   const clipEnabled = isClipEnabled(clip)
@@ -5447,28 +5450,12 @@ function Timeline({ onOpenAudioGenerate, onActiveToolChange }) {
                             borderTop: `3px solid #3d7080`,
                           }}
                         />
-
                         {/* Filmstrip thumbnails */}
                         {clipMediaUrl && (
                           <div className="absolute inset-0 top-[3px] flex overflow-hidden">
-                            {Array.from({ length: thumbCount }).map((_, i) => (
-                              <div
-                                key={i}
-                                className="flex-shrink-0 h-full relative overflow-hidden"
-                                style={{ width: `${renderedClipWidth / thumbCount}px` }}
-                              >
-                                <video
-                                  src={clipMediaUrl}
-                                  className="absolute inset-0 w-full h-full object-cover opacity-80 pointer-events-none"
-                                  muted
-                                  style={{
-                                    // Offset each thumbnail to show different part of video
-                                    objectPosition: `${(i / Math.max(1, thumbCount - 1)) * 100}% center`
-                                  }}
-                                  onContextMenu={(e) => e.preventDefault()}
-                                />
-                              </div>
-                            ))}
+                        {shouldRenderClipThumbnails && (
+                          <div className="absolute inset-0 top-[3px] flex overflow-hidden">
+                            {renderTimelineVideoFilmstrip(clip, renderedClipWidth, thumbCount, contentHeight)}
                           </div>
                         )}
 

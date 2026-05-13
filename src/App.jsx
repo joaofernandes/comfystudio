@@ -56,7 +56,6 @@ function App() {
   const [selectedItem, setSelectedItem] = useState({ type: 'shot', id: '2.1' })
   const [mainTab, setMainTab] = useState('editor')
   const [hasMountedFlowAi, setHasMountedFlowAi] = useState(false)
-  const [hasMountedExport, setHasMountedExport] = useState(false)
   const [bottomEditorView, setBottomEditorView] = useState('timeline')
   const [activeTimelineToolLabel, setActiveTimelineToolLabel] = useState('Move tool')
   const [downloadProgressItems, setDownloadProgressItems] = useState([])
@@ -218,12 +217,6 @@ function App() {
     }
   }, [mainTab])
 
-  useEffect(() => {
-    if (mainTab === "export") {
-      setHasMountedExport(true)
-    }
-  }, [mainTab])
-
   // When user sends timeline frame to Generate (right-click preview → Extend with AI / Starting keyframe for AI)
   useEffect(() => {
     const handler = () => setMainTab('generate')
@@ -307,7 +300,6 @@ function App() {
     : 0
   const showMediaPreparation = Boolean(mediaPreparation?.active && mediaPreparationTotal > 0)
   const visibleDownloadProgressItems = downloadProgressItems.filter(Boolean)
-
   // Initialize project store on mount
   useEffect(() => {
     initialize()
@@ -498,6 +490,62 @@ function App() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden min-h-0">
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3 text-[10px] text-sf-text-muted">
+            <span>{mediaPreparation?.label || 'Preparing media...'}</span>
+            <span>{mediaPreparationPercent}%</span>
+          </div>
+        </div>
+      )}
+
+      {visibleDownloadProgressItems.length > 0 && (
+        <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-[min(420px,calc(100vw-32px))] flex-col gap-2">
+          {visibleDownloadProgressItems.map((item) => {
+            const isCompleted = item.state === 'completed'
+            const isCancelled = item.state === 'cancelled'
+            const isInterrupted = item.state === 'interrupted'
+            const percent = typeof item.percent === 'number' ? Math.max(0, Math.min(100, item.percent)) : null
+            const progressLabel = percent !== null
+              ? `${percent}%`
+              : `${formatDownloadBytes(item.receivedBytes)} downloaded`
+            const detail = item.totalBytes > 0
+              ? `${formatDownloadBytes(item.receivedBytes)} / ${formatDownloadBytes(item.totalBytes)}`
+              : formatDownloadBytes(item.receivedBytes)
+            return (
+              <div
+                key={item.id}
+                className="rounded-xl border border-sf-dark-600 bg-sf-dark-900/95 p-3 shadow-2xl shadow-black/40 backdrop-blur"
+              >
+                <div className="mb-2 flex items-start gap-2 text-xs">
+                  {!item.done && <Loader2 className="mt-0.5 h-3.5 w-3.5 animate-spin text-sf-accent" />}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium text-sf-text-primary">
+                      {isCompleted ? 'Download complete' : isCancelled ? 'Download cancelled' : isInterrupted ? 'Download interrupted' : 'Downloading'}
+                    </div>
+                    <div className="truncate text-[10px] text-sf-text-muted" title={item.filename}>
+                      {item.filename || 'File download'}
+                    </div>
+                  </div>
+                  <span className="font-mono text-[10px] text-sf-text-muted">{progressLabel}</span>
+                </div>
+                <div className="mb-1 h-1.5 overflow-hidden rounded-full bg-sf-dark-700">
+                  <div
+                    className={`h-full rounded-full transition-[width] duration-200 ${isCompleted ? 'bg-green-500' : isCancelled || isInterrupted ? 'bg-red-500' : 'bg-sf-accent'} ${percent === null && !item.done ? 'animate-pulse' : ''}`}
+                    style={{ width: `${percent ?? 100}%` }}
+                  />
+                </div>
+                <div className="truncate text-[10px] text-sf-text-muted" title={item.savePath}>
+                  {detail}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex overflow-hidden min-h-0">
         {/* ComfyUI tab: mount only while active so hidden ComfyUI media previews
             cannot keep Chromium video decoders/shared-memory buffers alive in
             Generate or Editor. Queue/progress uses the API/websocket, not this iframe. */}
@@ -540,6 +588,48 @@ function App() {
             />
           </div>
         )}
+      <div className="flex-1 flex overflow-hidden min-h-0">
+        {/* ComfyUI tab – kept mounted when visible so iframe does not reload */}
+        <div
+          className="flex-1 flex flex-col min-h-0 bg-sf-dark-950"
+          style={{ display: mainTab === 'comfyui' ? 'flex' : 'none' }}
+        >
+          {/* Thin toolbar: the embedded ComfyUI iframe has no browser chrome,
+              so when it gets into a stuck state (blank/black canvas from a
+              failed WS handshake, a crashed extension, or ComfyUI restarting
+              under it) the user has no way to recover from inside the app.
+              Reload remounts the iframe; Open-external pops it in the system
+              browser as a fallback diagnostic. */}
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-sf-dark-700 bg-sf-dark-900 text-xs text-sf-text-muted flex-shrink-0">
+            <span className="font-mono truncate">{comfyIframeUrl || '—'}</span>
+            <div className="flex-1" />
+            <button
+              type="button"
+              onClick={reloadComfyIframe}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded hover:bg-sf-dark-700 hover:text-sf-text-primary transition-colors"
+              title="Reload the ComfyUI iframe (useful if it's stuck on a black screen)"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Reload
+            </button>
+            <button
+              type="button"
+              onClick={openComfyExternal}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded hover:bg-sf-dark-700 hover:text-sf-text-primary transition-colors"
+              title="Open ComfyUI in your default browser"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Open in browser
+            </button>
+          </div>
+          <iframe
+            key={`comfy-iframe-${comfyIframeUrl}-${comfyIframeNonce}`}
+            src={comfyIframeUrl}
+            title="ComfyUI"
+            className="flex-1 w-full min-h-0 border-0"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          />
+        </div>
         {/* Generate tab – keep mounted so queue/progress survives tab switches */}
         <div
           className="flex-1 flex flex-col min-h-0 overflow-hidden bg-sf-dark-950"
@@ -567,15 +657,13 @@ function App() {
             </WorkspaceErrorBoundary>
           </div>
         )}
-        {/* Export tab - lazy-mount after first visit so hidden exports cannot start before Export is opened. */}
-        {hasMountedExport && (
-          <div
-            className="flex-1 flex flex-col min-h-0 overflow-hidden bg-sf-dark-950"
-            style={{ display: mainTab === "export" ? "flex" : "none" }}
-          >
-            <ExportPanel isActive={mainTab === "export"} />
-          </div>
-        )}
+        {/* Export tab - keep mounted so settings, queue, and progress survive tab switches */}
+        <div
+          className="flex-1 flex flex-col min-h-0 overflow-hidden bg-sf-dark-950"
+          style={{ display: mainTab === 'export' ? 'flex' : 'none' }}
+        >
+          <ExportPanel />
+        </div>
         {mainTab === "stock" && (
           <StockPanel />
         )}
