@@ -2642,6 +2642,8 @@ export function modifyMusicVideoShotWorkflow(workflow, options = {}) {
 
   const shot = normalizeMusicVideoShot(rawShot)
   const shotTypeOption = getMusicVideoShotTypeOption(shot.shotType) || getMusicVideoShotTypeOption('performance')
+  const usesVocalAlignment = Boolean(shotTypeOption?.needsVocalAlignment)
+  const useBrollI2vBranch = !usesVocalAlignment
   const hasExplicitImageStrength = Number.isFinite(Number(rawShot?.imageStrength))
   const resolvedImageStrength = hasExplicitImageStrength
     ? shot.imageStrength
@@ -2649,7 +2651,7 @@ export function modifyMusicVideoShotWorkflow(workflow, options = {}) {
         ? Number(shotTypeOption.defaultImageStrength)
         : shot.imageStrength)
 
-  const preserveFirstFramePrompt = shotTypeOption?.needsVocalAlignment
+  const preserveFirstFramePrompt = usesVocalAlignment
     ? ''
     : 'Preserve the exact person, face, wardrobe, pose, environment, camera framing, and lighting from the first frame. Do not replace the subject or change to a different scene.'
   const resolvedPrompt = [shot.shotPrompt, preserveFirstFramePrompt, shotTypeOption.promptSuffix]
@@ -2670,7 +2672,7 @@ export function modifyMusicVideoShotWorkflow(workflow, options = {}) {
     shot.length,
     Number(MUSIC_VIDEO_SHOT_DEFAULTS.maxShotLengthSeconds) || 15
   )
-  const requestedPrerollSeconds = shotTypeOption?.needsVocalAlignment
+  const requestedPrerollSeconds = usesVocalAlignment
     ? Math.max(0, Number(rawShot?.prerollSeconds ?? MUSIC_VIDEO_SHOT_DEFAULTS.prerollSeconds) || 0)
     : 0
   const prerollBudgetSeconds = Math.max(0, maxGenerationLength - shot.length)
@@ -2699,7 +2701,7 @@ export function modifyMusicVideoShotWorkflow(workflow, options = {}) {
   // B-roll still uses audioStart/length for timeline placement, but the video
   // should not be driven by vocals. Otherwise a visible cast member can start
   // mouthing the song even when Shot type is b_roll and no Lyric moment exists.
-  if (modified['1523']?.inputs && !shotTypeOption?.needsVocalAlignment) {
+  if (modified['1523']?.inputs && !usesVocalAlignment) {
     if ('audio_scale' in modified['1523'].inputs) modified['1523'].inputs.audio_scale = 0
     if ('audio_to_video_scale' in modified['1523'].inputs) modified['1523'].inputs.audio_to_video_scale = 0
     if ('video_to_audio_scale' in modified['1523'].inputs) modified['1523'].inputs.video_to_audio_scale = 0
@@ -2826,9 +2828,77 @@ export function modifyMusicVideoShotWorkflow(workflow, options = {}) {
     // noise, which visibly hurts detail on LTX 2.3.
     modified['2169'].inputs.noise_seed = (resolvedSeed + 1000003) >>> 0
   }
+  // B-roll I2V branch — nodes copied from video_ltx2_3_i2v.json with a
+  // 7000: prefix. Non-vocal shots route SaveVideo here so the audio-conditioned
+  // performance branch is unreachable: no vocal conditioning, no mouth-driving
+  // audio path, and lower VRAM pressure for longer cutaways.
+  const brollBranch = {
+    image: '7000:269',
+    prompt: '7000:267:266',
+    negative: '7000:267:247',
+    width: '7000:267:257',
+    height: '7000:267:258',
+    fps: '7000:267:260',
+    frames: '7000:267:225',
+    firstSeed: '7000:267:237',
+    secondSeed: '7000:267:216',
+    firstStrength: '7000:267:249',
+    secondStrength: '7000:267:230',
+    createVideo: '7000:267:242',
+    chunkFeedForward: '7000:504',
+  }
+  const brollFrameCount = ((Math.floor((((shot.length * numericFps) - 1) + 7.999) / 8)) * 8) + 1
+  if (modified[brollBranch.image]?.inputs && 'image' in modified[brollBranch.image].inputs) {
+    modified[brollBranch.image].inputs.image = inputImage || modified[brollBranch.image].inputs.image
+  }
+  if (modified[brollBranch.prompt]?.inputs && 'value' in modified[brollBranch.prompt].inputs) {
+    modified[brollBranch.prompt].inputs.value = resolvedPrompt || modified[brollBranch.prompt].inputs.value
+  }
+  if (modified[brollBranch.negative]?.inputs && 'text' in modified[brollBranch.negative].inputs) {
+    const existingBrollNegative = String(modified[brollBranch.negative].inputs.text || '').trim()
+    modified[brollBranch.negative].inputs.text = [
+      negativePrompt || existingBrollNegative,
+      'singing, lip sync, mouthing words, talking, open mouth, visible lyrics, subtitles, text overlay',
+    ].filter(Boolean).join(', ')
+  }
+  if (modified[brollBranch.width]?.inputs && 'value' in modified[brollBranch.width].inputs) {
+    modified[brollBranch.width].inputs.value = numericWidth
+  }
+  if (modified[brollBranch.height]?.inputs && 'value' in modified[brollBranch.height].inputs) {
+    modified[brollBranch.height].inputs.value = numericHeight
+  }
+  if (modified[brollBranch.fps]?.inputs && 'value' in modified[brollBranch.fps].inputs) {
+    modified[brollBranch.fps].inputs.value = numericFps
+  }
+  if (modified[brollBranch.frames]?.inputs && 'value' in modified[brollBranch.frames].inputs) {
+    modified[brollBranch.frames].inputs.value = brollFrameCount
+  }
+  if (modified[brollBranch.firstSeed]?.inputs && 'noise_seed' in modified[brollBranch.firstSeed].inputs) {
+    modified[brollBranch.firstSeed].inputs.noise_seed = resolvedSeed
+  }
+  if (modified[brollBranch.secondSeed]?.inputs && 'noise_seed' in modified[brollBranch.secondSeed].inputs) {
+    modified[brollBranch.secondSeed].inputs.noise_seed = (resolvedSeed + 1000003) >>> 0
+  }
+  if (modified[brollBranch.firstStrength]?.inputs && 'strength' in modified[brollBranch.firstStrength].inputs) {
+    modified[brollBranch.firstStrength].inputs.strength = resolvedImageStrength
+  }
+  if (modified[brollBranch.secondStrength]?.inputs && 'strength' in modified[brollBranch.secondStrength].inputs) {
+    modified[brollBranch.secondStrength].inputs.strength = 1
+  }
+  if (modified[brollBranch.chunkFeedForward]?.inputs && 'chunks' in modified[brollBranch.chunkFeedForward].inputs) {
+    modified[brollBranch.chunkFeedForward].inputs.chunks = 8
+  }
+
   // Output — node 5001 (SaveVideo)
-  if (modified['5001']?.inputs && 'filename_prefix' in modified['5001'].inputs) {
-    modified['5001'].inputs.filename_prefix = filenamePrefix || modified['5001'].inputs.filename_prefix || 'video/music_video/shot'
+  if (modified['5001']?.inputs) {
+    if ('filename_prefix' in modified['5001'].inputs) {
+      modified['5001'].inputs.filename_prefix = filenamePrefix || modified['5001'].inputs.filename_prefix || 'video/music_video/shot'
+    }
+    if ('video' in modified['5001'].inputs) {
+      modified['5001'].inputs.video = useBrollI2vBranch && modified[brollBranch.createVideo]
+        ? [brollBranch.createVideo, 0]
+        : ['5000', 0]
+    }
   }
 
   return modified

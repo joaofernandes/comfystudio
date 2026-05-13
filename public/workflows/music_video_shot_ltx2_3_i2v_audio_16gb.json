@@ -583,7 +583,7 @@
         "lora": "LTX\\v2\\ltx-2-19b-lora-camera-control-dolly-out.safetensors",
         "strength": 0.3
       },
-      "\u2795 Add Lora": "",
+      "➕ Add Lora": "",
       "model": [
         "1570",
         0
@@ -1125,7 +1125,7 @@
   },
   "2109:1620": {
     "inputs": {
-      "value": "You are a Creative Assistant writing concise, action-focused image-to-video prompts. Given an image (first frame) and user Raw Input Prompt, generate a prompt to guide video generation from that image.\n\n#### Guidelines:\n- Analyze the Image: Identify Subject, Setting, Elements, Style and Mood.\n- Follow user Raw Input Prompt: Include all requested motion, actions, camera movements, audio, and details. If in conflict with the image, prioritize user request while maintaining visual consistency (describe transition from image to user's scene).\n- Describe only changes from the image: Don't reiterate established visual details. Inaccurate descriptions may cause scene cuts.\n- Active language: Use present-progressive verbs (\"is walking,\" \"speaking\"). If no action specified, describe natural movements.\n- Chronological flow: Use temporal connectors (\"as,\" \"then,\" \"while\").\n- Audio layer: Describe complete soundscape throughout the prompt alongside actions\u2014NOT at the end. Align audio intensity with action tempo. Include natural background audio, ambient sounds, effects, speech or music (when requested). Be specific (e.g., \"soft footsteps on tile\") not vague (e.g., \"ambient sound\").\n- Speech (only when requested): Provide exact words in quotes with character's visual/voice characteristics (e.g., \"The tall man speaks in a low, gravelly voice\"), language if not English and accent if relevant. If general conversation mentioned without text, generate contextual quoted dialogue. (i.e., \"The man is talking\" input -> the output should include exact spoken words, like: \"The man is talking in an excited voice saying: 'You won't believe what I just saw!' His hands gesture expressively as he speaks, eyebrows raised with enthusiasm. The ambient sound of a quiet room underscores his animated speech.\")\n- Style: Include visual style at beginning: \"Style: <style>, <rest of prompt>.\" If unclear, omit to avoid conflicts.\n- Visual and audio only: Describe only what is seen and heard. NO smell, taste, or tactile sensations.\n- Restrained language: Avoid dramatic terms. Use mild, natural, understated phrasing.\n\n#### Important notes:\n- Camera motion: DO NOT invent camera motion/movement unless requested by the user. Make sure to include camera motion only if specified in the input.\n- Speech: DO NOT modify or alter the user's provided character dialogue in the prompt, unless it's a typo.\n- No timestamps or cuts: DO NOT use timestamps or describe scene cuts unless explicitly requested.\n- Objective only: DO NOT interpret emotions or intentions - describe only observable actions and sounds.\n- Format: DO NOT use phrases like \"The scene opens with...\" / \"The video starts...\". Start directly with Style (optional) and chronological scene description.\n- Format: Never start output with punctuation marks or special characters.\n- DO NOT invent dialogue unless the user mentions speech/talking/singing/conversation.\n- Your performance is CRITICAL. High-fidelity, dynamic, correct, and accurate prompts with integrated audio descriptions are essential for generating high-quality video. Your goal is flawless execution of these rules.\n\n#### Output Format (Strict):\n- Single concise paragraph in natural English. NO titles, headings, prefaces, sections, code fences, or Markdown.\n- If unsafe/invalid, return original user prompt. Never ask questions or clarifications.\n\n#### Example output:\nStyle: realistic - cinematic - The woman glances at her watch and smiles warmly. She speaks in a cheerful, friendly voice, \"I think we're right on time!\" In the background, a caf\u00e9 barista prepares drinks at the counter. The barista calls out in a clear, upbeat tone, \"Two cappuccinos ready!\" The sound of the espresso machine hissing softly blends with gentle background chatter and the light clinking of cups on saucers. \n\nUSER PROMPT BELOW: \n___________________________________________________"
+      "value": "You are a Creative Assistant writing concise, action-focused image-to-video prompts. Given an image (first frame) and user Raw Input Prompt, generate a prompt to guide video generation from that image.\n\n#### Guidelines:\n- Analyze the Image: Identify Subject, Setting, Elements, Style and Mood.\n- Follow user Raw Input Prompt: Include all requested motion, actions, camera movements, audio, and details. If in conflict with the image, prioritize user request while maintaining visual consistency (describe transition from image to user's scene).\n- Describe only changes from the image: Don't reiterate established visual details. Inaccurate descriptions may cause scene cuts.\n- Active language: Use present-progressive verbs (\"is walking,\" \"speaking\"). If no action specified, describe natural movements.\n- Chronological flow: Use temporal connectors (\"as,\" \"then,\" \"while\").\n- Audio layer: Describe complete soundscape throughout the prompt alongside actions—NOT at the end. Align audio intensity with action tempo. Include natural background audio, ambient sounds, effects, speech or music (when requested). Be specific (e.g., \"soft footsteps on tile\") not vague (e.g., \"ambient sound\").\n- Speech (only when requested): Provide exact words in quotes with character's visual/voice characteristics (e.g., \"The tall man speaks in a low, gravelly voice\"), language if not English and accent if relevant. If general conversation mentioned without text, generate contextual quoted dialogue. (i.e., \"The man is talking\" input -> the output should include exact spoken words, like: \"The man is talking in an excited voice saying: 'You won't believe what I just saw!' His hands gesture expressively as he speaks, eyebrows raised with enthusiasm. The ambient sound of a quiet room underscores his animated speech.\")\n- Style: Include visual style at beginning: \"Style: <style>, <rest of prompt>.\" If unclear, omit to avoid conflicts.\n- Visual and audio only: Describe only what is seen and heard. NO smell, taste, or tactile sensations.\n- Restrained language: Avoid dramatic terms. Use mild, natural, understated phrasing.\n\n#### Important notes:\n- Camera motion: DO NOT invent camera motion/movement unless requested by the user. Make sure to include camera motion only if specified in the input.\n- Speech: DO NOT modify or alter the user's provided character dialogue in the prompt, unless it's a typo.\n- No timestamps or cuts: DO NOT use timestamps or describe scene cuts unless explicitly requested.\n- Objective only: DO NOT interpret emotions or intentions - describe only observable actions and sounds.\n- Format: DO NOT use phrases like \"The scene opens with...\" / \"The video starts...\". Start directly with Style (optional) and chronological scene description.\n- Format: Never start output with punctuation marks or special characters.\n- DO NOT invent dialogue unless the user mentions speech/talking/singing/conversation.\n- Your performance is CRITICAL. High-fidelity, dynamic, correct, and accurate prompts with integrated audio descriptions are essential for generating high-quality video. Your goal is flawless execution of these rules.\n\n#### Output Format (Strict):\n- Single concise paragraph in natural English. NO titles, headings, prefaces, sections, code fences, or Markdown.\n- If unsafe/invalid, return original user prompt. Never ask questions or clarifications.\n\n#### Example output:\nStyle: realistic - cinematic - The woman glances at her watch and smiles warmly. She speaks in a cheerful, friendly voice, \"I think we're right on time!\" In the background, a café barista prepares drinks at the counter. The barista calls out in a clear, upbeat tone, \"Two cappuccinos ready!\" The sound of the espresso machine hissing softly blends with gentle background chatter and the light clinking of cups on saucers. \n\nUSER PROMPT BELOW: \n___________________________________________________"
     },
     "class_type": "PrimitiveStringMultiline",
     "_meta": {
@@ -1167,6 +1167,678 @@
     "class_type": "StringConcatenate",
     "_meta": {
       "title": "Concatenate (Instruction + User Prompt)"
+    }
+  },
+  "7000:269": {
+    "inputs": {
+      "image": "director_ad_pill_product_man_suit_storyboard_s06_sh06_extreme_close_up_t1_comfystudio_job_1774809689137_abfq95_00001_.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "B-roll I2V Branch - Load Image"
+    }
+  },
+  "7000:267:216": {
+    "inputs": {
+      "noise_seed": 42
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "B-roll I2V Branch - RandomNoise"
+    }
+  },
+  "7000:267:237": {
+    "inputs": {
+      "noise_seed": 519681071352364
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "B-roll I2V Branch - RandomNoise"
+    }
+  },
+  "7000:267:229": {
+    "inputs": {
+      "video_latent": [
+        "7000:267:230",
+        0
+      ],
+      "audio_latent": [
+        "7000:267:217",
+        1
+      ]
+    },
+    "class_type": "LTXVConcatAVLatent",
+    "_meta": {
+      "title": "B-roll I2V Branch - LTXVConcatAVLatent"
+    }
+  },
+  "7000:267:221": {
+    "inputs": {
+      "ckpt_name": "ltx-2.3-22b-dev-fp8.safetensors"
+    },
+    "class_type": "LTXVAudioVAELoader",
+    "_meta": {
+      "title": "B-roll I2V Branch - LTXV Audio VAE Loader"
+    }
+  },
+  "7000:267:246": {
+    "inputs": {
+      "sampler_name": "euler_cfg_pp"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "B-roll I2V Branch - KSamplerSelect"
+    }
+  },
+  "7000:267:211": {
+    "inputs": {
+      "sigmas": "0.85, 0.7250, 0.4219, 0.0"
+    },
+    "class_type": "ManualSigmas",
+    "_meta": {
+      "title": "B-roll I2V Branch - ManualSigmas"
+    }
+  },
+  "7000:267:213": {
+    "inputs": {
+      "cfg": 1,
+      "model": [
+        "7000:267:232",
+        0
+      ],
+      "positive": [
+        "7000:267:212",
+        0
+      ],
+      "negative": [
+        "7000:267:212",
+        1
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "B-roll I2V Branch - CFGGuider"
+    }
+  },
+  "7000:267:215": {
+    "inputs": {
+      "noise": [
+        "7000:267:237",
+        0
+      ],
+      "guider": [
+        "7000:267:231",
+        0
+      ],
+      "sampler": [
+        "7000:267:209",
+        0
+      ],
+      "sigmas": [
+        "7000:267:252",
+        0
+      ],
+      "latent_image": [
+        "7000:267:222",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "B-roll I2V Branch - SamplerCustomAdvanced"
+    }
+  },
+  "7000:267:212": {
+    "inputs": {
+      "positive": [
+        "7000:267:239",
+        0
+      ],
+      "negative": [
+        "7000:267:239",
+        1
+      ],
+      "latent": [
+        "7000:267:217",
+        0
+      ]
+    },
+    "class_type": "LTXVCropGuides",
+    "_meta": {
+      "title": "B-roll I2V Branch - LTXVCropGuides"
+    }
+  },
+  "7000:267:232": {
+    "inputs": {
+      "lora_name": "ltx-2.3-22b-distilled-lora-384.safetensors",
+      "strength_model": 0.5,
+      "model": [
+        "7000:504",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "B-roll I2V Branch - Load LoRA"
+    }
+  },
+  "7000:267:235": {
+    "inputs": {
+      "longer_edge": 1536,
+      "images": [
+        "7000:267:238",
+        0
+      ]
+    },
+    "class_type": "ResizeImagesByLongerEdge",
+    "_meta": {
+      "title": "B-roll I2V Branch - Resize Images by Longer Edge"
+    }
+  },
+  "7000:267:253": {
+    "inputs": {
+      "samples": [
+        "7000:267:217",
+        0
+      ],
+      "upscale_model": [
+        "7000:267:233",
+        0
+      ],
+      "vae": [
+        "7000:267:236",
+        2
+      ]
+    },
+    "class_type": "LTXVLatentUpsampler",
+    "_meta": {
+      "title": "B-roll I2V Branch - LTXVLatentUpsampler"
+    }
+  },
+  "7000:267:230": {
+    "inputs": {
+      "strength": 1,
+      "bypass": [
+        "7000:267:201",
+        0
+      ],
+      "vae": [
+        "7000:267:236",
+        2
+      ],
+      "image": [
+        "7000:267:248",
+        0
+      ],
+      "latent": [
+        "7000:267:253",
+        0
+      ]
+    },
+    "class_type": "LTXVImgToVideoInplace",
+    "_meta": {
+      "title": "B-roll I2V Branch - LTXVImgToVideoInplace"
+    }
+  },
+  "7000:267:248": {
+    "inputs": {
+      "img_compression": 18,
+      "image": [
+        "7000:267:235",
+        0
+      ]
+    },
+    "class_type": "LTXVPreprocess",
+    "_meta": {
+      "title": "B-roll I2V Branch - LTXVPreprocess"
+    }
+  },
+  "7000:267:238": {
+    "inputs": {
+      "resize_type": "scale dimensions",
+      "resize_type.width": [
+        "7000:267:257",
+        0
+      ],
+      "resize_type.height": [
+        "7000:267:258",
+        0
+      ],
+      "resize_type.crop": "center",
+      "scale_method": "lanczos",
+      "input": [
+        "7000:269",
+        0
+      ]
+    },
+    "class_type": "ResizeImageMaskNode",
+    "_meta": {
+      "title": "B-roll I2V Branch - Resize Image/Mask"
+    }
+  },
+  "7000:267:209": {
+    "inputs": {
+      "sampler_name": "euler_ancestral_cfg_pp"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "B-roll I2V Branch - KSamplerSelect"
+    }
+  },
+  "7000:267:256": {
+    "inputs": {
+      "expression": "a/2",
+      "values.a": [
+        "7000:267:257",
+        0
+      ]
+    },
+    "class_type": "ComfyMathExpression",
+    "_meta": {
+      "title": "B-roll I2V Branch - Math Expression"
+    }
+  },
+  "7000:267:259": {
+    "inputs": {
+      "expression": "a/2",
+      "values.a": [
+        "7000:267:258",
+        0
+      ]
+    },
+    "class_type": "ComfyMathExpression",
+    "_meta": {
+      "title": "B-roll I2V Branch - Math Expression"
+    }
+  },
+  "7000:267:228": {
+    "inputs": {
+      "width": [
+        "7000:267:256",
+        1
+      ],
+      "height": [
+        "7000:267:259",
+        1
+      ],
+      "length": [
+        "7000:267:225",
+        0
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyLTXVLatentVideo",
+    "_meta": {
+      "title": "B-roll I2V Branch - EmptyLTXVLatentVideo"
+    }
+  },
+  "7000:267:249": {
+    "inputs": {
+      "strength": 0.7,
+      "bypass": [
+        "7000:267:201",
+        0
+      ],
+      "vae": [
+        "7000:267:236",
+        2
+      ],
+      "image": [
+        "7000:267:248",
+        0
+      ],
+      "latent": [
+        "7000:267:228",
+        0
+      ]
+    },
+    "class_type": "LTXVImgToVideoInplace",
+    "_meta": {
+      "title": "B-roll I2V Branch - LTXVImgToVideoInplace"
+    }
+  },
+  "7000:267:220": {
+    "inputs": {
+      "samples": [
+        "7000:267:218",
+        1
+      ],
+      "audio_vae": [
+        "7000:267:221",
+        0
+      ]
+    },
+    "class_type": "LTXVAudioVAEDecode",
+    "_meta": {
+      "title": "B-roll I2V Branch - LTXV Audio VAE Decode"
+    }
+  },
+  "7000:267:261": {
+    "inputs": {
+      "expression": "a",
+      "values.a": [
+        "7000:267:260",
+        0
+      ]
+    },
+    "class_type": "ComfyMathExpression",
+    "_meta": {
+      "title": "B-roll I2V Branch - Math Expression"
+    }
+  },
+  "7000:267:258": {
+    "inputs": {
+      "value": 720
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "B-roll I2V Branch - Height"
+    }
+  },
+  "7000:267:260": {
+    "inputs": {
+      "value": 25
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "B-roll I2V Branch - Frame Rate"
+    }
+  },
+  "7000:267:225": {
+    "inputs": {
+      "value": 121
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "B-roll I2V Branch - Length"
+    }
+  },
+  "7000:267:201": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "B-roll I2V Branch - Switch to Text to Video?"
+    }
+  },
+  "7000:267:240": {
+    "inputs": {
+      "text": [
+        "7000:267:266",
+        0
+      ],
+      "clip": [
+        "7000:267:243",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "B-roll I2V Branch - CLIP Text Encode (Prompt)"
+    }
+  },
+  "7000:267:239": {
+    "inputs": {
+      "frame_rate": [
+        "7000:267:261",
+        0
+      ],
+      "positive": [
+        "7000:267:240",
+        0
+      ],
+      "negative": [
+        "7000:267:247",
+        0
+      ]
+    },
+    "class_type": "LTXVConditioning",
+    "_meta": {
+      "title": "B-roll I2V Branch - LTXVConditioning"
+    }
+  },
+  "7000:267:214": {
+    "inputs": {
+      "frames_number": [
+        "7000:267:225",
+        0
+      ],
+      "frame_rate": [
+        "7000:267:261",
+        1
+      ],
+      "batch_size": 1,
+      "audio_vae": [
+        "7000:267:221",
+        0
+      ]
+    },
+    "class_type": "LTXVEmptyLatentAudio",
+    "_meta": {
+      "title": "B-roll I2V Branch - LTXV Empty Latent Audio"
+    }
+  },
+  "7000:267:252": {
+    "inputs": {
+      "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+    },
+    "class_type": "ManualSigmas",
+    "_meta": {
+      "title": "B-roll I2V Branch - ManualSigmas"
+    }
+  },
+  "7000:267:217": {
+    "inputs": {
+      "av_latent": [
+        "7000:267:215",
+        0
+      ]
+    },
+    "class_type": "LTXVSeparateAVLatent",
+    "_meta": {
+      "title": "B-roll I2V Branch - LTXVSeparateAVLatent"
+    }
+  },
+  "7000:267:219": {
+    "inputs": {
+      "noise": [
+        "7000:267:216",
+        0
+      ],
+      "guider": [
+        "7000:267:213",
+        0
+      ],
+      "sampler": [
+        "7000:267:246",
+        0
+      ],
+      "sigmas": [
+        "7000:267:211",
+        0
+      ],
+      "latent_image": [
+        "7000:267:229",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "B-roll I2V Branch - SamplerCustomAdvanced"
+    }
+  },
+  "7000:267:218": {
+    "inputs": {
+      "av_latent": [
+        "7000:267:219",
+        0
+      ]
+    },
+    "class_type": "LTXVSeparateAVLatent",
+    "_meta": {
+      "title": "B-roll I2V Branch - LTXVSeparateAVLatent"
+    }
+  },
+  "7000:267:242": {
+    "inputs": {
+      "fps": [
+        "7000:267:261",
+        0
+      ],
+      "images": [
+        "7000:267:251",
+        0
+      ]
+    },
+    "class_type": "CreateVideo",
+    "_meta": {
+      "title": "B-roll I2V Branch - Create Silent Video"
+    }
+  },
+  "7000:267:233": {
+    "inputs": {
+      "model_name": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors"
+    },
+    "class_type": "LatentUpscaleModelLoader",
+    "_meta": {
+      "title": "B-roll I2V Branch - Load Latent Upscale Model"
+    }
+  },
+  "7000:267:257": {
+    "inputs": {
+      "value": 1280
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "B-roll I2V Branch - Width"
+    }
+  },
+  "7000:267:247": {
+    "inputs": {
+      "text": "pc game, console game, video game, cartoon, childish, ugly",
+      "clip": [
+        "7000:267:243",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "B-roll I2V Branch - CLIP Text Encode (Prompt)"
+    }
+  },
+  "7000:267:231": {
+    "inputs": {
+      "cfg": 1,
+      "model": [
+        "7000:267:232",
+        0
+      ],
+      "positive": [
+        "7000:267:239",
+        0
+      ],
+      "negative": [
+        "7000:267:239",
+        1
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "B-roll I2V Branch - CFGGuider"
+    }
+  },
+  "7000:267:251": {
+    "inputs": {
+      "tile_size": 768,
+      "overlap": 64,
+      "temporal_size": 4096,
+      "temporal_overlap": 4,
+      "samples": [
+        "7000:267:218",
+        0
+      ],
+      "vae": [
+        "7000:267:236",
+        2
+      ]
+    },
+    "class_type": "VAEDecodeTiled",
+    "_meta": {
+      "title": "B-roll I2V Branch - VAE Decode (Tiled)"
+    }
+  },
+  "7000:267:236": {
+    "inputs": {
+      "ckpt_name": "ltx-2.3-22b-dev-fp8.safetensors"
+    },
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {
+      "title": "B-roll I2V Branch - Load Checkpoint"
+    }
+  },
+  "7000:267:243": {
+    "inputs": {
+      "text_encoder": "gemma_3_12B_it_fp4_mixed.safetensors",
+      "ckpt_name": "ltx-2.3-22b-dev-fp8.safetensors",
+      "device": "default"
+    },
+    "class_type": "LTXAVTextEncoderLoader",
+    "_meta": {
+      "title": "B-roll I2V Branch - LTXV Audio Text Encoder Loader"
+    }
+  },
+  "7000:267:222": {
+    "inputs": {
+      "video_latent": [
+        "7000:267:249",
+        0
+      ],
+      "audio_latent": [
+        "7000:267:214",
+        0
+      ]
+    },
+    "class_type": "LTXVConcatAVLatent",
+    "_meta": {
+      "title": "B-roll I2V Branch - LTXVConcatAVLatent"
+    }
+  },
+  "7000:267:266": {
+    "inputs": {
+      "value": "scared man wakes up in the future, camera zoom out showing the whole body of the man and he realises that hes the only human left. There are only robots around now"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "B-roll I2V Branch - Prompt"
+    }
+  },
+  "7000:268": {
+    "inputs": {
+      "sage_attention": "sageattn3",
+      "allow_compile": false,
+      "model": [
+        "7000:267:236",
+        0
+      ]
+    },
+    "class_type": "PathchSageAttentionKJ",
+    "_meta": {
+      "title": "B-roll I2V Branch - Patch Sage Attention"
+    }
+  },
+  "7000:504": {
+    "inputs": {
+      "chunks": 8,
+      "dim_threshold": 4096,
+      "model": [
+        "7000:268",
+        0
+      ]
+    },
+    "class_type": "LTXVChunkFeedForward",
+    "_meta": {
+      "title": "B-roll I2V Branch - Chunk FeedForward"
     }
   }
 }
