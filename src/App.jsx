@@ -471,6 +471,7 @@ function App() {
                   className="flex-shrink-0 transition-[width] duration-200 ease-out h-full"
                 >
                   <LeftPanel 
+                    isActive={mainTab === 'editor'}
                     isExpanded={leftPanelExpanded}
                     onToggleExpanded={handleToggleLeftPanelExpanded}
                     activeTab={leftPanelTab}
@@ -502,6 +503,7 @@ function App() {
                       className="flex-shrink-0 transition-[width] duration-200 ease-out"
                     >
                       <LeftPanel 
+                        isActive={mainTab === 'editor'}
                         isExpanded={leftPanelExpanded}
                         onToggleExpanded={handleToggleLeftPanelExpanded}
                         activeTab={leftPanelTab}
