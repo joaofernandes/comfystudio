@@ -162,6 +162,16 @@ export const CURATED_NODE_PACKS = Object.freeze([
     classTypes: ['ShowText|pysssss'],
   }),
   createAutoNodePack({
+    id: 'nvidia-rtx-nodes',
+    displayName: 'NVIDIA RTX Nodes for ComfyUI',
+    repoUrl: 'https://github.com/Comfy-Org/Nvidia_RTX_Nodes_ComfyUI',
+    installDirName: 'Nvidia_RTX_Nodes_ComfyUI',
+    docsUrl: 'https://github.com/Comfy-Org/Nvidia_RTX_Nodes_ComfyUI',
+    requirementsStrategy: 'requirements-txt',
+    notes: 'Provides RTX Video Super Resolution for local NVIDIA GPU video upscaling.',
+    classTypes: ['RTXVideoSuperResolution'],
+  }),
+  createAutoNodePack({
     id: 'matanyone-kytra',
     displayName: 'ComfyUI_MatAnyone_Kytra',
     repoUrl: 'https://github.com/KytraScript/ComfyUI_MatAnyone_Kytra',

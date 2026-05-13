@@ -1,4 +1,5 @@
 import { TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID } from './topazVideoUpscaleConfig'
+import { RTX_VIDEO_UPSCALE_WORKFLOW_ID } from './rtxVideoUpscaleConfig'
 import { MUSIC_VIDEO_SHOT_WORKFLOW_ID, VOCAL_EXTRACT_WORKFLOW_ID } from './musicVideoShotConfig'
 import {
   ELEVENLABS_TTS_WORKFLOW_ID,
@@ -43,6 +44,7 @@ export const BUILTIN_WORKFLOWS = [
   { id: 'seedance2-flf2v', label: 'First/Last Frame to Video (Seedance 2.0)', category: 'video', needsImage: false, description: 'Cloud first-frame/last-frame video with ByteDance Seedance 2.0', file: 'api_seedance2_0_flf2v.json' },
   { id: 'seedance2-r2v', label: 'Reference to Video (Seedance 2.0)', category: 'video', needsImage: false, description: 'Cloud multi-reference video with ByteDance Seedance 2.0', file: 'api_seedance2_0_r2v.json' },
   { id: TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID, label: 'Topaz Video Upscale', category: 'video', needsImage: false, description: 'Cloud video upscaling with Topaz Starlight and Astra models', file: 'api_topaz_video_enhance.json' },
+  { id: RTX_VIDEO_UPSCALE_WORKFLOW_ID, label: 'RTX Video Upscale 4K', category: 'video', needsImage: false, description: 'Local NVIDIA RTX Video Super Resolution upscale to 4K', file: 'video_rtx_4k_upscale.json' },
   { id: MUSIC_VIDEO_SHOT_WORKFLOW_ID, label: 'Music Video Shot (LTX 2.3 + Audio)', category: 'video', needsImage: true, description: 'Per-shot image-to-video with audio conditioning and lip-sync, for Director Mode music videos', file: 'music_video_shot_ltx2_3_i2v_audio.json' },
   { id: 'music-video-shot-ltx23-16gb', label: 'Music Video Shot (LTX 2.3 FP8 - 16GB)', category: 'video', needsImage: true, description: 'Per-shot I2V with audio, optimized for 16GB VRAM using LTX 2.3 1.1 MXFP8, SageAttention3, and chunks 8 / dim 4096', file: 'music_video_shot_ltx2_3_i2v_audio_16gb.json' },
   { id: SHORT_FILM_DIALOGUE_VIDEO_WORKFLOW_ID, label: 'Short Film Dialogue Shot (LTX 2.3)', category: 'video', needsImage: true, description: 'Fast short-film dialogue image+audio-to-video workflow using structured speech prompts', file: 'short_film_dialogue_ltx2_3_ia2v.json' },
@@ -84,6 +86,7 @@ export const BUILTIN_WORKFLOW_PATHS = {
   'seedance2-flf2v': getBundledWorkflowPath('api_seedance2_0_flf2v.json'),
   'seedance2-r2v': getBundledWorkflowPath('api_seedance2_0_r2v.json'),
   [TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID]: getBundledWorkflowPath('api_topaz_video_enhance.json'),
+  [RTX_VIDEO_UPSCALE_WORKFLOW_ID]: getBundledWorkflowPath('video_rtx_4k_upscale.json'),
   [MUSIC_VIDEO_SHOT_WORKFLOW_ID]: getBundledWorkflowPath('music_video_shot_ltx2_3_i2v_audio.json'),
   'music-video-shot-ltx23-16gb': getBundledWorkflowPath('music_video_shot_ltx2_3_i2v_audio_16gb.json'),
   [SHORT_FILM_DIALOGUE_VIDEO_WORKFLOW_ID]: getBundledWorkflowPath('short_film_dialogue_ltx2_3_ia2v.json'),

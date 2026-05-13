@@ -4,6 +4,7 @@
  */
 
 import { TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID } from './topazVideoUpscaleConfig'
+import { RTX_VIDEO_UPSCALE_WORKFLOW_ID } from './rtxVideoUpscaleConfig'
 import { MUSIC_VIDEO_SHOT_WORKFLOW_ID, VOCAL_EXTRACT_WORKFLOW_ID } from './musicVideoShotConfig'
 import {
   ELEVENLABS_TTS_WORKFLOW_ID,
@@ -458,6 +459,21 @@ export const WORKFLOW_DEPENDENCY_PACKS = Object.freeze({
     requiredModels: Object.freeze([]),
     requiresComfyOrgApiKey: true,
     docsUrl: COMFY_REGISTRY_URL,
+  }),
+
+  [RTX_VIDEO_UPSCALE_WORKFLOW_ID]: Object.freeze({
+    id: RTX_VIDEO_UPSCALE_WORKFLOW_ID,
+    displayName: 'RTX Video Upscale 4K',
+    requiredNodes: Object.freeze([
+      { classType: 'LoadVideo' },
+      { classType: 'GetVideoComponents' },
+      { classType: 'RTXVideoSuperResolution' },
+      { classType: 'CreateVideo' },
+      { classType: 'SaveVideo' },
+    ]),
+    requiredModels: Object.freeze([]),
+    requiresComfyOrgApiKey: false,
+    docsUrl: 'https://github.com/Comfy-Org/Nvidia_RTX_Nodes_ComfyUI',
   }),
 
   [MUSIC_VIDEO_SHOT_WORKFLOW_ID]: Object.freeze({

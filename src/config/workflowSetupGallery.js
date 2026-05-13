@@ -4,6 +4,7 @@
  */
 import { ALL_WORKFLOWS, getBundledWorkflowPath } from './workflowRegistry'
 import { TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID } from './topazVideoUpscaleConfig'
+import { RTX_VIDEO_UPSCALE_WORKFLOW_ID } from './rtxVideoUpscaleConfig'
 import { MUSIC_VIDEO_SHOT_WORKFLOW_ID, VOCAL_EXTRACT_WORKFLOW_ID } from './musicVideoShotConfig'
 
 function coverPath(filename) {
@@ -57,6 +58,11 @@ const VISUAL_BY_WORKFLOW_ID = {
     gradient: 'from-amber-500/25 via-yellow-900/20 to-sf-dark-950',
     icon: 'cloud',
     extraBadges: ['Upscale'],
+  },
+  [RTX_VIDEO_UPSCALE_WORKFLOW_ID]: {
+    gradient: 'from-emerald-500/25 via-teal-900/20 to-sf-dark-950',
+    icon: 'film',
+    extraBadges: ['RTX', '4K', 'Local'],
   },
   [MUSIC_VIDEO_SHOT_WORKFLOW_ID]: {
     gradient: 'from-pink-500/25 via-purple-900/25 to-sf-dark-950',
@@ -152,6 +158,7 @@ const LONG_DESCRIPTIONS = {
   'grok-video-i2v': 'Cloud image-to-video powered by xAI Grok Imagine Video (Beta). Strong at stylised and cinematic shots. Requires a Grok / Comfy Partner API key.',
   'vidu-q2-i2v': 'Cloud image-to-video with Vidu Q2 Pro Fast. Tuned for quick turnaround and consistent character motion. Requires a Comfy Partner API key.',
   [TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID]: 'Cloud video upscaling with Topaz Video Enhance. Feed it an existing video clip and upscale it with Starlight Precise 2.5 or the Astra variants. Requires a Comfy Partner API key.',
+  [RTX_VIDEO_UPSCALE_WORKFLOW_ID]: 'Local NVIDIA RTX Video Super Resolution. Used by the Export panel RTX 4K option: ComfyStudio renders the timeline first, then sends that video through RTX VSR to produce a 4K master. Requires an RTX-capable NVIDIA GPU and the NVIDIA RTX Nodes package.',
   [MUSIC_VIDEO_SHOT_WORKFLOW_ID]: 'Per-shot music video generator built on LTX 2.3 22B. Takes a reference still and an audio segment and produces a lip-synced shot. Used by Director Mode to render an entire music video one shot at a time. Heavy local workflow — needs a 24GB+ GPU and the LTX 2.3 model stack.',
   [VOCAL_EXTRACT_WORKFLOW_ID]: 'One-time preprocessing workflow that isolates vocals from a mixed song using Mel-Band RoFormer. Runs once when you import a song into a music-video project, so every shot afterward can be conditioned on clean vocals without re-running separation each time.',
   'caption-qwen-asr': 'Local caption and timed-lyrics transcription using Qwen ASR through TTS-Audio-Suite. Used by the timeline caption tool and by Music Video\'s "Transcribe to SRT" button to generate timestamped lyrics before building the director script.',

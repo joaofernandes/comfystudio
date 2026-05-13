@@ -2580,6 +2580,47 @@ export function modifyTopazVideoUpscaleWorkflow(workflow, options = {}) {
 }
 
 /**
+ * Workflow modifier for local NVIDIA RTX Video Super Resolution.
+ */
+export function modifyRtxVideoUpscaleWorkflow(workflow, options = {}) {
+  const {
+    inputVideo = '',
+    width = 3840,
+    height = 2160,
+    quality = 'HIGH',
+    filenamePrefix = 'video/rtx_4k_upscale',
+  } = options
+
+  const modified = JSON.parse(JSON.stringify(workflow))
+  const targetWidth = Math.max(64, Math.round(Number(width) || 3840))
+  const targetHeight = Math.max(64, Math.round(Number(height) || 2160))
+  const normalizedQuality = ['LOW', 'MEDIUM', 'HIGH', 'ULTRA'].includes(String(quality || '').trim().toUpperCase())
+    ? String(quality || '').trim().toUpperCase()
+    : 'HIGH'
+
+  for (const node of Object.values(modified)) {
+    if (!node?.inputs) continue
+
+    if (node.class_type === 'LoadVideo' && 'file' in node.inputs) {
+      node.inputs.file = inputVideo || node.inputs.file
+    }
+
+    if (node.class_type === 'RTXVideoSuperResolution') {
+      if ('resize_type' in node.inputs) node.inputs.resize_type = 'target dimensions'
+      node.inputs['resize_type.width'] = targetWidth
+      node.inputs['resize_type.height'] = targetHeight
+      if ('quality' in node.inputs) node.inputs.quality = normalizedQuality
+    }
+
+    if (node.class_type === 'SaveVideo' && 'filename_prefix' in node.inputs) {
+      node.inputs.filename_prefix = filenamePrefix || node.inputs.filename_prefix || 'video/rtx_4k_upscale'
+    }
+  }
+
+  return modified
+}
+
+/**
  * Workflow modifier for Vocal Extract (Mel-Band RoFormer).
  *
  * Runs once per project as a preprocessing step when the user imports a

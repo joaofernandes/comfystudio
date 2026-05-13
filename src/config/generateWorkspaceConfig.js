@@ -1,4 +1,5 @@
 import { TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID } from './topazVideoUpscaleConfig'
+import { RTX_VIDEO_UPSCALE_WORKFLOW_ID } from './rtxVideoUpscaleConfig'
 import { MUSIC_VIDEO_SHOT_WORKFLOW_ID, VOCAL_EXTRACT_WORKFLOW_ID } from './musicVideoShotConfig'
 import {
   ELEVENLABS_TTS_WORKFLOW_ID,
@@ -336,6 +337,7 @@ const WORKFLOW_DISPLAY_LABELS = Object.freeze({
   'seedance2-flf2v': 'Seedance 2.0 First/Last Frame',
   'seedance2-r2v': 'Seedance 2.0 Reference to Video',
   [TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID]: 'Topaz Video Upscale',
+  [RTX_VIDEO_UPSCALE_WORKFLOW_ID]: 'RTX Video Upscale 4K',
   [MUSIC_VIDEO_SHOT_WORKFLOW_ID]: 'Music Video Shot (LTX 2.3 + Audio)',
   'music-video-shot-ltx23-16gb': 'Music Video Shot (LTX 2.3 FP8 - 16GB)',
   [VOCAL_EXTRACT_WORKFLOW_ID]: 'Vocal Extract (Mel-Band)',
@@ -542,6 +544,12 @@ const WORKFLOW_HARDWARE = Object.freeze({
   [TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID]: {
     tierId: 'cloud',
     runtime: 'cloud',
+  },
+  [RTX_VIDEO_UPSCALE_WORKFLOW_ID]: {
+    tierId: 'standard',
+    runtime: 'local',
+    minimumVramGb: 4,
+    recommendedVramGb: 8,
   },
   [MUSIC_VIDEO_SHOT_WORKFLOW_ID]: {
     tierId: 'pro',
