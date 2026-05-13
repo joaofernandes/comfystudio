@@ -460,7 +460,7 @@ function App() {
           className="flex-1 flex flex-col min-h-0 overflow-hidden bg-sf-dark-950"
           style={{ display: mainTab === 'export' ? 'flex' : 'none' }}
         >
-          <ExportPanel />
+          <ExportPanel isActive={mainTab === 'export'} />
         </div>
         {mainTab === 'stock' && (
           <StockPanel />
