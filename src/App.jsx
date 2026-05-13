@@ -22,6 +22,8 @@ import WelcomeScreen from './components/WelcomeScreen'
 import BottomBar from './components/BottomBar'
 import useProjectStore from './stores/projectStore'
 import useAssetsStore from './stores/assetsStore'
+import useTimelineStore from './stores/timelineStore'
+import videoCache from './services/videoCache'
 import { WORKFLOW_SETUP_SECTION_ID } from './services/workflowSetupManager'
 import {
   COMFY_CONNECTION_CHANGED_EVENT,
@@ -118,7 +120,16 @@ function App() {
   }, [])
 
   useEffect(() => {
+    const previousTab = mainTabRef.current
     mainTabRef.current = mainTab
+    if (previousTab === 'editor' && mainTab !== 'editor') {
+      try {
+        useTimelineStore.getState().shuttlePause?.()
+        videoCache.clear()
+      } catch (_) {
+        // Best-effort release of hidden editor media resources.
+      }
+    }
   }, [mainTab])
 
   // Auto-import outputs from custom workflows run while the embedded
@@ -457,10 +468,10 @@ function App() {
         {mainTab === 'llm-assistant' && (
           <LLMAssistantWorkspace />
         )}
-        {/* Editor tab - keep mounted so preview/timeline media state does not churn on tab switches. */}
+        {/* Editor tab: unmount when hidden so video/canvas preview resources are released before Generate opens. */}
+        {mainTab === 'editor' && (
         <div
           className="flex-1 flex min-h-0 overflow-hidden bg-sf-dark-950"
-          style={{ display: mainTab === 'editor' ? 'flex' : 'none' }}
         >
           <>
             {/* Left Panel - Full Height Mode (spans entire left side) */}
@@ -621,6 +632,7 @@ function App() {
             </div>
           </>
         </div>
+        )}
       </div>
       
       {/* Bottom bar: settings menu + undo/redo */}
