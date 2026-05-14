@@ -38,6 +38,7 @@ const activeFramePipeExports = new Map()
 let restoreFullscreenAfterMinimize = false
 let mainWindowStateSaveTimer = null
 const settingsPath = path.join(app.getPath('userData'), 'settings.json')
+let settingsWriteQueue = Promise.resolve()
 
 function resolvePackagedBinaryPath(binaryPath) {
   if (!binaryPath || typeof binaryPath !== 'string') return binaryPath
@@ -1011,10 +1012,25 @@ async function readSettingsRaw() {
 }
 
 async function writeSettingsRaw(mutator) {
-  const current = await readSettingsRaw()
-  const next = mutator(current)
-  await writeFileAtomic(settingsPath, JSON.stringify(next, null, 2), 'utf8')
-  return next
+  const writeOperation = settingsWriteQueue
+    .catch(() => {})
+    .then(async () => {
+      const current = await readSettingsRaw()
+      const mutated = typeof mutator === 'function' ? mutator(current) : current
+      const next = mutated && typeof mutated === 'object' && !Array.isArray(mutated) ? mutated : {}
+      await writeFileAtomic(settingsPath, JSON.stringify(next, null, 2), 'utf8')
+      return next
+    })
+  settingsWriteQueue = writeOperation.then(() => {}, () => {})
+  return writeOperation
+}
+
+async function refreshSettingsDependentCaches() {
+  try {
+    await refreshLauncherConfigCache()
+  } catch (error) {
+    console.warn('[settings] failed to refresh dependent caches:', error?.message || error)
+  }
 }
 
 async function refreshLauncherConfigCache() {
@@ -2176,8 +2192,7 @@ ipcMain.handle('captions:mixTimelineAudio', async (event, options = {}) => {
 
 ipcMain.handle('settings:get', async (event, key) => {
   try {
-    const data = await fs.readFile(settingsPath, 'utf8')
-    const settings = JSON.parse(data)
+    const settings = await readSettingsRaw()
     return key ? settings[key] : settings
   } catch {
     return key ? null : {}
@@ -2186,16 +2201,15 @@ ipcMain.handle('settings:get', async (event, key) => {
 
 ipcMain.handle('settings:set', async (event, key, value) => {
   try {
-    let settings = {}
-    try {
-      const data = await fs.readFile(settingsPath, 'utf8')
-      settings = JSON.parse(data)
-    } catch {
-      // File doesn't exist yet
+    if (!key || typeof key !== 'string') {
+      return { success: false, error: 'Missing setting key.' }
     }
-    
-    settings[key] = value
-    await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2))
+
+    await writeSettingsRaw((settings) => ({
+      ...settings,
+      [key]: value,
+    }))
+    await refreshSettingsDependentCaches()
     return { success: true }
   } catch (err) {
     return { success: false, error: err.message }
@@ -2204,10 +2218,16 @@ ipcMain.handle('settings:set', async (event, key, value) => {
 
 ipcMain.handle('settings:delete', async (event, key) => {
   try {
-    const data = await fs.readFile(settingsPath, 'utf8')
-    const settings = JSON.parse(data)
-    delete settings[key]
-    await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2))
+    if (!key || typeof key !== 'string') {
+      return { success: false, error: 'Missing setting key.' }
+    }
+
+    await writeSettingsRaw((settings) => {
+      const next = { ...settings }
+      delete next[key]
+      return next
+    })
+    await refreshSettingsDependentCaches()
     return { success: true }
   } catch (err) {
     return { success: false, error: err.message }
