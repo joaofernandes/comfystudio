@@ -114,6 +114,8 @@ export function getWorkflowSetupWorkflows() {
 export function enrichWorkflowDependencyResult(checkResult) {
   const missingNodes = (checkResult?.missingNodes || []).map(enrichMissingNode)
   const missingModels = (checkResult?.missingModels || []).map(enrichMissingModel)
+  const missingNodeInputChoices = checkResult?.missingNodeInputChoices || []
+  const missingPythonModules = checkResult?.missingPythonModules || []
   const autoNodePacks = uniqueBy(
     missingNodes.filter((entry) => entry.autoInstallable).map((entry) => entry.install),
     (entry) => entry.id
@@ -123,7 +125,7 @@ export function enrichWorkflowDependencyResult(checkResult) {
   const coreUpdateNodes = missingNodes.filter((entry) => entry.needsCoreUpdate)
   const manualModels = missingModels.filter((entry) => !entry.autoInstallable)
   const actionableCount = autoNodePacks.length + autoModels.length
-  const manualCount = manualNodes.length + manualModels.length
+  const manualCount = manualNodes.length + manualModels.length + missingNodeInputChoices.length + missingPythonModules.length
   const coreUpdateCount = coreUpdateNodes.length
 
   const workflowLabel = getWorkflowDisplayLabel(checkResult?.workflowId)
@@ -135,6 +137,8 @@ export function enrichWorkflowDependencyResult(checkResult) {
     workflowLabel,
     missingNodes,
     missingModels,
+    missingNodeInputChoices,
+    missingPythonModules,
     autoNodePacks,
     autoModels,
     manualNodes,
@@ -192,6 +196,7 @@ export function buildWorkflowInstallPlan(results = [], selectedWorkflowIds = [])
   const coreNodes = []
   const manualModels = []
   const authWorkflows = []
+  const runtimeDependencies = []
 
   for (const result of selectedResults) {
     for (const node of result.missingNodes || []) {
@@ -252,6 +257,15 @@ export function buildWorkflowInstallPlan(results = [], selectedWorkflowIds = [])
       })
     }
 
+    for (const runtime of [...(result.missingNodeInputChoices || []), ...(result.missingPythonModules || [])]) {
+      runtimeDependencies.push({
+        workflowId: result.workflowId,
+        workflowLabel: result.workflowLabel,
+        displayName: runtime.displayName || runtime.moduleName || runtime.classType || 'Runtime requirement',
+        error: runtime.error || runtime.notes || '',
+      })
+    }
+
     if (result.missingAuth) {
       authWorkflows.push({
         workflowId: result.workflowId,
@@ -282,6 +296,7 @@ export function buildWorkflowInstallPlan(results = [], selectedWorkflowIds = [])
     models,
     manualNodes,
     manualModels,
+    runtimeDependencies,
     coreNodes,
     authWorkflows,
     actionableTaskCount: nodePacks.length + models.length,
@@ -307,6 +322,15 @@ export function buildWorkflowSetupClipboardText(result) {
     lines.push('Manual-only node setup:')
     for (const node of result.manualNodes) {
       lines.push(`- ${node.classType}: ${node.install.notes || 'Use the registry or ComfyUI Manager.'}`)
+    }
+  }
+
+  const runtimeDependencies = [...(result?.missingNodeInputChoices || []), ...(result?.missingPythonModules || [])]
+  if (runtimeDependencies.length > 0) {
+    lines.push('')
+    lines.push('Runtime setup:')
+    for (const runtime of runtimeDependencies) {
+      lines.push(`- ${runtime.displayName || runtime.moduleName || runtime.classType}: ${runtime.error || runtime.notes || 'Required by this workflow.'}`)
     }
   }
 

@@ -291,6 +291,7 @@ function loadSavedExportSettings(storageKey, defaultSettings) {
       renderMode: 'single',
       useCachedRenders: false,
       fastSeek: false,
+      useDirectFramePipe: true,
     }
   } catch (_) {
     return defaultSettings
@@ -501,7 +502,7 @@ function ExportPanel({ isActive = true }) {
         const numeric = Math.max(2, Math.round(Number(value) || 2))
         next[key] = numeric
       }
-      
+
       return next
     })
   }
@@ -796,11 +797,7 @@ function ExportPanel({ isActive = true }) {
     if (settings.format === 'webm' || settings.videoCodec === 'vp9') {
       hints.push('VP9/WebM encodes slower than H.264/H.265.')
     }
-    if (settings.useDirectFramePipe) {
-      hints.push('Fast FFmpeg pipe skips writing PNG frames before encoding.')
-    } else {
-      hints.push('Enable Fast FFmpeg pipe to avoid PNG frame files.')
-    }
+    hints.push('Fast FFmpeg pipe skips writing PNG frames before encoding.')
     
     const textClips = clips.filter(clip => clip.type === 'text')
     if (textClips.length > 0) {
@@ -876,7 +873,7 @@ function ExportPanel({ isActive = true }) {
       useCachedRenders: false,
       useProxyMedia: jobSettings.useProxyMedia,
       fastSeek: false,
-      useDirectFramePipe: jobSettings.useDirectFramePipe,
+      useDirectFramePipe: true,
       postProcessUpscale: jobSettings.postProcessUpscale || 'none',
     }
 
@@ -900,9 +897,29 @@ function ExportPanel({ isActive = true }) {
         }
         exportStartRef.current = Date.now()
         setExportStatus('Starting export worker...')
+        const visibleVideoTrackIds = new Set((tracks || [])
+          .filter((track) => track?.type === 'video' && track.visible !== false && !track.muted)
+          .map((track) => track.id))
+        const visibleAudioTrackIds = new Set((tracks || [])
+          .filter((track) => track?.type === 'audio' && track.visible !== false && !track.muted)
+          .map((track) => track.id))
+        const exportAssetIds = new Set()
+        const exportClips = (clips || []).filter((clip) => {
+          if (!clip || clip.enabled === false) return false
+          if (clip.type === 'audio') return visibleAudioTrackIds.has(clip.trackId)
+          return visibleVideoTrackIds.has(clip.trackId)
+        })
+        for (const clip of exportClips) {
+          if (clip?.assetId) exportAssetIds.add(clip.assetId)
+          for (const effect of clip?.effects || []) {
+            if (effect?.type === 'mask' && effect?.enabled !== false && effect?.maskAssetId) exportAssetIds.add(effect.maskAssetId)
+          }
+        }
+        const referencedAssets = assets.filter((asset) => asset?.id && exportAssetIds.has(asset.id))
+        console.log('[ExportPanel] Worker payload assets', referencedAssets.length, '/', assets.length, 'clips', exportClips.length, '/', clips.length)
         const state = {
           timeline: { clips, tracks, transitions },
-          assets: assets.map((a) => ({
+          assets: referencedAssets.map((a) => ({
             id: a.id,
             path: a.path,
             type: a.type,
@@ -1271,13 +1288,9 @@ function ExportPanel({ isActive = true }) {
                   )}
                   <div className="mt-3 flex items-center gap-2">
                     <button
-                      onClick={() => handleSettingChange('useDirectFramePipe', !settings.useDirectFramePipe)}
-                      className={`px-2 py-1 text-xs rounded border transition-colors ${
-                        settings.useDirectFramePipe
-                          ? 'bg-sf-accent text-white border-sf-accent'
-                          : 'bg-sf-dark-800 text-sf-text-muted border-sf-dark-600'
-                      }`}
+                      className="px-2 py-1 text-xs rounded border bg-sf-accent text-white border-sf-accent cursor-default opacity-90"
                       title="Stream rendered frames directly into FFmpeg instead of writing PNG frames first"
+                      disabled
                     >
                       Fast FFmpeg pipe
                     </button>

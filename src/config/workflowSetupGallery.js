@@ -5,7 +5,12 @@
 import { ALL_WORKFLOWS, getBundledWorkflowPath } from './workflowRegistry'
 import { TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID } from './topazVideoUpscaleConfig'
 import { RTX_VIDEO_UPSCALE_WORKFLOW_ID } from './rtxVideoUpscaleConfig'
-import { MUSIC_VIDEO_SHOT_WORKFLOW_ID, VOCAL_EXTRACT_WORKFLOW_ID } from './musicVideoShotConfig'
+import {
+  MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID,
+  MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID,
+  MUSIC_VIDEO_SHOT_WORKFLOW_ID,
+  VOCAL_EXTRACT_WORKFLOW_ID,
+} from './musicVideoShotConfig'
 
 function coverPath(filename) {
   return getBundledWorkflowPath(`setup-covers/${filename}`)
@@ -202,7 +207,14 @@ export const WORKFLOW_SETUP_STARTER_KITS = Object.freeze([
     label: 'Music Video Kit',
     tagline: 'Timed lyrics, vocal prep, and LTX audio-conditioned shot generation.',
     description: 'The fastest setup path for Director Mode music videos and lip-sync-oriented shot passes.',
-    workflowIds: Object.freeze(['caption-qwen-asr', VOCAL_EXTRACT_WORKFLOW_ID, MUSIC_VIDEO_SHOT_WORKFLOW_ID, 'image-edit']),
+    workflowIds: Object.freeze(['caption-qwen-asr', VOCAL_EXTRACT_WORKFLOW_ID, MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID, 'image-edit']),
+  }),
+  Object.freeze({
+    id: 'music-video-fast-low-vram',
+    label: 'Music Video Fast Low VRAM',
+    tagline: 'Optional acceleration pack for compatible NVIDIA systems.',
+    description: 'Installs and checks only the faster local music-video pass. Use after the regular Music Video Kit is ready.',
+    workflowIds: Object.freeze([MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID]),
   }),
 ])
 

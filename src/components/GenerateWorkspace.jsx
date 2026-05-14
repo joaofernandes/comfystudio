@@ -30,6 +30,7 @@ import {
   saveProject as saveProjectFile,
 } from '../services/fileSystem'
 import { enqueuePlaybackTranscode } from '../services/playbackCache'
+import { getSpriteFramePosition } from '../services/thumbnailSprites'
 import { enqueueProxyTranscode, isProxyPlaybackEnabled } from '../services/proxyCache'
 import { formatCaptionCuesAsSrt, transcribeWithComfyUI } from '../services/captionComfyTranscription'
 import {
@@ -88,6 +89,9 @@ import {
   MUSIC_VIDEO_ENERGY_OPTIONS,
   MUSIC_VIDEO_PERFORMANCE_MODE_OPTIONS,
   MUSIC_VIDEO_SCRIPT_TEMPLATE,
+  MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID,
+  MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID,
+  MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID,
   MUSIC_VIDEO_SHOT_DEFAULTS,
   MUSIC_VIDEO_SHOT_WORKFLOW_ID,
   MUSIC_VIDEO_SHOT_SIZE_OPTIONS,
@@ -157,7 +161,9 @@ const SINGLE_VIDEO_WORKFLOW_IDS = new Set([
   'grok-video-i2v',
   'vidu-q2-i2v',
   MUSIC_VIDEO_SHOT_WORKFLOW_ID,
-  'music-video-shot-ltx23-16gb',
+  MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID,
+  MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID,
+  MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID,
 ])
 
 const WORKFLOW_RUNTIME_GROUPS = Object.freeze({
@@ -368,6 +374,10 @@ function summarizeBlockingDependency(checkResult) {
   }
   if ((checkResult?.missingModels?.length || 0) > 0) {
     issues.push(formatCountLabel(checkResult.missingModels.length, 'model'))
+  }
+  const runtimeCount = (checkResult?.missingNodeInputChoices?.length || 0) + (checkResult?.missingPythonModules?.length || 0)
+  if (runtimeCount > 0) {
+    issues.push(formatCountLabel(runtimeCount, 'runtime requirement'))
   }
   if (checkResult?.missingAuth) {
     issues.push('API key')
@@ -714,7 +724,9 @@ function getDirectorWorkflowShortToken(workflowId = '', stage = '') {
     case 'vidu-q2-i2v':
       return 'vidu'
     case MUSIC_VIDEO_SHOT_WORKFLOW_ID:
-    case 'music-video-shot-ltx23-16gb':
+    case MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID:
+    case MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID:
+    case MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID:
       return 'ltx23_audio'
     case SHORT_FILM_DIALOGUE_VIDEO_WORKFLOW_ID:
       return 'ltx23_dialogue'
@@ -2824,6 +2836,50 @@ function CinematographyTags({ onAddTag, selectedTags, onRemoveTag }) {
   )
 }
 
+
+function StaticAssetPreview({ asset, className = 'w-full h-full object-cover', iconClassName = 'w-4 h-4 text-sf-text-muted' }) {
+  if (!asset) return null
+
+  if (asset.type === 'image' && asset.url) {
+    return <img src={asset.url} className={className} alt="" loading="lazy" decoding="async" />
+  }
+
+  if (asset.type === 'video') {
+    const sprite = asset.sprite
+    const frame = sprite?.url && Array.isArray(sprite.frames) && sprite.frames.length > 0
+      ? (getSpriteFramePosition(sprite, 0) || sprite.frames[0])
+      : null
+
+    if (frame) {
+      const containerClass = className.includes('object-contain')
+        ? 'w-full h-full bg-sf-dark-950 bg-center bg-no-repeat'
+        : 'w-full h-full bg-sf-dark-950 bg-center bg-cover bg-no-repeat'
+      return (
+        <div
+          className={containerClass}
+          style={{
+            backgroundImage: `url(${sprite.url})`,
+            backgroundSize: `${sprite.width}px ${sprite.height}px`,
+            backgroundPosition: `${-(frame.x || 0)}px ${-(frame.y || 0)}px`,
+          }}
+        />
+      )
+    }
+
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-sf-dark-800">
+        <Film className={iconClassName} />
+      </div>
+    )
+  }
+
+  return (
+    <div className="w-full h-full flex items-center justify-center bg-sf-dark-800">
+      <Music className={iconClassName} />
+    </div>
+  )
+}
+
 // ============================================
 // Asset Input Browser (left column)
 // ============================================
@@ -3099,13 +3155,11 @@ function AssetInputBrowser({
             })()
           ) : (
             <div className="aspect-video bg-sf-dark-800 rounded overflow-hidden">
-              {selectedAssetForActiveSlot.type === 'video' ? (
-                <video src={selectedAssetForActiveSlot.url} className="w-full h-full object-contain" muted />
-              ) : selectedAssetForActiveSlot.type === 'image' ? (
-                <img src={selectedAssetForActiveSlot.url} className="w-full h-full object-contain" alt={selectedAssetForActiveSlot.name} />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center"><Music className="w-8 h-8 text-sf-text-muted" /></div>
-              )}
+              <StaticAssetPreview
+                asset={selectedAssetForActiveSlot}
+                className="w-full h-full object-contain"
+                iconClassName="w-8 h-8 text-sf-text-muted"
+              />
             </div>
           )}
           <button onClick={() => handleSelectAssetForActiveSlot(null)} className="mt-1 text-[9px] text-sf-text-muted hover:text-sf-error">Clear selection</button>
@@ -3170,13 +3224,7 @@ function AssetInputBrowser({
                   className={`bg-sf-dark-800 border rounded overflow-hidden text-left transition-all ${isSelected ? 'border-sf-accent ring-1 ring-sf-accent' : 'border-sf-dark-600 hover:border-sf-dark-500'}`}
                 >
                   <div className="aspect-video bg-sf-dark-700 flex items-center justify-center relative overflow-hidden">
-                    {asset.type === 'video' && asset.url ? (
-                      <video src={asset.url} className="w-full h-full object-cover" muted preload="metadata" />
-                    ) : asset.type === 'image' && asset.url ? (
-                      <img src={asset.url} className="w-full h-full object-cover" alt="" />
-                    ) : (
-                      <Music className="w-4 h-4 text-sf-text-muted" />
-                    )}
+                    <StaticAssetPreview asset={asset} />
                     <div className={`absolute top-0.5 left-0.5 px-1 py-0.5 rounded text-[7px] text-white ${asset.type === 'video' ? 'bg-blue-600/80' : asset.type === 'image' ? 'bg-green-600/80' : 'bg-purple-600/80'}`}>
                       {asset.type === 'video' ? 'VID' : asset.type === 'image' ? 'IMG' : 'AUD'}
                     </div>
@@ -3205,9 +3253,18 @@ function AssetInputBrowser({
 async function extractFrameAsFile(videoUrl, time, filename = 'frame.png') {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video')
+    const release = () => {
+      try { video.pause() } catch (_) {}
+      video.onloadedmetadata = null
+      video.onseeked = null
+      video.onerror = null
+      try { video.removeAttribute('src') } catch (_) {}
+      try { video.srcObject = null } catch (_) {}
+      try { video.load() } catch (_) {}
+    }
     video.crossOrigin = 'anonymous'
     video.muted = true
-    video.preload = 'auto'
+    video.preload = 'metadata'
     video.src = videoUrl
 
     video.onloadedmetadata = () => {
@@ -3220,6 +3277,7 @@ async function extractFrameAsFile(videoUrl, time, filename = 'frame.png') {
       canvas.height = video.videoHeight
       canvas.getContext('2d').drawImage(video, 0, 0)
       canvas.toBlob((blob) => {
+        release()
         if (blob) {
           resolve(new File([blob], filename, { type: 'image/png' }))
         } else {
@@ -3228,7 +3286,10 @@ async function extractFrameAsFile(videoUrl, time, filename = 'frame.png') {
       }, 'image/png')
     }
 
-    video.onerror = () => reject(new Error('Failed to load video for frame extraction'))
+    video.onerror = () => {
+      release()
+      reject(new Error('Failed to load video for frame extraction'))
+    }
   })
 }
 
@@ -4239,6 +4300,84 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     }
   }, [addComfyLog])
 
+  const resolveVideoWorkflowTargetsForQueue = useCallback(async (workflowIds, queueLabel) => {
+    const requestedTargets = Array.from(new Set(
+      (Array.isArray(workflowIds) ? workflowIds : [])
+        .map((workflow) => String(workflow || '').trim())
+        .filter(Boolean)
+    ))
+    if (requestedTargets.length === 0) return []
+
+    const resolvedTargets = []
+    const dependencyResults = []
+    const blockingResults = []
+    let usedFastFallback = false
+
+    setYoloDependencyCheckInProgress(true)
+    try {
+      for (const target of requestedTargets) {
+        const isFastTarget = target === MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID || target === MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID
+        if (!isFastTarget) {
+          const result = await checkWorkflowDependencies(target)
+          dependencyResults.push(result)
+          if (result?.hasPack && result?.hasBlockingIssues) blockingResults.push(result)
+          resolvedTargets.push(target)
+          continue
+        }
+
+        const fastResult = await checkWorkflowDependencies(MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID)
+        dependencyResults.push(fastResult)
+        if (!fastResult?.hasPack || !fastResult?.hasBlockingIssues) {
+          resolvedTargets.push(MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID)
+          continue
+        }
+
+        const lowVramResult = await checkWorkflowDependencies(MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID)
+        dependencyResults.push(lowVramResult)
+        if (lowVramResult?.hasPack && lowVramResult?.hasBlockingIssues) {
+          blockingResults.push(lowVramResult)
+          continue
+        }
+
+        usedFastFallback = true
+        resolvedTargets.push(MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID)
+      }
+
+      setYoloDependencyPanel({
+        status: blockingResults.length > 0 ? 'missing' : getDependencyAggregateStatus(dependencyResults),
+        byWorkflow: buildDependencyResultMap(dependencyResults),
+        checkedAt: Date.now(),
+        error: '',
+      })
+
+      if (blockingResults.length > 0) {
+        const summary = blockingResults.map(summarizeBlockingDependency).join('; ')
+        setFormError(`Cannot queue ${queueLabel}. Missing dependencies: ${summary}.`)
+        addComfyLog('error', `Blocked ${queueLabel}: ${summary}`)
+        return null
+      }
+
+      if (usedFastFallback) {
+        const message = 'Fast mode is not available on this system. Using Low VRAM instead.'
+        setFormError(message)
+        addComfyLog('info', message)
+      }
+
+      return Array.from(new Set(resolvedTargets))
+    } catch (error) {
+      setYoloDependencyPanel((prev) => ({
+        ...prev,
+        status: 'error',
+        checkedAt: Date.now(),
+        error: error instanceof Error ? error.message : String(error || 'Dependency check failed'),
+      }))
+      addComfyLog('error', `${queueLabel}: dependency check failed. Queueing continues.`)
+      return requestedTargets
+    } finally {
+      setYoloDependencyCheckInProgress(false)
+    }
+  }, [addComfyLog])
+
   const handleCopyDependencyReport = useCallback(async () => {
     const text = buildMissingDependencyClipboardText(dependencyCheck)
     try {
@@ -5143,7 +5282,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     // Local workflows that honor a user-supplied FPS in their
     // modify*Workflow() helpers. Cloud partner-node workflows ignore
     // it (the provider returns its own FPS) so they stay excluded.
-    const customFpsWorkflowIds = new Set(['wan22-i2v', 'ltx23-i2v', MUSIC_VIDEO_SHOT_WORKFLOW_ID, 'music-video-shot-ltx23-16gb'])
+    const customFpsWorkflowIds = new Set(['wan22-i2v', 'ltx23-i2v', MUSIC_VIDEO_SHOT_WORKFLOW_ID, MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID, MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID, MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID])
     return yoloSelectedVideoWorkflowIds.some((id) => customFpsWorkflowIds.has(String(id || '').trim()))
   }, [yoloSelectedVideoWorkflowIds])
   const yoloSelectedVideoWorkflowLabel = useMemo(
@@ -5207,10 +5346,17 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     yoloSelectedVideoTierMeta,
     yoloNormalizedAdVideoTier,
   ])
-  const yoloDependencyWorkflowIds = useMemo(() => Array.from(new Set([
-    yoloStoryboardWorkflowId,
-    ...yoloSelectedVideoWorkflowIds,
-  ].map((workflow) => String(workflow || '').trim()).filter(Boolean))), [
+  const yoloDependencyWorkflowIds = useMemo(() => {
+    const musicVideoOptionIds = isYoloMusicMode
+      ? YOLO_MUSIC_VIDEO_WORKFLOW_OPTIONS.map((option) => option.id)
+      : []
+    return Array.from(new Set([
+      yoloStoryboardWorkflowId,
+      ...yoloSelectedVideoWorkflowIds,
+      ...musicVideoOptionIds,
+    ].map((workflow) => String(workflow || '').trim()).filter(Boolean)))
+  }, [
+    isYoloMusicMode,
     yoloStoryboardWorkflowId,
     yoloSelectedVideoWorkflowIds,
   ])
@@ -8592,7 +8738,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       // Same set as yoloSelectedVideoWorkflowSupportsCustomFps — only
       // workflows whose modify*Workflow helper accepts an fps input
       // get the user's YOLO FPS setting; cloud providers ignore it.
-      const customFpsWorkflowIds = new Set(['wan22-i2v', 'ltx23-i2v', MUSIC_VIDEO_SHOT_WORKFLOW_ID, 'music-video-shot-ltx23-16gb'])
+      const customFpsWorkflowIds = new Set(['wan22-i2v', 'ltx23-i2v', MUSIC_VIDEO_SHOT_WORKFLOW_ID, MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID, MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID, MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID])
       const requestedFps = customFpsWorkflowIds.has(String(effectiveWorkflowId || '').trim())
         ? (Number(yoloVideoFps) || 24)
         : null
@@ -8792,14 +8938,11 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       setFormError('Choose a video workflow before queueing videos.')
       return 0
     }
-    const depsOk = await validateDependenciesForQueue(
-      targets,
-      sourceLabel
-    )
-    if (!depsOk) return 0
+    const resolvedTargets = await resolveVideoWorkflowTargetsForQueue(targets, sourceLabel)
+    if (!resolvedTargets) return 0
 
-    if (targets.length > 1 && !skipConfirm) {
-      const estimatedJobs = variants.length * targets.length
+    if (resolvedTargets.length > 1 && !skipConfirm) {
+      const estimatedJobs = variants.length * resolvedTargets.length
       const confirmed = await confirmLargeQueueBatch(estimatedJobs, 'video')
       if (!confirmed) {
         setFormError('Queue cancelled')
@@ -8808,14 +8951,14 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     }
 
     let totalQueued = 0
-    for (const targetWorkflowId of targets) {
+    for (const targetWorkflowId of resolvedTargets) {
       totalQueued += await queueYoloVideoVariants(variants, {
         workflowId: targetWorkflowId,
         allowExistingDoneKeys,
-        skipConfirm: skipConfirm || targets.length > 1,
-        suppressEmptyError: targets.length > 1,
+        skipConfirm: skipConfirm || resolvedTargets.length > 1,
+        suppressEmptyError: resolvedTargets.length > 1,
         resolutionOverride,
-        sourceLabel: targets.length > 1
+        sourceLabel: resolvedTargets.length > 1
           ? `${sourceLabel} (${getWorkflowDisplayLabel(targetWorkflowId)})`
           : sourceLabel,
       })
@@ -8830,7 +8973,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     isConnected,
     queueYoloVideoVariants,
     yoloActivePlanIsStale,
-    validateDependenciesForQueue,
+    resolveVideoWorkflowTargetsForQueue,
     yoloActivePlan,
     yoloSelectedVideoWorkflowIds,
     yoloModeLabel,
@@ -8974,11 +9117,11 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       setFormError('Choose a video workflow before creating shot video.')
       return
     }
-    const depsOk = await validateDependenciesForQueue(
+    const resolvedTargets = await resolveVideoWorkflowTargetsForQueue(
       targets,
       `video re-render for ${sceneId} ${shotId}`
     )
-    if (!depsOk) return
+    if (!resolvedTargets) return
 
     const planToUse = Array.isArray(planOverride) && planOverride.length > 0
       ? planOverride
@@ -8993,12 +9136,12 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     }
 
     let totalQueued = 0
-    for (const targetWorkflowId of targets) {
+    for (const targetWorkflowId of resolvedTargets) {
       totalQueued += await queueYoloVideoVariants(variants, {
         workflowId: targetWorkflowId,
         allowExistingDoneKeys: true,
         skipConfirm: true,
-        suppressEmptyError: targets.length > 1,
+        suppressEmptyError: resolvedTargets.length > 1,
         resolutionOverride,
         seedBaseOverride,
         sourceLabel: `Queued video re-render for ${sceneId} ${shotId} (${getWorkflowDisplayLabel(targetWorkflowId)})`,
@@ -9012,7 +9155,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     isConnected,
     queueYoloVideoVariants,
     yoloActivePlanIsStale,
-    validateDependenciesForQueue,
+    resolveVideoWorkflowTargetsForQueue,
     yoloActivePlan,
     yoloSelectedVideoWorkflowIds,
   ])
@@ -9053,11 +9196,11 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       setFormError('Choose a video workflow before creating shot videos.')
       return 0
     }
-    const depsOk = await validateDependenciesForQueue(
+    const resolvedTargetsWorkflowIds = await resolveVideoWorkflowTargetsForQueue(
       targetsWorkflowIds,
       `video re-render for ${targetKeys.size} selected shots`
     )
-    if (!depsOk) return 0
+    if (!resolvedTargetsWorkflowIds) return 0
 
     const planToUse = Array.isArray(planOverride) && planOverride.length > 0
       ? planOverride
@@ -9072,12 +9215,12 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     }
 
     let totalQueued = 0
-    for (const targetWorkflowId of targetsWorkflowIds) {
+    for (const targetWorkflowId of resolvedTargetsWorkflowIds) {
       totalQueued += await queueYoloVideoVariants(variants, {
         workflowId: targetWorkflowId,
         allowExistingDoneKeys: true,
         skipConfirm: true,
-        suppressEmptyError: targetsWorkflowIds.length > 1,
+        suppressEmptyError: resolvedTargetsWorkflowIds.length > 1,
         resolutionOverride,
         seedBaseOverride,
         sourceLabel: `Queued video re-render for ${targetKeys.size} selected shots (${getWorkflowDisplayLabel(targetWorkflowId)})`,
@@ -9093,7 +9236,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     isYoloMusicMode,
     queueYoloVideoVariants,
     yoloActivePlanIsStale,
-    validateDependenciesForQueue,
+    resolveVideoWorkflowTargetsForQueue,
     yoloActivePlan,
     yoloSelectedVideoWorkflowIds,
   ])
@@ -10201,7 +10344,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       // upload it to Comfy's input folder, and keep the returned filename so
       // the modifier can reference it on the LoadAudio node.
       let uploadedAudioFilename = null
-      const isMusicVideoShotWorkflow = job.workflowId === MUSIC_VIDEO_SHOT_WORKFLOW_ID || job.workflowId === 'music-video-shot-ltx23-16gb'
+      const isMusicVideoShotWorkflow = job.workflowId === MUSIC_VIDEO_SHOT_WORKFLOW_ID || job.workflowId === MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID || job.workflowId === MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID || job.workflowId === MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID
       const musicShotNeedsVocalAlignment = Boolean(isMusicVideoShotWorkflow && job.musicShot?.shotType
         && getMusicVideoShotTypeOption(job.musicShot.shotType)?.needsVocalAlignment)
       const shouldUseSilentMusicVideoAudio = Boolean(isMusicVideoShotWorkflow && !musicShotNeedsVocalAlignment)
@@ -10384,7 +10527,9 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
           })
           break
         case MUSIC_VIDEO_SHOT_WORKFLOW_ID:
-        case 'music-video-shot-ltx23-16gb': {
+        case MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID:
+    case MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID:
+    case MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID: {
           // Music-video shot: a single audio-conditioned LTX 2.3 render.
           // The audio has already been uploaded above (uploadedAudioFilename)
           // and the reference still was uploaded via the normal image path
@@ -10620,8 +10765,10 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       console.log('[WORKFLOW] ==== END OF WORKFLOW JSON ====')
 
       // Free GPU memory before queuing video workflows (especially 16GB VRAM variants)
-      if (job.workflowId === 'music-video-shot-ltx23-16gb' ||
-          job.workflowId === MUSIC_VIDEO_SHOT_WORKFLOW_ID ||
+      if (job.workflowId === MUSIC_VIDEO_SHOT_WORKFLOW_ID ||
+          job.workflowId === MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID ||
+          job.workflowId === MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID ||
+          job.workflowId === MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID ||
           job.workflowId === 'ltx23-i2v' ||
           job.workflowId === 'wan22-i2v') {
         try {
@@ -11463,6 +11610,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                     yoloActivePlanIsStale={yoloActivePlanIsStale}
                     yoloActivePlanStaleReasons={yoloActivePlanStaleReasons}
                     yoloDependencyCheckInProgress={yoloDependencyCheckInProgress}
+                    yoloDependencyPanel={yoloDependencyPanel}
                     yoloScript={yoloScript}
                     setYoloScript={setYoloScript}
                     setYoloStyleNotes={setYoloStyleNotes}
@@ -11541,6 +11689,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                     yoloActivePlanIsStale={yoloActivePlanIsStale}
                     yoloActivePlanStaleReasons={yoloActivePlanStaleReasons}
                     yoloDependencyCheckInProgress={yoloDependencyCheckInProgress}
+                    yoloDependencyPanel={yoloDependencyPanel}
                     handleBuildActiveYoloPlan={handleBuildActiveYoloPlan}
                     handleQueueYoloStoryboards={handleQueueYoloStoryboards}
                     handleQueueYoloShotStoryboard={handleQueueYoloShotStoryboard}
@@ -12579,7 +12728,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                             <div className="text-[10px] text-sf-text-muted uppercase tracking-wider">Quality</div>
                             <p className="mt-1 text-[10px] text-sf-text-muted">
                               Picks the default keyframe workflow and video model pass. Use 16gb
-                              for the FP8 music-video workflow on 16GB VRAM hosts.
+                              for the compatibility-first music-video workflow on 16GB VRAM hosts.
                             </p>
                             <div className="mt-2 grid grid-cols-4 gap-1">
                               {['draft', 'balanced', 'premium', '16gb'].map((profileId) => {
@@ -12612,8 +12761,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                           <div className="text-[10px] uppercase tracking-[0.14em] text-amber-300 font-semibold">Heads up</div>
                           <div className="mt-1 text-[10px] text-sf-text-secondary leading-relaxed">
                             Music Video runs an audio-conditioned LTX 2.3 video pass locally.
-                            Use the 16gb profile for the FP8 workflow on 16GB VRAM hosts;
-                            the standard profile still targets 24GB+ GPUs.
+                            Use the 16gb profile for the compatibility-first Low VRAM workflow;
+                            Fast Low VRAM is available only when the accelerated path is installed.
                           </div>
                         </div>
                       </>

@@ -9,6 +9,20 @@
  */
 
 export const MUSIC_VIDEO_SHOT_WORKFLOW_ID = 'music-video-shot-ltx23'
+export const MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID = 'music-video-shot-ltx23-low-vram'
+export const MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID = 'music-video-shot-ltx23-low-vram-fast'
+export const MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID = 'music-video-shot-ltx23-16gb'
+
+export const MUSIC_VIDEO_WORKFLOW_ID_ALIASES = Object.freeze({
+  [MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID]: MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID,
+})
+
+export const MUSIC_VIDEO_COMPATIBLE_OUTPUT_WORKFLOW_IDS = Object.freeze([
+  MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID,
+  MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID,
+  MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID,
+  MUSIC_VIDEO_SHOT_WORKFLOW_ID,
+])
 export const VOCAL_EXTRACT_WORKFLOW_ID = 'vocal-extract-melband'
 
 /**
@@ -367,6 +381,11 @@ export function normalizeMusicVideoPlanMatchText(value = '') {
     .trim()
 }
 
+export function normalizeMusicVideoWorkflowIdForMatch(workflowId = '') {
+  const normalized = String(workflowId || '').trim()
+  return MUSIC_VIDEO_WORKFLOW_ID_ALIASES[normalized] || normalized
+}
+
 export function buildMusicVideoShotPlanMatchSignature({
   workflowId = '',
   variantKey = '',
@@ -401,9 +420,10 @@ export function musicVideoAssetMatchesCurrentShot(asset, {
   if (!asset || asset.type !== 'video') return false
   const meta = asset.yolo || {}
   if (meta.mode !== 'music' || meta.stage !== 'video') return false
-  const currentWorkflowId = String(workflowId || '').trim()
+  const currentWorkflowId = normalizeMusicVideoWorkflowIdForMatch(workflowId)
+  const assetWorkflowId = normalizeMusicVideoWorkflowIdForMatch(meta.workflowId)
   const currentVariantKey = String(variantKey || '').trim()
-  if (currentWorkflowId && String(meta.workflowId || '').trim() !== currentWorkflowId) return false
+  if (currentWorkflowId && assetWorkflowId !== currentWorkflowId) return false
   if (currentVariantKey && String(meta.variantKey || '').trim() !== currentVariantKey) return false
 
   if (meta.shotPlanSignature) {
@@ -413,7 +433,7 @@ export function musicVideoAssetMatchesCurrentShot(asset, {
       const signatureLength = Number(signature?.length)
       const expectedAudioStart = Number(audioStart)
       const signatureAudioStart = Number(signature?.audioStart)
-      if (currentWorkflowId && String(signature?.workflowId || '').trim() !== currentWorkflowId) return false
+      if (currentWorkflowId && normalizeMusicVideoWorkflowIdForMatch(signature?.workflowId) !== currentWorkflowId) return false
       if (currentVariantKey && String(signature?.variantKey || '').trim() !== currentVariantKey) return false
       if (shotType && String(signature?.shotType || '').trim() !== String(shotType || '').trim()) return false
       if (

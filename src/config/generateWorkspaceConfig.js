@@ -1,6 +1,12 @@
 import { TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID } from './topazVideoUpscaleConfig'
 import { RTX_VIDEO_UPSCALE_WORKFLOW_ID } from './rtxVideoUpscaleConfig'
-import { MUSIC_VIDEO_SHOT_WORKFLOW_ID, VOCAL_EXTRACT_WORKFLOW_ID } from './musicVideoShotConfig'
+import {
+  MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID,
+  MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID,
+  MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID,
+  MUSIC_VIDEO_SHOT_WORKFLOW_ID,
+  VOCAL_EXTRACT_WORKFLOW_ID,
+} from './musicVideoShotConfig'
 import {
   ELEVENLABS_TTS_WORKFLOW_ID,
   SHORT_FILM_DIALOGUE_VIDEO_WORKFLOW_ID,
@@ -97,8 +103,8 @@ export const YOLO_AD_PROFILES = Object.freeze({
 })
 
 // Music Video defaults to an audio-conditioned per-shot LTX 2.3 workflow for
-// vocal grounding. Alternate local i2v passes can be used for animation tests,
-// while the LTX FP8 16GB pass keeps the same song-audio conditioning path.
+// vocal grounding. The low-VRAM profile uses the compatibility-first GGUF pass;
+// the fast low-VRAM pass remains an optional acceleration path.
 export const YOLO_MUSIC_PROFILES = Object.freeze({
   draft: Object.freeze({
     storyboardWorkflowId: 'image-edit',
@@ -114,7 +120,7 @@ export const YOLO_MUSIC_PROFILES = Object.freeze({
   }),
   '16gb': Object.freeze({
     storyboardWorkflowId: 'image-edit-model-product',  // Qwen Image Edit - better scene composition + cast identity
-    videoWorkflowId: 'music-video-shot-ltx23-16gb',
+    videoWorkflowId: MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID,
   }),
 })
 
@@ -146,9 +152,15 @@ export const YOLO_MUSIC_VIDEO_WORKFLOW_OPTIONS = Object.freeze([
     description: 'Default music-video pass. Uses the song timing/audio payload for performance and lip-sync shots.',
   },
   {
-    id: 'music-video-shot-ltx23-16gb',
-    label: 'LTX 2.3 Music FP8',
-    description: '16GB VRAM music-video pass using LTX 2.3 1.1 MXFP8, FP8 Gemma, SageAttention3, chunks 8 / dim 4096, and audio conditioning.',
+    id: MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID,
+    label: 'LTX 2.3 Music - Low VRAM',
+    description: 'Compatibility-first local music-video pass for lower-memory systems.',
+  },
+  {
+    id: MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID,
+    label: 'LTX 2.3 Music - Fast Low VRAM',
+    description: 'Faster local pass when the accelerated runtime is available. Falls back to Low VRAM when unavailable.',
+    requiresFastRuntime: true,
   },
   {
     id: 'wan22-i2v',
@@ -163,7 +175,7 @@ export const SEEDANCE_VIDEO_DURATION_PRESETS = Object.freeze([5, 7, 10])
 
 export function getVideoDurationPresets(workflowId = '') {
   const normalized = String(workflowId || '').trim()
-  if (['ltx23-i2v', 'ltx23-ia2v', 'ltx23-t2v', 'music-video-shot-ltx23-16gb'].includes(normalized)) {
+  if (['ltx23-i2v', 'ltx23-ia2v', 'ltx23-t2v', MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID, MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID, MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID].includes(normalized)) {
     return LTX23_VIDEO_DURATION_PRESETS
   }
   if (['seedance2-t2v', 'seedance2-flf2v', 'seedance2-r2v'].includes(normalized)) {
@@ -339,7 +351,9 @@ const WORKFLOW_DISPLAY_LABELS = Object.freeze({
   [TOPAZ_VIDEO_UPSCALE_WORKFLOW_ID]: 'Topaz Video Upscale',
   [RTX_VIDEO_UPSCALE_WORKFLOW_ID]: 'RTX Video Upscale 4K',
   [MUSIC_VIDEO_SHOT_WORKFLOW_ID]: 'Music Video Shot (LTX 2.3 + Audio)',
-  'music-video-shot-ltx23-16gb': 'Music Video Shot (LTX 2.3 FP8 - 16GB)',
+  [MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID]: 'Music Video Shot (LTX 2.3 Low VRAM)',
+  [MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID]: 'Music Video Shot (LTX 2.3 Fast Low VRAM)',
+  [MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID]: 'Music Video Shot (LTX 2.3 Fast Low VRAM)',
   [VOCAL_EXTRACT_WORKFLOW_ID]: 'Vocal Extract (Mel-Band)',
   [ELEVENLABS_TTS_WORKFLOW_ID]: 'ElevenLabs Text to Speech',
   'caption-qwen-asr': 'Caption Transcription (Qwen ASR)',
@@ -557,7 +571,7 @@ const WORKFLOW_HARDWARE = Object.freeze({
     minimumVramGb: 24,
     recommendedVramGb: 32,
   },
-  'music-video-shot-ltx23-16gb': {
+  [MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID]: {
     tierId: 'standard',
     runtime: 'local',
     minimumVramGb: 14,

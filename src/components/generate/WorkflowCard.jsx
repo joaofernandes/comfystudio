@@ -19,15 +19,9 @@ export default function WorkflowCard({ workflow, selected = false, onSelect, sho
     >
       <div className="relative aspect-[4/3] overflow-hidden bg-sf-dark-800">
         {workflow.cover && coverIsVideo ? (
-          <video
-            src={workflow.cover}
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-            style={{ objectPosition: coverPosition }}
-            autoPlay
-            muted
-            loop
-            playsInline
-          />
+          <div className="flex h-full w-full items-center justify-center bg-sf-dark-800 text-sf-text-muted transition-transform duration-500 group-hover:scale-105">
+            <Play className="h-7 w-7" />
+          </div>
         ) : workflow.cover ? (
           <img
             src={workflow.cover}

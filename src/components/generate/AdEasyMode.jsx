@@ -1499,7 +1499,9 @@ export default function AdEasyMode({
                         : 'bg-sf-dark-800'
                   }`}>
                     {url ? (
-                      <video src={url} className="h-full w-full object-cover" muted />
+                      <div className="flex h-full w-full items-center justify-center bg-sf-dark-800 text-sf-text-muted">
+                        <Film className="h-6 w-6" />
+                      </div>
                     ) : (
                       <>
                         {cardState.state === 'generating' && (

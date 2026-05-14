@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import useProjectStore from '../../stores/projectStore'
+import { getOrCreateImageThumbnail } from '../../services/imageThumbnailCache'
 import {
   CheckCircle2,
   Clipboard,
@@ -13,6 +15,10 @@ import {
 import {
   MUSIC_VIDEO_AUDIO_KIND_OPTIONS,
   MUSIC_VIDEO_CAST_ROLE_OPTIONS,
+  MUSIC_VIDEO_COMPATIBLE_OUTPUT_WORKFLOW_IDS,
+  MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID,
+  MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID,
+  MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID,
   MUSIC_VIDEO_SCRIPT_TEMPLATE,
   MUSIC_VIDEO_SHOT_WORKFLOW_ID,
   getMusicVideoAudioKindOption,
@@ -81,14 +87,15 @@ const COVERAGE_TYPE_LABELS = Object.freeze({
 })
 const DEFAULT_VIDEO_WORKFLOW_OPTIONS = Object.freeze([
   {
-    id: MUSIC_VIDEO_SHOT_WORKFLOW_ID,
-    label: 'LTX 2.3 Music',
-    description: 'Default. Uses song timing/audio for performance and lip-sync shots.',
+    id: MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID,
+    label: 'LTX 2.3 Music - Low VRAM',
+    description: 'Compatibility-first local music-video pass for lower-memory systems.',
   },
   {
-    id: 'music-video-shot-ltx23-16gb',
-    label: 'LTX 2.3 Music FP8',
-    description: '16GB VRAM pass using LTX 2.3 1.1 MXFP8, FP8 Gemma, SageAttention3, and song-audio conditioning.',
+    id: MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID,
+    label: 'LTX 2.3 Music - Fast Low VRAM',
+    description: 'Faster local pass when the accelerated runtime is available. Falls back to Low VRAM when unavailable.',
+    requiresFastRuntime: true,
   },
   {
     id: 'wan22-i2v',
@@ -213,12 +220,12 @@ function resolveOutputResolution(aspectRatio, resolutionPreset) {
 
 function workflowSupports1080Resolution(workflowId) {
   const normalized = String(workflowId || '').trim()
-  return normalized === MUSIC_VIDEO_SHOT_WORKFLOW_ID || normalized === 'music-video-shot-ltx23-16gb'
+  return normalized === MUSIC_VIDEO_SHOT_WORKFLOW_ID || normalized === MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID || normalized === MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID
 }
 
 function workflowUsesSongAudio(workflowId) {
   const normalized = String(workflowId || '').trim()
-  return normalized === MUSIC_VIDEO_SHOT_WORKFLOW_ID || normalized === 'music-video-shot-ltx23-16gb'
+  return normalized === MUSIC_VIDEO_SHOT_WORKFLOW_ID || normalized === MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID || normalized === MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID
 }
 
 function getResolutionFallbackForWorkflow(workflowId, resolutionPreset) {
@@ -238,9 +245,78 @@ function getAssetUrl(asset) {
   return asset?.url || asset?.thumbnailUrl || asset?.proxyUrl || asset?.path || ''
 }
 
-function ShotVideoPreview({ hasVideo, keyframeUrl, placeholderLabel = "Needs keyframe" }) {
-  if (keyframeUrl) {
-    return <img src={keyframeUrl} alt="" className="h-full w-full object-cover opacity-70" loading="lazy" decoding="async" />
+const LAZY_SHOT_PREVIEW_ROOT_MARGIN = '700px 0px'
+
+function LazyShotPreview({ children, placeholderLabel = 'Preview', enabled = true }) {
+  const ref = useRef(null)
+  const [shouldLoad, setShouldLoad] = useState(false)
+
+  useEffect(() => {
+    if (!enabled) {
+      setShouldLoad(false)
+      return undefined
+    }
+    if (shouldLoad) return undefined
+    const el = ref.current
+    if (!el) return undefined
+    if (typeof IntersectionObserver === 'undefined') {
+      setShouldLoad(true)
+      return undefined
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setShouldLoad(true)
+        observer.disconnect()
+      }
+    }, { root: null, rootMargin: LAZY_SHOT_PREVIEW_ROOT_MARGIN, threshold: 0.01 })
+
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [enabled, shouldLoad])
+
+  return (
+    <div ref={ref} className="h-full w-full">
+      {shouldLoad ? children : (
+        <span className="flex h-full w-full items-center justify-center text-[10px] text-sf-text-muted">{placeholderLabel}</span>
+      )}
+    </div>
+  )
+}
+
+function CachedShotImage({ asset, className, alt = '' }) {
+  const currentProjectHandle = useProjectStore((state) => state.currentProjectHandle)
+  const sourceUrl = getAssetUrl(asset)
+  const [thumbnailUrl, setThumbnailUrl] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setThumbnailUrl(null)
+    if (!sourceUrl) return () => { cancelled = true }
+    getOrCreateImageThumbnail(currentProjectHandle, asset, { width: 360, height: 204, quality: 78 })
+      .then((url) => {
+        if (!cancelled) setThumbnailUrl(url || sourceUrl)
+      })
+      .catch(() => {
+        if (!cancelled) setThumbnailUrl(sourceUrl)
+      })
+    return () => { cancelled = true }
+  }, [asset, currentProjectHandle, sourceUrl])
+
+  if (!sourceUrl) return null
+  if (!thumbnailUrl) {
+    return <span className="flex h-full w-full items-center justify-center text-[10px] text-sf-text-muted">Loading preview</span>
+  }
+  return <img src={thumbnailUrl} alt={alt} className={className} loading="lazy" decoding="async" />
+}
+
+function ShotVideoPreview({ hasVideo, keyframeAsset, placeholderLabel = "Needs keyframe", loadPreview = true }) {
+  if (getAssetUrl(keyframeAsset)) {
+    return (
+      <LazyShotPreview placeholderLabel="Keyframe preview" enabled={loadPreview}>
+        <CachedShotImage asset={keyframeAsset} className="h-full w-full object-cover opacity-70" />
+      </LazyShotPreview>
+    )
   }
 
   if (hasVideo) {
@@ -424,6 +500,7 @@ export default function MusicVideoEasyMode({
   yoloActivePlanIsStale,
   yoloActivePlanStaleReasons = [],
   yoloDependencyCheckInProgress,
+  yoloDependencyPanel,
   handleBuildActiveYoloPlan,
   handleQueueYoloStoryboards,
   handleQueueYoloShotStoryboard,
@@ -462,6 +539,7 @@ export default function MusicVideoEasyMode({
   const [isQueuingKeyframes, setIsQueuingKeyframes] = useState(false)
   const [isQueuingVideos, setIsQueuingVideos] = useState(false)
   const [isAssemblingTimeline, setIsAssemblingTimeline] = useState(false)
+  const shouldLoadShotGridPreview = (index) => index < 24 || Math.abs(index - selectedShotIndex) <= 24
 
   useEffect(() => {
     if (typeof localStorage === 'undefined') return
@@ -553,6 +631,8 @@ export default function MusicVideoEasyMode({
   const defaultVideoWorkflowId = videoWorkflowOptions[0]?.id || MUSIC_VIDEO_SHOT_WORKFLOW_ID
   const selectedVideoWorkflowSupports1080 = workflowSupports1080Resolution(selectedVideoWorkflowId)
   const selectedVideoWorkflowUsesSongAudio = workflowUsesSongAudio(selectedVideoWorkflowId)
+  const fastWorkflowDependency = yoloDependencyPanel?.byWorkflow?.[MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID]
+  const fastWorkflowUnavailable = Boolean(fastWorkflowDependency?.hasPack && fastWorkflowDependency?.hasBlockingIssues)
   const storyboardJobMap = useMemo(() => {
     const map = new Map()
     for (const job of generationQueue || []) {
@@ -614,13 +694,21 @@ export default function MusicVideoEasyMode({
   const getVideoAssetForVariant = (variant, workflowId = selectedVideoWorkflowId) => {
     if (!variant?.key) return null
     const scopedKey = getVideoWorkflowScopedKey(variant.key, workflowId)
+    const legacyFastScopedKey = workflowId === MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID
+      ? getVideoWorkflowScopedKey(variant.key, MUSIC_VIDEO_FAST_LOW_VRAM_LEGACY_WORKFLOW_ID)
+      : ''
+    const fallbackCandidates = MUSIC_VIDEO_COMPATIBLE_OUTPUT_WORKFLOW_IDS
+      .filter((candidateWorkflowId) => candidateWorkflowId !== workflowId)
+      .map((candidateWorkflowId) => videoAssetMap.get(getVideoWorkflowScopedKey(variant.key, candidateWorkflowId)))
     const candidates = [
       scopedKey ? videoAssetMap.get(scopedKey) : null,
+      legacyFastScopedKey ? videoAssetMap.get(legacyFastScopedKey) : null,
       workflowId === defaultVideoWorkflowId ? videoAssetMap.get(variant.key) : null,
+      ...fallbackCandidates,
     ].filter(Boolean)
     const shot = currentShotByVariantKey.get(variant.key) || null
     return candidates.find((asset) => musicVideoAssetMatchesCurrentShot(asset, {
-      workflowId,
+      workflowId: asset?.yolo?.workflowId || workflowId,
       variantKey: variant.key,
       shotType: shot?.musicShotType || variant?.musicShotType || '',
       audioStart: shot?.audioStart ?? 0,
@@ -754,6 +842,11 @@ export default function MusicVideoEasyMode({
   }
 
   const handleVideoWorkflowChange = (workflowId) => {
+    if (workflowId === MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID && fastWorkflowUnavailable) {
+      setVideoStatus('Fast mode is not available on this system. Using Low VRAM instead.')
+      setYoloMusicVideoWorkflowId?.(MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID)
+      return
+    }
     if (!workflowId || workflowId === selectedVideoWorkflowId) return
     setResolutionPreset(getResolutionFallbackForWorkflow(workflowId, resolutionPreset))
     setYoloMusicVideoWorkflowId?.(workflowId)
@@ -1127,17 +1220,21 @@ export default function MusicVideoEasyMode({
           <div className="lg:col-span-1">
             <FieldLabel>Video Model</FieldLabel>
             <div className="mt-2 grid grid-cols-1 gap-2">
-              {videoWorkflowOptions.map((option) => (
+              {videoWorkflowOptions.map((option) => {
+                const disabled = option.id === MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID && fastWorkflowUnavailable
+                return (
                 <button
                   key={`music-video-output-model-${option.id}`}
                   type="button"
                   onClick={() => handleVideoWorkflowChange(option.id)}
-                  title={option.description}
-                  className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold transition-colors ${buttonClass(selectedVideoWorkflowId === option.id)}`}
+                  disabled={disabled}
+                  title={disabled ? 'Fast mode is not available on this system. Using Low VRAM instead.' : option.description}
+                  className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold transition-colors ${disabled ? 'cursor-not-allowed border-sf-dark-700 bg-sf-dark-900/60 text-sf-text-muted opacity-60' : buttonClass(selectedVideoWorkflowId === option.id)}`}
                 >
                   {option.label}
                 </button>
-              ))}
+                )
+              })}
             </div>
           </div>
           <div>
@@ -1674,7 +1771,9 @@ export default function MusicVideoEasyMode({
                         : 'bg-sf-dark-800'
                   }`}>
                     {url ? (
-                      <img src={url} alt="" className="h-full w-full object-cover" />
+                      <LazyShotPreview placeholderLabel="Keyframe preview" enabled={shouldLoadShotGridPreview(index)}>
+                        <CachedShotImage asset={asset} className="h-full w-full object-cover" />
+                      </LazyShotPreview>
                     ) : (
                       <>
                         {cardState.state === 'generating' && (
@@ -1780,20 +1879,24 @@ export default function MusicVideoEasyMode({
             </div>
           </div>
           <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {videoWorkflowOptions.map((option) => (
+            {videoWorkflowOptions.map((option) => {
+              const disabled = option.id === MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID && fastWorkflowUnavailable
+              return (
               <button
                 key={`music-video-model-${option.id}`}
                 type="button"
                 onClick={() => handleVideoWorkflowChange(option.id)}
-                title={option.description}
-                className={`rounded-lg border px-3 py-2 text-left text-xs transition-colors ${buttonClass(selectedVideoWorkflowId === option.id)}`}
+                disabled={disabled}
+                title={disabled ? 'Fast mode is not available on this system. Using Low VRAM instead.' : option.description}
+                className={`rounded-lg border px-3 py-2 text-left text-xs transition-colors ${disabled ? 'cursor-not-allowed border-sf-dark-700 bg-sf-dark-900/60 text-sf-text-muted opacity-60' : buttonClass(selectedVideoWorkflowId === option.id)}`}
               >
                 <div className="font-semibold">{option.label}</div>
                 {option.description && (
                   <div className="mt-1 text-[10px] leading-4 text-sf-text-muted">{option.description}</div>
                 )}
               </button>
-            ))}
+              )
+            })}
           </div>
         </div>
         <div className="rounded-lg border border-sf-dark-700 bg-sf-dark-950/50 p-3">
@@ -1959,7 +2062,7 @@ export default function MusicVideoEasyMode({
                         ? 'bg-red-950/30'
                         : 'bg-sf-dark-800'
                   }`}>
-                    <ShotVideoPreview hasVideo={Boolean(videoUrl)} keyframeUrl={keyframeUrl} />
+                    <ShotVideoPreview hasVideo={Boolean(videoUrl)} keyframeAsset={keyframeAsset} loadPreview={shouldLoadShotGridPreview(index)} />
                     {cardState.state === 'generating' && (
                       <div className="absolute inset-0 animate-pulse bg-gradient-to-r from-transparent via-white/10 to-transparent" />
                     )}

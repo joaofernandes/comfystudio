@@ -589,19 +589,15 @@ export const useAssetsStore = create(
             }
 
             if ((hasAbsolutePath || hasPath) && !resolvedAbsolutePath) {
-              prunedMissingAssets.push(asset)
-              loadedAssetCount += 1
-              set({
-                mediaPreparation: {
-                  active: true,
-                  phase: 'assets',
-                  label: 'Loading project assets...',
-                  completed: loadedAssetCount,
-                  total: totalAssets,
-                  critical: true,
-                },
+              // Keep the asset record even when the file probe cannot resolve it
+              // during project load. The Generate workspace uses this metadata
+              // to decide whether keyframes/videos are ready; pruning here can
+              // hide valid outputs after a transient path/permission mismatch.
+              console.warn(`[Assets] Could not verify ${asset.name || asset.id} on disk during project load; keeping metadata record.`, {
+                assetId: asset.id,
+                path: asset.path,
+                absolutePath: asset.absolutePath,
               })
-              continue
             }
           }
 
@@ -695,8 +691,8 @@ export const useAssetsStore = create(
             proxyUrl: proxyUrl ?? undefined,
           })
         } catch (err) {
-          console.warn(`Could not load asset ${asset.name}:`, err)
-          prunedMissingAssets.push(asset)
+          console.warn(`Could not refresh asset ${asset.name}; keeping saved metadata.`, err)
+          assetsWithUrls.push(asset)
         }
       } else {
         // For AI/external assets, keep the URL as-is (may need ComfyUI to be running)

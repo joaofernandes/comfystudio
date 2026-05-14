@@ -93,6 +93,17 @@ const createTimelineStructureSnapshot = (state) => {
       : timeline
   ))
 
+  if (typeof window !== 'undefined') {
+    const currentTimeline = timelines.find((timeline) => timeline.id === state.currentTimelineId) || null
+    const c187 = currentTimeline?.clips?.find((clip) => clip.id === 'clip-187') || null
+    console.log('[ProjectStore] createTimelineStructureSnapshot', {
+      currentTimelineId: state.currentTimelineId,
+      currentTimelineName: currentTimeline?.name || null,
+      clip187Enabled: c187?.enabled,
+      liveClipCount: liveTimelineData?.clips?.length || 0,
+    })
+  }
+
   return {
     timelines: cloneProjectHistoryValue(timelines),
     currentTimelineId: state.currentTimelineId,
@@ -566,6 +577,14 @@ export const useProjectStore = create(
           // Gather current state from timeline and assets stores
           const currentTimelineData = useTimelineStore.getState().getProjectData()
           const assetsData = useAssetsStore.getState().getProjectData()
+          if (typeof window !== 'undefined') {
+            const c187 = currentTimelineData?.clips?.find((clip) => clip.id === 'clip-187') || null
+            console.log('[ProjectStore] saveProject begin', {
+              currentTimelineId: state.currentTimelineId,
+              clip187Enabled: c187?.enabled,
+              clipCount: currentTimelineData?.clips?.length || 0,
+            })
+          }
           
           // Update the current timeline in the timelines array
           const updatedTimelines = (state.currentProject.timelines || []).map(t => 
@@ -598,6 +617,16 @@ export const useProjectStore = create(
             folderCounter: assetsState.folderCounter ?? 1,
             thumbnail: thumbnailPointer,
             modified: new Date().toISOString(),
+          }
+
+          if (typeof window !== 'undefined') {
+            const currentTimeline = updatedProject.timelines?.find((timeline) => timeline.id === state.currentTimelineId) || null
+            const c187 = currentTimeline?.clips?.find((clip) => clip.id === 'clip-187') || null
+            console.log('[ProjectStore] saveProject write', {
+              currentTimelineId: state.currentTimelineId,
+              clip187Enabled: c187?.enabled,
+              updatedTimelineClipCount: currentTimeline?.clips?.length || 0,
+            })
           }
           
           await saveProjectToFile(state.currentProjectHandle, updatedProject)

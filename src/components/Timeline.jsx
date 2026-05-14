@@ -19,6 +19,7 @@ import { getAllKeyframeTimes } from '../utils/keyframes'
 import { TRANSITION_TYPES, TRANSITION_DURATIONS, FRAME_RATE } from '../constants/transitions'
 import { getAudioClipFadeValues } from '../utils/audioClipFades'
 import { getSpriteFramePosition } from '../services/thumbnailSprites'
+import { getExistingImageThumbnail } from '../services/imageThumbnailCache'
 import { getEffectTypeDefinition } from '../utils/effects'
 import { isTextEditingElement } from '../utils/keyboardFocus'
 import {
@@ -292,6 +293,42 @@ const getAudioWaveformData = async (url, sampleCount = DEFAULT_WAVEFORM_SAMPLES)
 // Pixel count for canvas waveform: one sample per pixel up to 2x display width (Resolve-like resolution)
 function getWaveformPixelCount(clipWidthPx) {
   return Math.min(2048, Math.max(64, Math.round(clipWidthPx)))
+}
+
+function CachedTimelineImage({ asset, src, projectHandle, alt, className, style, draggable = false, suspend = false }) {
+  const sourceUrl = src || asset?.url || asset?.thumbnailUrl || ''
+  const [thumbnailUrl, setThumbnailUrl] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    if (!sourceUrl) {
+      setThumbnailUrl(null)
+      return () => { cancelled = true }
+    }
+    if (suspend) return () => { cancelled = true }
+
+    getExistingImageThumbnail(projectHandle, asset || { url: sourceUrl }, { width: 360, height: 204, quality: 78 })
+      .then((url) => {
+        if (!cancelled && url) setThumbnailUrl(url)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [asset, projectHandle, sourceUrl, suspend])
+
+  if (!sourceUrl || !thumbnailUrl) return null
+
+  return (
+    <img
+      src={thumbnailUrl}
+      alt={alt || ''}
+      className={className}
+      style={style}
+      draggable={draggable}
+      loading="lazy"
+      decoding="async"
+      onContextMenu={(e) => e.preventDefault()}
+    />
+  )
 }
 
 function AudioWaveformBars({ clip, clipWidth, clipUrl, waveformInput = null }) {
@@ -1078,14 +1115,14 @@ function Timeline({ isActive = true, onOpenAudioGenerate, onActiveToolChange }) 
     return clip.url
   }
 
-  const getTimelineClipPosterUrl = (clip, asset) => {
+  const getTimelineClipPoster = (clip, asset) => {
     const directPoster = asset?.posterUrl
       || asset?.thumbnailUrl
       || asset?.coverUrl
       || asset?.settings?.posterUrl
       || asset?.settings?.thumbnailUrl
       || asset?.settings?.keyframeUrl
-    if (directPoster) return directPoster
+    if (directPoster) return { url: directPoster, asset: null }
 
     const keyframeAssetId = asset?.settings?.keyframeAssetId
       || asset?.settings?.inputAssetId
@@ -1094,7 +1131,7 @@ function Timeline({ isActive = true, onOpenAudioGenerate, onActiveToolChange }) 
       || clip?.metadata?.keyframeAssetId
     if (keyframeAssetId) {
       const posterAsset = assetsById.get(keyframeAssetId)
-      if (posterAsset?.type === 'image' && posterAsset?.url) return posterAsset.url
+      if (posterAsset?.type === 'image' && posterAsset?.url) return { url: posterAsset.url, asset: posterAsset }
     }
 
     const variantKeys = new Set([
@@ -1110,7 +1147,7 @@ function Timeline({ isActive = true, onOpenAudioGenerate, onActiveToolChange }) 
           .filter(Boolean)
           .some((key) => variantKeys.has(String(key)))
       })
-      if (posterAsset?.url) return posterAsset.url
+      if (posterAsset?.url) return { url: posterAsset.url, asset: posterAsset }
     }
 
     const shotId = asset?.shortFilm?.shotId || clip?.metadata?.shortFilm?.shotId
@@ -1121,16 +1158,17 @@ function Timeline({ isActive = true, onOpenAudioGenerate, onActiveToolChange }) 
         && candidate?.shortFilm?.kind === 'shot-keyframe'
         && String(candidate.shortFilm.shotId || '') === String(shotId)
       ))
-      if (posterAsset?.url) return posterAsset.url
+      if (posterAsset?.url) return { url: posterAsset.url, asset: posterAsset }
     }
 
-    return null
+    return { url: null, asset: null }
   }
 
   const renderTimelineVideoFilmstrip = (clip, renderedClipWidth, thumbCount, contentHeight) => {
     const asset = clip?.assetId ? assetsById.get(clip.assetId) : null
     const sprite = asset?.sprite
-    const posterUrl = getTimelineClipPosterUrl(clip, asset)
+    const poster = getTimelineClipPoster(clip, asset)
+    const posterUrl = poster.url
     const tileWidth = renderedClipWidth / Math.max(1, thumbCount)
     const tileHeight = Math.max(1, contentHeight - 3)
 
@@ -1178,13 +1216,14 @@ function Timeline({ isActive = true, onOpenAudioGenerate, onActiveToolChange }) 
     if (posterUrl) {
       return (
         <div className="absolute inset-0 top-[3px] overflow-hidden bg-[#162226]">
-          <img
+          <CachedTimelineImage
+            projectHandle={currentProjectHandle}
+            asset={poster.asset}
             src={posterUrl}
             alt={asset?.name || clip?.name || 'Video keyframe'}
             className="absolute inset-0 h-full w-full object-cover opacity-80 pointer-events-none"
             draggable={false}
-            loading="lazy"
-            onContextMenu={(e) => e.preventDefault()}
+            suspend={timelineIsPlaying}
           />
         </div>
       )
@@ -1313,13 +1352,15 @@ function Timeline({ isActive = true, onOpenAudioGenerate, onActiveToolChange }) 
 
     if (clip?.type === 'image') {
       return (
-        <img
+        <CachedTimelineImage
+          projectHandle={currentProjectHandle}
+          asset={clip?.assetId ? assetsById.get(clip.assetId) : null}
           src={url}
           alt={clip?.name || 'Transition preview'}
           className="absolute inset-0 w-full h-full object-cover opacity-80 pointer-events-none"
           style={{ objectPosition }}
           draggable={false}
-          onContextMenu={(e) => e.preventDefault()}
+          suspend={timelineIsPlaying}
         />
       )
     }
@@ -5047,8 +5088,10 @@ function Timeline({ isActive = true, onOpenAudioGenerate, onActiveToolChange }) 
                   const thumbCount = Math.max(1, Math.min(MAX_TIMELINE_VIDEO_THUMBNAILS, Math.ceil(renderedClipWidth / TIMELINE_VIDEO_THUMB_WIDTH_PX)))
                   const isTextClip = clip.type === 'text'
                   const isAdjustmentClip = clip.type === 'adjustment'
+                  const clipAsset = clip.assetId ? assetsById.get(clip.assetId) : null
                   const clipEnabled = isClipEnabled(clip)
                   const shouldRenderClipThumbnails = showTimelineClipThumbnails !== false
+                  const suspendTimelineThumbs = timelineIsPlaying || Boolean(clipDragState || trimState || slipState || fadeDragState || transitionDragState || rollEditState || isPanning)
                   const clipMediaUrl = shouldRenderClipThumbnails && (clip.type === 'image' || clip.type === 'video')
                     ? getClipUrl(clip)
                     : null
@@ -5253,16 +5296,18 @@ function Timeline({ isActive = true, onOpenAudioGenerate, onActiveToolChange }) 
                         {/* Single image thumbnail repeated */}
                         {clipMediaUrl && (
                           <div className="absolute inset-0 top-[3px] flex overflow-hidden">
-                            <img
+                            <CachedTimelineImage
+                              projectHandle={currentProjectHandle}
+                              asset={clipAsset}
                               src={clipMediaUrl}
                               alt={clip.name}
                               className="h-full object-cover opacity-80 pointer-events-none"
-                              style={{ 
+                              style={{
                                 width: '100%',
                                 objectFit: 'cover',
                               }}
                               draggable={false}
-                              onContextMenu={(e) => e.preventDefault()}
+                              suspend={suspendTimelineThumbs}
                             />
                           </div>
                         )}

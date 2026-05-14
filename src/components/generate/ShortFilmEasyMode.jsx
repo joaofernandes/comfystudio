@@ -1615,11 +1615,13 @@ export default function ShortFilmEasyMode({
                 </div>
                 {(videoUrl || keyframeUrl) && (
                   <div className="mt-3 aspect-video overflow-hidden rounded-lg border border-sf-dark-700 bg-sf-dark-950">
-                    {videoUrl ? (
-                      <video src={videoUrl} className="h-full w-full object-cover" muted playsInline controls />
-                    ) : (
+                    {keyframeUrl ? (
                       <img src={keyframeUrl} alt={getAssetName(keyframeAsset)} className="h-full w-full object-cover" />
-                    )}
+                    ) : videoUrl ? (
+                      <div className="flex h-full w-full items-center justify-center bg-sf-dark-800 text-sf-text-muted">
+                        <Film className="h-6 w-6" />
+                      </div>
+                    ) : null}
                   </div>
                 )}
                 <div className="mt-3 flex flex-wrap gap-1.5 text-[10px]">

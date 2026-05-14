@@ -20,6 +20,10 @@ const {
 
 const isDev = !app.isPackaged
 
+app.commandLine.appendSwitch('disable-features', 'Vulkan,WebGPU')
+app.commandLine.appendSwitch('disable-vulkan')
+app.commandLine.appendSwitch('disable-gpu-sandbox')
+
 // App icon (build/icon.png) – used for window and taskbar/dock
 const iconPath = path.join(__dirname, '..', 'build', 'icon.png')
 
@@ -35,6 +39,18 @@ let mainWindow = null
 let splashWindow = null
 let exportWorkerWindow = null
 const activeFramePipeExports = new Map()
+
+function abortAllFramePipeExports() {
+  for (const [sessionId, session] of activeFramePipeExports.entries()) {
+    activeFramePipeExports.delete(sessionId)
+    try {
+      if (!session.ffmpeg.killed) session.ffmpeg.kill('SIGKILL')
+    } catch {
+      // ignore abort errors
+    }
+  }
+}
+
 let restoreFullscreenAfterMinimize = false
 let mainWindowStateSaveTimer = null
 const settingsPath = path.join(app.getPath('userData'), 'settings.json')
@@ -78,8 +94,17 @@ function resolvePackagedBinaryPath(binaryPath) {
   return binaryPath
 }
 
-const ffmpegPath = resolvePackagedBinaryPath(ffmpegStaticPath)
+const bundledFfmpegPath = resolvePackagedBinaryPath(ffmpegStaticPath)
 const ffprobePath = resolvePackagedBinaryPath(ffprobeStaticPath)
+const systemFfmpegCandidates = process.platform === 'win32'
+  ? ['ffmpeg.exe', 'ffmpeg']
+  : ['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg', 'ffmpeg']
+let preferredFfmpegPath = bundledFfmpegPath
+let preferredFfmpegSource = 'bundled'
+
+function getFfmpegPath() {
+  return preferredFfmpegPath || bundledFfmpegPath
+}
 
 async function writeFileAtomic(filePath, data, options) {
   const dir = path.dirname(filePath)
@@ -977,6 +1002,54 @@ async function loadWorkflowGraphInEmbeddedComfy({ workflowGraph, comfyBaseUrl, w
   }
 
   return result
+}
+
+async function detectFfmpegEncoders(binaryPath) {
+  if (!binaryPath) {
+    return { success: false, output: '', error: 'FFmpeg binary not available.' }
+  }
+  return await new Promise((resolve) => {
+    const ffmpeg = spawn(binaryPath, ['-hide_banner', '-encoders'], { windowsHide: true })
+    let output = ''
+
+    ffmpeg.stdout.on('data', (data) => {
+      output += data.toString()
+    })
+    ffmpeg.stderr.on('data', (data) => {
+      output += data.toString()
+    })
+    ffmpeg.on('error', (err) => {
+      resolve({ success: false, output, error: err.message })
+    })
+    ffmpeg.on('close', () => {
+      resolve({ success: true, output, error: '' })
+    })
+  })
+}
+
+async function refreshPreferredFfmpegPath() {
+  const bundled = await detectFfmpegEncoders(bundledFfmpegPath)
+  const bundledHasNvenc = bundled.output.includes('h264_nvenc') || bundled.output.includes('hevc_nvenc')
+  if (bundled.success && bundledHasNvenc) {
+    preferredFfmpegPath = bundledFfmpegPath
+    preferredFfmpegSource = 'bundled'
+    return
+  }
+
+  for (const candidate of systemFfmpegCandidates) {
+    if (!candidate || candidate === bundledFfmpegPath) continue
+    const result = await detectFfmpegEncoders(candidate)
+    if (!result.success) continue
+    if (result.output.includes('h264_nvenc') || result.output.includes('hevc_nvenc')) {
+      preferredFfmpegPath = candidate
+      preferredFfmpegSource = candidate === 'ffmpeg' || candidate === 'ffmpeg.exe' ? 'system PATH' : 'system'
+      console.log(`[Export] Using NVENC-capable FFmpeg from ${preferredFfmpegSource}: ${candidate}`)
+      return
+    }
+  }
+
+  preferredFfmpegPath = bundledFfmpegPath
+  preferredFfmpegSource = 'bundled'
 }
 
 async function detectNvidiaGpuName() {
@@ -1928,7 +2001,7 @@ function resolveMediaInputPath(mediaInput) {
 }
 
 ipcMain.handle('media:getAudioWaveform', async (event, mediaInput, options = {}) => {
-  if (!ffmpegPath) {
+  if (!getFfmpegPath()) {
     return { success: false, error: 'FFmpeg binary not available.' }
   }
 
@@ -1963,7 +2036,7 @@ ipcMain.handle('media:getAudioWaveform', async (event, mediaInput, options = {})
       'pipe:1',
     ]
 
-    const proc = spawn(ffmpegPath, args, { windowsHide: true })
+    const proc = spawn(getFfmpegPath(), args, { windowsHide: true })
     const chunks = []
     let stderr = ''
 
@@ -2039,7 +2112,7 @@ ipcMain.handle('media:getAudioWaveform', async (event, mediaInput, options = {})
 //      mp4 files reliably OOMs Chromium (renderer goes black). FFmpeg demuxes
 //      the audio stream without decoding video, so memory stays flat.
 ipcMain.handle('captions:mixTimelineAudio', async (event, options = {}) => {
-  if (!ffmpegPath) {
+  if (!getFfmpegPath()) {
     return { success: false, error: 'FFmpeg binary not available.' }
   }
 
@@ -2212,7 +2285,7 @@ ipcMain.handle('captions:mixTimelineAudio', async (event, options = {}) => {
   )
 
   return await new Promise((resolve) => {
-    const proc = spawn(ffmpegPath, args, { windowsHide: true })
+    const proc = spawn(getFfmpegPath(), args, { windowsHide: true })
     let stderr = ''
     let killedByTimeout = false
     const timeoutHandle = setTimeout(() => {
@@ -2764,14 +2837,7 @@ ipcMain.handle('workflowSetup:install', async (event, payload = {}) => {
 
 ipcMain.handle('export:cancelWorker', async () => {
   try {
-    for (const [sessionId, session] of activeFramePipeExports.entries()) {
-      activeFramePipeExports.delete(sessionId)
-      try {
-        if (!session.ffmpeg.killed) session.ffmpeg.kill('SIGKILL')
-      } catch {
-        // ignore abort errors
-      }
-    }
+    abortAllFramePipeExports()
     if (exportWorkerWindow && !exportWorkerWindow.isDestroyed()) {
       exportWorkerWindow.close()
     }
@@ -2805,7 +2871,12 @@ ipcMain.handle('export:runInWorker', async (event, payload = {}) => {
       webSecurity: false,
     },
   })
-  const workerContents = exportWorkerWindow.webContents
+  const workerWindow = exportWorkerWindow
+  const workerContents = workerWindow.webContents
+  let workerDone = false
+  let lastWorkerProgressAt = Date.now()
+  let workerWatchdog = null
+
   const forwardToMain = (channel, data) => {
     if (!mainWindow || mainWindow.isDestroyed()) return
     if (data && typeof data === 'object' && !Array.isArray(data)) {
@@ -2814,32 +2885,48 @@ ipcMain.handle('export:runInWorker', async (event, payload = {}) => {
     }
     mainWindow.webContents.send(channel, { requestId, error: data })
   }
+  const closeWorkerWindow = () => {
+    if (workerWindow && !workerWindow.isDestroyed()) {
+      workerWindow.close()
+    }
+  }
+  const failWorker = (message, details = null) => {
+    if (workerDone) return
+    workerDone = true
+    abortAllFramePipeExports()
+    const errorMessage = message || 'Export worker failed.'
+    console.error('[Export] Worker failed:', errorMessage, details || '')
+    forwardToMain('export:error', { error: errorMessage, details })
+    closeWorkerWindow()
+  }
+  const completeWorker = (data) => {
+    if (workerDone) return
+    workerDone = true
+    forwardToMain('export:complete', data)
+    closeWorkerWindow()
+  }
   const onProgress = (event, data) => {
-    if (event.sender === workerContents) forwardToMain('export:progress', data)
+    if (event.sender !== workerContents || workerDone) return
+    lastWorkerProgressAt = Date.now()
+    forwardToMain('export:progress', data)
   }
   const onComplete = (event, data) => {
-    if (event.sender === workerContents) {
-      forwardToMain('export:complete', data)
-      if (exportWorkerWindow && !exportWorkerWindow.isDestroyed()) {
-        exportWorkerWindow.close()
-        exportWorkerWindow = null
-      }
-    }
+    if (event.sender === workerContents) completeWorker(data)
   }
   const onError = (event, err) => {
     if (event.sender === workerContents) {
       console.error('[Export] Worker reported error:', err, typeof err)
-      forwardToMain('export:error', err)
-      if (exportWorkerWindow && !exportWorkerWindow.isDestroyed()) {
-        exportWorkerWindow.close()
-        exportWorkerWindow = null
-      }
+      failWorker(err?.error || err?.message || err || 'Export worker reported an error.', err)
     }
   }
   const onWorkerReady = (event) => {
     if (event.sender === workerContents) sendJob()
   }
   const cleanupExportWorkerListeners = () => {
+    if (workerWatchdog) {
+      clearInterval(workerWatchdog)
+      workerWatchdog = null
+    }
     ipcMain.removeListener('export:progress', onProgress)
     ipcMain.removeListener('export:complete', onComplete)
     ipcMain.removeListener('export:error', onError)
@@ -2849,16 +2936,39 @@ ipcMain.handle('export:runInWorker', async (event, payload = {}) => {
   ipcMain.on('export:complete', onComplete)
   ipcMain.on('export:error', onError)
   const sendJob = () => {
-    if (exportWorkerWindow && !exportWorkerWindow.isDestroyed()) {
-      exportWorkerWindow.webContents.send('export:job', payload)
+    if (workerWindow && !workerWindow.isDestroyed()) {
+      workerWindow.webContents.send('export:job', payload)
     }
   }
   ipcMain.on('export:workerReady', onWorkerReady)
-  exportWorkerWindow.on('closed', () => {
-    cleanupExportWorkerListeners()
-    exportWorkerWindow = null
+  workerContents.on('console-message', (_event, level, message, line, sourceId) => {
+    const prefix = level >= 2 ? 'warn' : 'log'
+    console[prefix](`[ExportWorker console] ${message} (${sourceId}:${line})`)
   })
-  await exportWorkerWindow.loadURL(workerUrl)
+  workerContents.on('render-process-gone', (_event, details) => {
+    failWorker(`Export worker renderer stopped (${details?.reason || 'unknown'}).`, details)
+  })
+  workerWindow.on('unresponsive', () => {
+    failWorker('Export worker became unresponsive.')
+  })
+  workerWatchdog = setInterval(() => {
+    if (workerDone) return
+    const idleMs = Date.now() - lastWorkerProgressAt
+    if (idleMs > 120000) {
+      failWorker('Export worker stopped reporting progress for more than 120 seconds.')
+    }
+  }, 10000)
+  workerWindow.on('closed', () => {
+    const closedBeforeDone = !workerDone
+    cleanupExportWorkerListeners()
+    if (exportWorkerWindow === workerWindow) exportWorkerWindow = null
+    if (closedBeforeDone) {
+      workerDone = true
+      abortAllFramePipeExports()
+      forwardToMain('export:error', { error: 'Export worker closed before finishing.' })
+    }
+  })
+  await workerWindow.loadURL(workerUrl)
   return { started: true }
 })
 
@@ -2945,7 +3055,7 @@ const buildAudioFadeVolumeExpression = (clipDuration, fadeIn, fadeOut, clipOffse
 }
 
 ipcMain.handle('export:mixAudio', async (event, options = {}) => {
-  if (!ffmpegPath) {
+  if (!getFfmpegPath()) {
     return { success: false, error: 'FFmpeg binary not available.' }
   }
 
@@ -3094,7 +3204,7 @@ ipcMain.handle('export:mixAudio', async (event, options = {}) => {
   )
 
   return await new Promise((resolve) => {
-    const ffmpeg = spawn(ffmpegPath, args, { windowsHide: true })
+    const ffmpeg = spawn(getFfmpegPath(), args, { windowsHide: true })
     let stderr = ''
     let killedByTimeout = false
     const timeoutHandle = setTimeout(() => {
@@ -3282,7 +3392,7 @@ ipcMain.handle('export:encodeVideo', async (event, options = {}) => {
     useHardwareEncoder = false
   } = options
 
-  if (!ffmpegPath) {
+  if (!getFfmpegPath()) {
     return { success: false, error: 'FFmpeg binary not available.' }
   }
   if (!framePattern || !outputPath) {
@@ -3307,7 +3417,7 @@ ipcMain.handle('export:encodeVideo', async (event, options = {}) => {
   console.log(`[Export] Encoding with ${encoderUsed} (${useHardwareEncoder ? 'NVENC' : 'software'})`)
 
   return await new Promise((resolve) => {
-    const ffmpeg = spawn(ffmpegPath, args, { windowsHide: true })
+    const ffmpeg = spawn(getFfmpegPath(), args, { windowsHide: true })
     let stderr = ''
 
     ffmpeg.stderr.on('data', (data) => {
@@ -3328,6 +3438,198 @@ ipcMain.handle('export:encodeVideo', async (event, options = {}) => {
   })
 })
 
+ipcMain.handle('export:renderTimelineVideo', async (event, options = {}) => {
+  const {
+    segments = [],
+    outputPath,
+    format = 'mp4',
+    fps = 24,
+    width = 1920,
+    height = 1080,
+    videoCodec = 'h264',
+    useHardwareEncoder = false,
+    nvencPreset = 'p5',
+    preset = 'medium',
+    qualityMode = 'crf',
+    crf = 18,
+    bitrateKbps = 8000,
+    keyframeInterval = null,
+    audioPath = null,
+    audioCodec = 'aac',
+    audioBitrateKbps = 192,
+    audioSampleRate = 44100,
+    duration = null,
+  } = options
+
+  if (!getFfmpegPath()) {
+    return { success: false, error: 'FFmpeg binary not available.' }
+  }
+  if (!Array.isArray(segments) || segments.length === 0) {
+    return { success: false, error: 'Missing timeline segments.' }
+  }
+  if (!outputPath) {
+    return { success: false, error: 'Missing output path.' }
+  }
+
+  const args = ['-y', '-hide_banner']
+  const inputFilters = []
+  const concatLabels = []
+  const normalizedWidth = Math.max(1, Math.round(Number(width) || 1920))
+  const normalizedHeight = Math.max(1, Math.round(Number(height) || 1080))
+
+  for (let i = 0; i < segments.length; i += 1) {
+    const segment = segments[i] || {}
+    const inputPath = String(segment.inputPath || '').trim()
+    const sourceOffsetSec = Math.max(0, Number(segment.sourceOffsetSec) || 0)
+    const sourceDurationSec = Math.max(0, Number(segment.sourceDurationSec) || 0)
+    const isImage = !!segment.isImage
+    const isBlank = !!segment.isBlank
+    if (isBlank) {
+      args.push('-f', 'lavfi', '-i', `color=c=black:s=${normalizedWidth}x${normalizedHeight}:r=${Math.max(1, Math.round(Number(fps) || 24))}`)
+    } else if (!inputPath) {
+      return { success: false, error: `Timeline segment ${i} is missing inputPath.` }
+    } else if (isImage) {
+      args.push('-loop', '1', '-i', inputPath)
+    } else {
+      args.push('-i', inputPath)
+    }
+
+    const label = `v${i}`
+    const filters = []
+    if (isBlank) {
+      if (sourceDurationSec > 0) {
+        filters.push(`trim=duration=${formatFilterNumber(sourceDurationSec)}`)
+      }
+      filters.push('setpts=PTS-STARTPTS')
+    } else if (isImage) {
+      filters.push(`scale=${normalizedWidth}:${normalizedHeight}:force_original_aspect_ratio=decrease`)
+      filters.push(`pad=${normalizedWidth}:${normalizedHeight}:(ow-iw)/2:(oh-ih)/2`)
+      filters.push('format=rgba')
+      if (sourceDurationSec > 0) {
+        filters.push(`trim=duration=${formatFilterNumber(sourceDurationSec)}`)
+      }
+      filters.push('setpts=PTS-STARTPTS')
+    } else {
+      if (sourceDurationSec > 0 || sourceOffsetSec > 0) {
+        filters.push(`trim=start=${formatFilterNumber(sourceOffsetSec)}:duration=${formatFilterNumber(sourceDurationSec)}`)
+      }
+      filters.push(`scale=${normalizedWidth}:${normalizedHeight}:force_original_aspect_ratio=decrease`)
+      filters.push(`pad=${normalizedWidth}:${normalizedHeight}:(ow-iw)/2:(oh-ih)/2`)
+      filters.push('format=rgba')
+      filters.push('setpts=PTS-STARTPTS')
+    }
+    inputFilters.push(`[${i}:v]${filters.join(',')}[${label}]`)
+    concatLabels.push(`[${label}]`)
+  }
+
+  const finalVideoFilter = `${concatLabels.join('')}concat=n=${concatLabels.length}:v=1:a=0[outv]`
+  args.push('-filter_complex', `${inputFilters.join(';')};${finalVideoFilter}`)
+  args.push('-map', '[outv]')
+  if (duration) {
+    args.push('-t', String(duration))
+  }
+  args.push('-r', String(Math.max(1, Math.round(Number(fps) || 24))))
+  const encoderUsed = appendExportVideoEncoderArgs(args, {
+    format,
+    videoCodec,
+    useHardwareEncoder,
+    nvencPreset,
+    preset,
+    qualityMode,
+    crf,
+    bitrateKbps,
+    keyframeInterval,
+  })
+  if (audioPath) {
+    args.push('-i', audioPath)
+    args.push('-map', '1:a:0')
+    appendExportAudioEncoderArgs(args, { format, audioCodec, audioBitrateKbps, audioSampleRate })
+  }
+  args.push(outputPath)
+
+  console.log(`[Export] Rendering native timeline with ${encoderUsed} (${useHardwareEncoder ? 'NVENC' : 'software'})`)
+
+  return await new Promise((resolve) => {
+    const ffmpeg = spawn(getFfmpegPath(), args, { windowsHide: true })
+    let stderr = ''
+
+    ffmpeg.stderr.on('data', (data) => {
+      stderr = appendLimitedStderr(stderr, data)
+    })
+
+    ffmpeg.on('error', (err) => {
+      resolve({ success: false, error: err.message })
+    })
+
+    ffmpeg.on('close', (code) => {
+      if (code === 0) {
+        resolve({ success: true, encoderUsed })
+      } else {
+        resolve({ success: false, error: stderr || `FFmpeg exited with code ${code}`, encoderUsed })
+      }
+    })
+  })
+})
+
+ipcMain.handle('export:concatVideoSegments', async (event, options = {}) => {
+  const {
+    concatListPath,
+    outputPath,
+    format = 'mp4',
+    videoCodec = 'h264',
+    useHardwareEncoder = false,
+    nvencPreset = 'p5',
+    preset = 'medium',
+    qualityMode = 'crf',
+    crf = 18,
+    bitrateKbps = 8000,
+    keyframeInterval = null,
+  } = options
+  if (!getFfmpegPath()) {
+    return { success: false, error: 'FFmpeg binary not available.' }
+  }
+  if (!concatListPath || !outputPath) {
+    return { success: false, error: 'Missing concat inputs.' }
+  }
+  const args = [
+    '-y',
+    '-f', 'concat',
+    '-safe', '0',
+    '-fflags', '+genpts',
+    '-avoid_negative_ts', 'make_zero',
+    '-i', concatListPath,
+    '-vsync', 'cfr',
+    '-fps_mode', 'cfr',
+  ]
+  appendExportVideoEncoderArgs(args, {
+    format,
+    videoCodec,
+    useHardwareEncoder,
+    nvencPreset,
+    preset,
+    qualityMode,
+    crf,
+    bitrateKbps,
+    keyframeInterval,
+  })
+  if (format === 'mp4') {
+    args.push('-movflags', '+faststart')
+  }
+  args.push(outputPath)
+  return await new Promise((resolve) => {
+    const ffmpeg = spawn(getFfmpegPath(), args, { windowsHide: true })
+    let stderr = ''
+    ffmpeg.stderr.on('data', (data) => {
+      stderr = appendLimitedStderr(stderr, data)
+    })
+    ffmpeg.on('error', (err) => resolve({ success: false, error: err.message }))
+    ffmpeg.on('close', (code) => {
+      if (code === 0) resolve({ success: true })
+      else resolve({ success: false, error: stderr || `FFmpeg exited with code ${code}` })
+    })
+  })
+})
+
 ipcMain.handle('export:startFramePipe', async (event, options = {}) => {
   const {
     width,
@@ -3338,7 +3640,7 @@ ipcMain.handle('export:startFramePipe', async (event, options = {}) => {
     duration = null,
   } = options
 
-  if (!ffmpegPath) {
+  if (!getFfmpegPath()) {
     return { success: false, error: 'FFmpeg binary not available.' }
   }
   if (!width || !height || !outputPath) {
@@ -3361,7 +3663,7 @@ ipcMain.handle('export:startFramePipe', async (event, options = {}) => {
   args.push(outputPath)
 
   const sessionId = crypto.randomUUID()
-  const ffmpeg = spawn(ffmpegPath, args, { windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'] })
+  const ffmpeg = spawn(getFfmpegPath(), args, { windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'] })
   let stderr = ''
   let closed = false
   let closeCode = null
@@ -3493,7 +3795,7 @@ ipcMain.handle('export:muxAudioVideo', async (event, options = {}) => {
     audioSampleRate = 44100,
   } = options
 
-  if (!ffmpegPath) {
+  if (!getFfmpegPath()) {
     return { success: false, error: 'FFmpeg binary not available.' }
   }
   if (!videoPath || !outputPath) {
@@ -3520,7 +3822,7 @@ ipcMain.handle('export:muxAudioVideo', async (event, options = {}) => {
   args.push(outputPath)
 
   return await new Promise((resolve) => {
-    const ffmpeg = spawn(ffmpegPath, args, { windowsHide: true })
+    const ffmpeg = spawn(getFfmpegPath(), args, { windowsHide: true })
     let stderr = ''
 
     ffmpeg.stderr.on('data', (data) => {
@@ -3545,7 +3847,7 @@ ipcMain.handle('export:muxAudioVideo', async (event, options = {}) => {
 // Playback cache (Flame-style: transcode for smooth playback)
 // ============================================
 ipcMain.handle('playback:transcode', async (event, { inputPath, outputPath }) => {
-  if (!ffmpegPath) {
+  if (!getFfmpegPath()) {
     return { success: false, error: 'FFmpeg binary not available.' }
   }
   if (!inputPath || !outputPath) {
@@ -3570,7 +3872,7 @@ ipcMain.handle('playback:transcode', async (event, { inputPath, outputPath }) =>
   ]
 
   return await new Promise((resolve) => {
-    const ffmpeg = spawn(ffmpegPath, args, { windowsHide: true })
+    const ffmpeg = spawn(getFfmpegPath(), args, { windowsHide: true })
     let stderr = ''
 
     ffmpeg.stderr.on('data', (data) => {
@@ -3600,7 +3902,7 @@ ipcMain.handle('playback:transcode', async (event, { inputPath, outputPath }) =>
 // effect stacks decode a fraction of the pixels. Export never uses these.
 // ============================================
 ipcMain.handle('proxy:transcode', async (event, { inputPath, outputPath, targetHeight = 540 }) => {
-  if (!ffmpegPath) {
+  if (!getFfmpegPath()) {
     return { success: false, error: 'FFmpeg binary not available.' }
   }
   if (!inputPath || !outputPath) {
@@ -3631,7 +3933,7 @@ ipcMain.handle('proxy:transcode', async (event, { inputPath, outputPath, targetH
   ]
 
   return await new Promise((resolve) => {
-    const ffmpeg = spawn(ffmpegPath, args, { windowsHide: true })
+    const ffmpeg = spawn(getFfmpegPath(), args, { windowsHide: true })
     let stderr = ''
 
     ffmpeg.stderr.on('data', (data) => {
@@ -3654,37 +3956,28 @@ ipcMain.handle('proxy:transcode', async (event, { inputPath, outputPath, targetH
 
 ipcMain.handle('export:checkNvenc', async () => {
   const gpuName = await detectNvidiaGpuName()
+  await refreshPreferredFfmpegPath()
 
-  if (!ffmpegPath) {
+  const activeFfmpegPath = getFfmpegPath()
+  if (!activeFfmpegPath) {
     return { available: false, h264: false, h265: false, gpuName, error: 'FFmpeg binary not available.' }
   }
-  
-  return await new Promise((resolve) => {
-    const ffmpeg = spawn(ffmpegPath, ['-hide_banner', '-encoders'], { windowsHide: true })
-    let output = ''
-    
-    ffmpeg.stdout.on('data', (data) => {
-      output += data.toString()
-    })
-    ffmpeg.stderr.on('data', (data) => {
-      output += data.toString()
-    })
-    
-    ffmpeg.on('error', (err) => {
-      resolve({ available: false, h264: false, h265: false, gpuName, error: err.message })
-    })
-    
-    ffmpeg.on('close', () => {
-      const hasH264 = output.includes('h264_nvenc')
-      const hasH265 = output.includes('hevc_nvenc')
-      resolve({
-        available: hasH264 || hasH265,
-        h264: hasH264,
-        h265: hasH265,
-        gpuName,
-      })
-    })
-  })
+
+  const result = await detectFfmpegEncoders(activeFfmpegPath)
+  if (!result.success) {
+    return { available: false, h264: false, h265: false, gpuName, error: result.error || 'Could not inspect FFmpeg encoders.' }
+  }
+
+  const hasH264 = result.output.includes('h264_nvenc')
+  const hasH265 = result.output.includes('hevc_nvenc')
+  return {
+    available: hasH264 || hasH265,
+    h264: hasH264,
+    h265: hasH265,
+    gpuName,
+    ffmpegPath: activeFfmpegPath,
+    ffmpegSource: preferredFfmpegSource,
+  }
 })
 
 // ============================================
@@ -3693,6 +3986,9 @@ ipcMain.handle('export:checkNvenc', async () => {
 
 app.whenReady().then(() => {
   registerFileProtocol()
+  refreshPreferredFfmpegPath().catch((error) => {
+    console.warn('[Export] FFmpeg capability check failed:', error?.message || error)
+  })
   initComfyLauncher()
     .then(() => maybeAutoStartComfyLauncher())
     .catch((error) => {

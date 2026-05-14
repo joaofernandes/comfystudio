@@ -99,6 +99,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @returns {Promise<{success: boolean, error?: string}>}
    */
   encodeVideo: (options) => ipcRenderer.invoke('export:encodeVideo', options),
+  renderTimelineVideo: (options) => ipcRenderer.invoke('export:renderTimelineVideo', options),
+  concatVideoSegments: (options) => ipcRenderer.invoke('export:concatVideoSegments', options),
   startFramePipe: (options) => ipcRenderer.invoke('export:startFramePipe', options),
   writeFrameToPipe: (sessionId, frameBuffer) => ipcRenderer.invoke('export:writeFrameToPipe', sessionId, frameBuffer),
   finishFramePipe: (sessionId) => ipcRenderer.invoke('export:finishFramePipe', sessionId),

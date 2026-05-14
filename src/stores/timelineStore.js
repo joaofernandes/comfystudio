@@ -4278,6 +4278,15 @@ export const useTimelineStore = create(
 
     const targetSet = new Set(targetIds)
     const desiredEnabled = enabled !== false
+    if (typeof window !== 'undefined') {
+      console.log('[TimelineStore] setClipsEnabled request', {
+        targetIds,
+        desiredEnabled,
+        currentValues: state.clips
+          .filter((clip) => targetSet.has(clip.id))
+          .map((clip) => ({ id: clip.id, enabled: clip.enabled })),
+      })
+    }
     const hasChanges = state.clips.some((clip) => (
       targetSet.has(clip.id) && isClipEnabled(clip) !== desiredEnabled
     ))
@@ -4291,6 +4300,16 @@ export const useTimelineStore = create(
           : clip
       )),
     }))
+    if (typeof window !== 'undefined') {
+      const nextState = get()
+      console.log('[TimelineStore] setClipsEnabled applied', {
+        targetIds,
+        desiredEnabled,
+        nextValues: nextState.clips
+          .filter((clip) => targetSet.has(clip.id))
+          .map((clip) => ({ id: clip.id, enabled: clip.enabled })),
+      })
+    }
   },
 
   /**
@@ -4524,6 +4543,18 @@ export const useTimelineStore = create(
     })
     const restoredClipCounter = Number(timelineData.clipCounter) || 1
     const nextClipCounter = Math.max(restoredClipCounter, getNextClipCounter(frameAlignedClips, 1))
+
+    if (typeof window !== 'undefined') {
+      const enabledCount = frameAlignedClips.filter((clip) => clip.enabled !== false).length
+      console.log('[TimelineStore] loadFromProject', {
+        timelineId: timelineData.id || null,
+        timelineName: timelineData.name || null,
+        clipCount: frameAlignedClips.length,
+        enabledCount,
+        disabledCount: frameAlignedClips.length - enabledCount,
+        firstClips: frameAlignedClips.slice(0, 5).map((clip) => ({ id: clip.id, enabled: clip.enabled, name: clip.name })),
+      })
+    }
 
     set({
       duration: timelineData.duration || 60,
