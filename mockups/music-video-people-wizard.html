@@ -203,25 +203,25 @@
                 <div class="hero-copy">
                   <div class="eyebrow">Director Mode / People</div>
                   <h2>Define who appears on camera.</h2>
-                  <p>A guided wizard for cast setup using the current music-video People step language. This lets the owner evaluate the concept without needing the full implementation.</p>
+                  <p>Add reference images for artists, band members, or performers so the script can route shots by Artist fields. The wizard borrows the same language as the current People, Script, and Keyframes steps.</p>
                 </div>
               </div>
             </div>
             <div class="card">
               <div class="card-head">
                 <div class="title">
-                  <div class="icon">📌</div>
+                  <div class="icon">⚑</div>
                   <div>
-                    <h4>Why this matters</h4>
-                    <p>People first, then script, then keyframes</p>
+                    <h4>Existing step language</h4>
+                    <p>Real copy the owner already sees in the app</p>
                   </div>
                 </div>
               </div>
               <div class="body">
                 <div class="plan">
-                  <div class="plan-item"><div class="plan-dot"></div><div><strong>Cast references</strong><span>Add people with a reference image and a script slug so later steps can reuse the same identity.</span></div></div>
-                  <div class="plan-item"><div class="plan-dot"></div><div><strong>Dependency awareness</strong><span>Warn early if the chosen keyframe model needs a cast/reference image.</span></div></div>
-                  <div class="plan-item"><div class="plan-dot"></div><div><strong>Script routing</strong><span>Route shots by Artist fields directly from the resolved cast list.</span></div></div>
+                  <div class="plan-item"><div class="plan-dot"></div><div><strong>Cast References</strong><span>“Add at least one person if the video has lip-sync performance shots.”</span></div></div>
+                  <div class="plan-item"><div class="plan-dot"></div><div><strong>Script routing</strong><span>“The brief includes song timing, cast slugs, and the required script format.”</span></div></div>
+                  <div class="plan-item"><div class="plan-dot"></div><div><strong>Image generation dependency</strong><span>“Qwen Image Edit needs a cast/reference image.”</span></div></div>
                 </div>
               </div>
             </div>
@@ -231,13 +231,13 @@
             <div class="card">
               <div class="card-head">
                 <div class="title">
-                  <div class="icon">👤</div>
+                  <div class="icon">👥</div>
                   <div>
-                    <h4>Cast references</h4>
-                    <p>Resolved people, slugs, and roles</p>
+                    <h4>Cast characters</h4>
+                    <p>Mirrors the Short Film Characters layout</p>
                   </div>
                 </div>
-                <span class="badge good">3 resolved people</span>
+                <span class="badge good">3 characters</span>
               </div>
               <div class="body">
                 <div class="cast-list">
@@ -245,29 +245,29 @@
                     <div class="avatar" data-role="Lead"><img src="../public/workflows/setup-covers/ltx23-i2v.webp" alt="Ava reference" /></div>
                     <div class="cast-meta">
                       <div class="cast-name">Ava</div>
-                      <div class="cast-slug">ava · script slug / Artist field</div>
+                      <div class="cast-slug">slug: ava · role: Lead vocal</div>
                     </div>
-                    <span class="badge pink">Lead vocal</span>
+                    <span class="badge pink">Face / wardrobe reference</span>
                   </div>
                   <div class="cast-item">
                     <div class="avatar" data-role="Back"><img src="../public/workflows/setup-covers/happyhorse-image-video.webp" alt="Noah reference" /></div>
                     <div class="cast-meta">
                       <div class="cast-name">Noah</div>
-                      <div class="cast-slug">noah · routing by cast slug</div>
+                      <div class="cast-slug">slug: noah · role: Backing vocal</div>
                     </div>
-                    <span class="badge good">Backing vocal</span>
+                    <span class="badge good">Voice preset</span>
                   </div>
                   <div class="cast-item">
                     <div class="avatar" data-role="Band"><img src="../public/workflows/setup-covers/multi-angles.webp" alt="Mina reference" /></div>
                     <div class="cast-meta">
                       <div class="cast-name">Mina</div>
-                      <div class="cast-slug">mina · reference image selected</div>
+                      <div class="cast-slug">slug: mina · role: Instrumentalist</div>
                     </div>
-                    <span class="badge warn">Instrumentalist</span>
+                    <span class="badge warn">Visual notes</span>
                   </div>
                 </div>
                 <div class="mini-note">
-                  Add at least one person if the video has lip-sync performance shots.
+                  Like the real UI, each character needs a name, slug, role, visual notes, and a face/wardrobe reference.
                 </div>
               </div>
             </div>
@@ -277,43 +277,62 @@
                 <div class="title">
                   <div class="icon">✎</div>
                   <div>
-                    <h4>Wizard inputs</h4>
-                    <p>Guided fields instead of a raw form</p>
+                    <h4>Character sheet editor</h4>
+                    <p>Same fields as the current app</p>
                   </div>
                 </div>
               </div>
               <div class="body">
                 <div class="fields">
                   <div class="field">
-                    <div class="label">Person name</div>
+                    <div class="label">Character</div>
                     <input class="input" value="Ava" />
                   </div>
-                  <div class="field">
-                    <div class="label">Script slug</div>
-                    <input class="input" value="ava" />
+                  <div class="role-grid">
+                    <div class="field">
+                      <div class="label">Slug</div>
+                      <input class="input" value="ava" />
+                    </div>
+                    <div class="field">
+                      <div class="label">Role</div>
+                      <input class="input" value="Lead vocal" />
+                    </div>
                   </div>
                   <div class="field">
-                    <div class="label">Reference image</div>
-                    <select class="select">
-                      <option>ltx23-i2v.webp</option>
-                      <option>happyhorse-image-video.webp</option>
-                      <option>multi-angles.webp</option>
-                    </select>
+                    <div class="label">Visual notes</div>
+                    <textarea class="textarea">Neon rim light, wind in hair, stage-ready wardrobe, confident eye contact.</textarea>
                   </div>
-                  <div class="field">
-                    <div class="label">Role</div>
-                    <select class="select">
-                      <option>Lead vocal</option>
-                      <option>Co-lead vocal</option>
-                      <option>Backing vocal</option>
-                      <option>Instrumentalist</option>
-                      <option>Never sings</option>
-                      <option>Other</option>
-                    </select>
+                  <div class="grid-2" style="grid-template-columns: 0.8fr 1.2fr;">
+                    <div class="hero-card" style="border-radius:14px">
+                      <div class="hero-media" style="min-height:138px">
+                        <img src="../public/workflows/setup-covers/ltx23-i2v.webp" alt="Face reference" />
+                      </div>
+                    </div>
+                    <div>
+                      <div class="field">
+                        <div class="label">Face / wardrobe reference</div>
+                        <select class="select">
+                          <option>Choose character image</option>
+                          <option>ltx23-i2v.webp</option>
+                          <option>happyhorse-image-video.webp</option>
+                          <option>multi-angles.webp</option>
+                        </select>
+                      </div>
+                      <div class="grid-2" style="grid-template-columns:1fr 1fr;margin-top:10px">
+                        <div class="field">
+                          <div class="label">Voice preset</div>
+                          <input class="input" value="Roger (male, american)" />
+                        </div>
+                        <div class="field">
+                          <div class="label">Voice notes</div>
+                          <input class="input" value="Warm, intimate, clear lead" />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <div class="mini-note">
-                  This mirrors the existing People step behavior: add a person, pick a reference, choose a role, and let the script use the same cast data later.
+                  “Character slugs keep faces, wardrobe, dialogue, and voice profiles connected.”
                 </div>
               </div>
             </div>
@@ -323,19 +342,19 @@
             <div class="card">
               <div class="card-head">
                 <div class="title">
-                  <div class="icon">↳</div>
+                  <div class="icon">◫</div>
                   <div>
-                    <h4>Current step copy</h4>
-                    <p>Lifted from the existing People step</p>
+                    <h4>Reference / image generation</h4>
+                    <p>Patterned after the reference-selection step in the app</p>
                   </div>
                 </div>
               </div>
               <div class="copy-box">
                 <div class="prompt">
-                  <strong>Define who appears on camera.</strong><br />
-                  Add reference images for artists, band members, or performers so the script can route shots by Artist fields.<br /><br />
-                  Cast References · resolved people · Add Person · Reference · Script Slug · Role<br /><br />
-                  Qwen Image Edit needs a cast/reference image. Add a person in the People step, or switch to Nano Banana 2 for reference-free keyframes.
+                  <strong>Do you have product or talent references?</strong><br />
+                  Optional, but best results come from product sheets and character sheets with multiple angles.<br /><br />
+                  Recommended: character sheet with front, side, 3/4 view, expressions, and wardrobe.<br /><br />
+                  <strong>Qwen Image Edit</strong> needs a cast/reference image. Add a person in the People step, or switch to <strong>Nano Banana 2</strong> for reference-free keyframes.
                 </div>
               </div>
             </div>
@@ -343,19 +362,31 @@
             <div class="card">
               <div class="card-head">
                 <div class="title">
-                  <div class="icon">📋</div>
+                  <div class="icon">▣</div>
                   <div>
-                    <h4>Brief preview</h4>
-                    <p>How the wizard feeds the script step</p>
+                    <h4>Multiple angles / Characters</h4>
+                    <p>Use the same visual idea for cast sheets</p>
                   </div>
                 </div>
                 <span class="badge">Ready to copy</span>
               </div>
               <div class="body">
-                <div class="script-block">Script Slugs: ava, noah, mina
-Roles: lead vocal, backing vocal, instrumentalist
-Routing: if a line says “Artist: ava”, shots should target the Ava reference.
-Collective tags like “band” or “all” expand to the full cast roster.</div>
+                <div class="route-grid">
+                  <div class="route-card">
+                    <div class="thumb"><img src="../public/workflows/setup-covers/multi-angles.webp" alt="Multi angles characters sheet" /></div>
+                    <div class="content">
+                      <h5>Character sheet</h5>
+                      <p>Front, side, 3/4 view, expressions, wardrobe.</p>
+                    </div>
+                  </div>
+                  <div class="route-card">
+                    <div class="thumb"><img src="../public/workflows/setup-covers/multi-angles-scene.webp" alt="Multi angles scene sheet" /></div>
+                    <div class="content">
+                      <h5>Scene sheet</h5>
+                      <p>Same idea for locations and scene memory.</p>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </section>
@@ -366,8 +397,8 @@ Collective tags like “band” or “all” expand to the full cast roster.</di
                 <div class="title">
                   <div class="icon">🎬</div>
                   <div>
-                    <h4>Route preview</h4>
-                    <p>Existing setup covers used as proof of concept</p>
+                    <h4>Keyframe review</h4>
+                    <p>Mirrors the app’s keyframe card grid</p>
                   </div>
                 </div>
               </div>
@@ -376,22 +407,22 @@ Collective tags like “band” or “all” expand to the full cast roster.</di
                   <div class="route-card">
                     <div class="thumb"><img src="../public/workflows/setup-covers/ltx23-i2v.webp" alt="Performance route preview" /></div>
                     <div class="content">
-                      <h5>Performance close-up</h5>
-                      <p>Artist: ava routes to the resolved cast reference.</p>
+                      <h5>Shot 1: Performance close-up</h5>
+                      <p>Keyframe prompt becomes the still-image prompt for that exact beat.</p>
                     </div>
                   </div>
                   <div class="route-card">
                     <div class="thumb"><img src="../public/workflows/setup-covers/ltx23-t2v.webp" alt="Band route preview" /></div>
                     <div class="content">
-                      <h5>Band chorus</h5>
-                      <p>“band” and “all” expand to every person in the cast list.</p>
+                      <h5>Shot 2: Band chorus</h5>
+                      <p>Select a shot to inspect or rerun just that keyframe at the current output settings.</p>
                     </div>
                   </div>
                   <div class="route-card">
                     <div class="thumb"><img src="../public/workflows/setup-covers/topaz-video-enhance.webp" alt="Reference cleanup preview" /></div>
                     <div class="content">
-                      <h5>Reference cleanup</h5>
-                      <p>Surface missing reference-image dependencies before keyframe generation.</p>
+                      <h5>Shot 3: Reference cleanup</h5>
+                      <p>Use the selected cast/reference image before moving on to keyframes.</p>
                     </div>
                   </div>
                 </div>
