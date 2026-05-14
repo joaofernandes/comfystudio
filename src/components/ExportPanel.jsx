@@ -306,6 +306,8 @@ function ExportPanel() {
   const exportStartRef = useRef(null)
   const renderStartRef = useRef(null)
   const activeExportRequestIdRef = useRef(null)
+  const activeExportAbortRef = useRef(null)
+  const exportCancelledRef = useRef(false)
   const [nvencStatus, setNvencStatus] = useState({
     checked: false,
     available: false,
@@ -403,6 +405,7 @@ function ExportPanel() {
     const onError = (err) => {
       if (!isCurrentExportEvent(err)) return
       activeExportRequestIdRef.current = null
+      activeExportAbortRef.current = null
       const rawError = err?.error ?? err
       const msg = typeof rawError === 'string' ? rawError : (rawError?.message ?? (rawError && typeof rawError === 'object' && rawError.constructor?.name === 'Event' ? `Export error (${rawError.type})` : String(rawError)))
       console.error('[ExportPanel] Worker export error', err, '-> displayed:', msg)
@@ -801,6 +804,9 @@ function ExportPanel() {
       }
     }
 
+    const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null
+    activeExportAbortRef.current = abortController
+    exportCancelledRef.current = false
     exportStartRef.current = null
     renderStartRef.current = null
     setEtaSeconds(null)
@@ -900,7 +906,10 @@ function ExportPanel() {
       }
     }
 
-    const result = await exportTimeline(options, (progress) => {
+    const result = await exportTimeline({
+      ...options,
+      signal: abortController?.signal || null,
+    }, (progress) => {
       setExportStatus(labelOverride ? `${labelOverride} • ${progress.status || ''}`.trim() : (progress.status || ''))
       if (typeof progress.progress === 'number') {
         setExportProgress(progress.progress)
@@ -926,6 +935,7 @@ function ExportPanel() {
       }
     })
     
+    activeExportAbortRef.current = null
     if (!result) return null
     setExportResult(result)
     setExportStatus('Export complete')
@@ -940,10 +950,42 @@ function ExportPanel() {
     try {
       await runExportJob(settings)
     } catch (err) {
-      setExportError(err.message || 'Export failed')
-      setExportStatus('Export failed')
+      if (exportCancelledRef.current || err?.message === 'Export cancelled') {
+        setExportError(null)
+        setExportStatus('Export cancelled')
+      } else {
+        setExportError(err.message || 'Export failed')
+        setExportStatus('Export failed')
+      }
+      activeExportAbortRef.current = null
       setIsExporting(false)
     }
+  }
+
+
+  const handleStopExport = async () => {
+    if (!isExporting && !queueRunning) return
+    exportCancelledRef.current = true
+    queueControllerRef.current.paused = true
+    setQueuePauseRequested(false)
+    setQueuePaused(true)
+    setExportStatus('Cancelling export...')
+    try {
+      activeExportAbortRef.current?.abort?.()
+    } catch {
+      // ignore abort errors
+    }
+    try {
+      await window.electronAPI?.cancelExportWorker?.()
+    } catch {
+      // ignore worker cancel errors
+    }
+    activeExportRequestIdRef.current = null
+    activeExportAbortRef.current = null
+    setQueueRunning(false)
+    setIsExporting(false)
+    setExportError(null)
+    setExportStatus('Export cancelled')
   }
   
   return (
@@ -1453,18 +1495,24 @@ function ExportPanel() {
               <Plus className="w-3 h-3" />
               Add to Queue
             </button>
-            <button
-              onClick={handleStartExport}
-              disabled={isExporting || queueRunning}
-              className={`px-3 py-1.5 text-xs rounded border flex items-center gap-1.5 transition-colors ${
-                isExporting || queueRunning
-                  ? 'bg-sf-dark-800 text-sf-text-muted border-sf-dark-600 cursor-not-allowed'
-                  : 'bg-sf-accent text-white border-sf-accent hover:bg-sf-accent-hover'
-              }`}
-            >
-              <Play className="w-3 h-3" />
-              {isExporting ? (exportStatus === 'Choose export destination...' ? 'Choosing...' : 'Exporting...') : (queueRunning ? 'Queue Running' : 'Start Export')}
-            </button>
+            {isExporting || queueRunning ? (
+              <button
+                onClick={handleStopExport}
+                className="px-3 py-1.5 text-xs rounded border border-red-500/50 bg-red-500/15 text-red-200 hover:bg-red-500/25 transition-colors flex items-center gap-1.5"
+                title="Cancel the current export"
+              >
+                <Square className="w-3 h-3" />
+                Stop Export
+              </button>
+            ) : (
+              <button
+                onClick={handleStartExport}
+                className="px-3 py-1.5 text-xs rounded border flex items-center gap-1.5 transition-colors bg-sf-accent text-white border-sf-accent hover:bg-sf-accent-hover"
+              >
+                <Play className="w-3 h-3" />
+                Start Export
+              </button>
+            )}
           </div>
 
           {(isExporting || exportProgress > 0) && (

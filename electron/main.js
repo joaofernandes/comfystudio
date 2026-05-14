@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, protocol, net, shell, screen } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, protocol, net, shell, screen, nativeImage } = require('electron')
 const crypto = require('crypto')
 const path = require('path')
 const fs = require('fs').promises
@@ -1759,6 +1759,40 @@ ipcMain.handle('media:getFileUrlDirect', (event, filePath) => {
   return `file://${normalizedPath}`
 })
 
+ipcMain.handle('media:createImageThumbnail', async (event, { sourcePath, outputPath, width = 360, height = 204, quality = 78 } = {}) => {
+  try {
+    if (!sourcePath || !outputPath) {
+      return { success: false, error: 'Missing source or output path.' }
+    }
+    await fs.mkdir(path.dirname(outputPath), { recursive: true })
+    const sourceImage = nativeImage.createFromPath(sourcePath)
+    if (sourceImage.isEmpty()) {
+      return { success: false, error: 'Could not load source image.' }
+    }
+    const sourceSize = sourceImage.getSize()
+    const maxWidth = Math.max(1, Math.round(Number(width) || 360))
+    const maxHeight = Math.max(1, Math.round(Number(height) || 204))
+    const scale = Math.min(1, maxWidth / Math.max(1, sourceSize.width), maxHeight / Math.max(1, sourceSize.height))
+    const targetWidth = Math.max(1, Math.round(sourceSize.width * scale))
+    const targetHeight = Math.max(1, Math.round(sourceSize.height * scale))
+    const resized = scale < 1
+      ? sourceImage.resize({ width: targetWidth, height: targetHeight, quality: 'good' })
+      : sourceImage
+    const jpeg = resized.toJPEG(Math.max(1, Math.min(100, Math.round(Number(quality) || 78))))
+    await writeFileAtomic(outputPath, jpeg)
+    return {
+      success: true,
+      path: outputPath,
+      width: targetWidth,
+      height: targetHeight,
+      sourceWidth: sourceSize.width,
+      sourceHeight: sourceSize.height,
+    }
+  } catch (err) {
+    return { success: false, error: err?.message || String(err) }
+  }
+})
+
 ipcMain.handle('media:getVideoFps', async (event, filePath) => {
   if (!ffprobePath) {
     return { success: false, error: 'FFprobe binary not available.' }
@@ -2399,6 +2433,58 @@ ipcMain.handle('workflowSetup:validateRoot', async (event, rootPath) => {
   }
 })
 
+
+ipcMain.handle('workflowSetup:checkPythonModules', async (_event, payload = {}) => {
+  const modules = (Array.isArray(payload?.modules) ? payload.modules : [])
+    .map((entry) => String(entry?.moduleName || entry || '').trim())
+    .filter(Boolean)
+  const results = []
+
+  try {
+    const validation = await validateWorkflowSetupRootInternal(payload?.comfyRootPath)
+    if (!validation.isValid || !validation.python?.command) {
+      return {
+        success: false,
+        error: validation.error || 'ComfyUI Python is not configured.',
+        results: modules.map((moduleName) => ({ moduleName, available: false, error: validation.error || 'ComfyUI Python is not configured.' })),
+      }
+    }
+
+    for (const moduleName of modules) {
+      const script = [
+        'import importlib.util, importlib, json, sys',
+        `name = ${JSON.stringify('${MODULE_NAME}')} `,
+      ].join('\n').replace('${MODULE_NAME}', moduleName)
+      const probeScript = `${script}\ntry:\n    spec = importlib.util.find_spec(name)\n    if spec is None:\n        print(json.dumps({\"available\": False, \"moduleName\": name}))\n        sys.exit(1)\n    module = importlib.import_module(name)\n    print(json.dumps({\"available\": True, \"moduleName\": name, \"version\": str(getattr(module, \"__version__\", \"\"))}))\nexcept Exception as exc:\n    print(json.dumps({\"available\": False, \"moduleName\": name, \"error\": str(exc)}))\n    sys.exit(1)`
+      const probe = await captureCommandOutput(
+        validation.python.command,
+        [...(validation.python.baseArgs || []), '-c', probeScript],
+        5000
+      )
+      let parsed = null
+      try {
+        parsed = JSON.parse(String(probe.output || '').trim())
+      } catch (_) {
+        parsed = null
+      }
+      results.push({
+        moduleName,
+        available: Boolean(probe.success && parsed?.available),
+        version: String(parsed?.version || '').trim(),
+        error: probe.success ? '' : (String(parsed?.error || probe.error || 'Module was not detected.')),
+      })
+    }
+
+    return { success: true, results }
+  } catch (error) {
+    return {
+      success: false,
+      error: error?.message || 'Could not check ComfyUI Python modules.',
+      results: modules.map((moduleName) => ({ moduleName, available: false, error: error?.message || 'Could not check ComfyUI Python modules.' })),
+    }
+  }
+})
+
 ipcMain.handle('workflowSetup:checkFiles', async (_event, payload = {}) => {
   const results = []
   try {
@@ -2605,10 +2691,31 @@ ipcMain.handle('workflowSetup:install', async (event, payload = {}) => {
 // Export Operations
 // ============================================
 
-ipcMain.handle('export:runInWorker', async (event, payload) => {
+ipcMain.handle('export:cancelWorker', async () => {
+  try {
+    for (const [sessionId, session] of activeFramePipeExports.entries()) {
+      activeFramePipeExports.delete(sessionId)
+      try {
+        if (!session.ffmpeg.killed) session.ffmpeg.kill('SIGKILL')
+      } catch {
+        // ignore abort errors
+      }
+    }
+    if (exportWorkerWindow && !exportWorkerWindow.isDestroyed()) {
+      exportWorkerWindow.close()
+    }
+    exportWorkerWindow = null
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err?.message || String(err) }
+  }
+})
+
+ipcMain.handle('export:runInWorker', async (event, payload = {}) => {
   if (exportWorkerWindow && !exportWorkerWindow.isDestroyed()) {
     return { success: false, error: 'Export already in progress' }
   }
+  const requestId = String(payload?.requestId || `export-${Date.now()}`)
   const workerUrl = isDev
     ? `http://127.0.0.1:5173?export=worker`
     : `file://${path.join(__dirname, '../dist/index.html')}?export=worker`
@@ -2629,9 +2736,12 @@ ipcMain.handle('export:runInWorker', async (event, payload) => {
   })
   const workerContents = exportWorkerWindow.webContents
   const forwardToMain = (channel, data) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(channel, data)
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      mainWindow.webContents.send(channel, { ...data, requestId })
+      return
     }
+    mainWindow.webContents.send(channel, { requestId, error: data })
   }
   const onProgress = (event, data) => {
     if (event.sender === workerContents) forwardToMain('export:progress', data)
@@ -2655,6 +2765,15 @@ ipcMain.handle('export:runInWorker', async (event, payload) => {
       }
     }
   }
+  const onWorkerReady = (event) => {
+    if (event.sender === workerContents) sendJob()
+  }
+  const cleanupExportWorkerListeners = () => {
+    ipcMain.removeListener('export:progress', onProgress)
+    ipcMain.removeListener('export:complete', onComplete)
+    ipcMain.removeListener('export:error', onError)
+    ipcMain.removeListener('export:workerReady', onWorkerReady)
+  }
   ipcMain.on('export:progress', onProgress)
   ipcMain.on('export:complete', onComplete)
   ipcMain.on('export:error', onError)
@@ -2663,15 +2782,9 @@ ipcMain.handle('export:runInWorker', async (event, payload) => {
       exportWorkerWindow.webContents.send('export:job', payload)
     }
   }
-  ipcMain.once('export:workerReady', (event) => {
-    if (event.sender === workerContents) sendJob()
-  })
+  ipcMain.on('export:workerReady', onWorkerReady)
   exportWorkerWindow.on('closed', () => {
-    ipcMain.removeListener('export:progress', onProgress)
-    ipcMain.removeListener('export:complete', onComplete)
-    ipcMain.removeListener('export:error', onError)
-  })
-  exportWorkerWindow.on('closed', () => {
+    cleanupExportWorkerListeners()
     exportWorkerWindow = null
   })
   await exportWorkerWindow.loadURL(workerUrl)
