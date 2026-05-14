@@ -4300,7 +4300,9 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
   const yoloDependencyWorkflowIds = useMemo(() => Array.from(new Set([
     yoloStoryboardWorkflowId,
     ...yoloSelectedVideoWorkflowIds,
+    ...(isYoloMusicMode ? ['z-image-turbo', 'multi-angles'] : []),
   ].map((workflow) => String(workflow || '').trim()).filter(Boolean))), [
+    isYoloMusicMode,
     yoloStoryboardWorkflowId,
     yoloSelectedVideoWorkflowIds,
   ])
@@ -4481,6 +4483,66 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     yoloSelectedVideoWorkflowIds,
     yoloStoryboardWorkflowId,
   ])
+  const musicCharacterSheetWorkflowAvailability = useMemo(() => {
+    const workflowIds = ['z-image-turbo', 'multi-angles']
+    if (!isConnected) {
+      return {
+        ready: false,
+        checked: true,
+        message: 'Start ComfyUI before creating a character sheet.',
+      }
+    }
+    if (yoloDependencyPanel.status === 'checking' || yoloDependencyCheckInProgress) {
+      return {
+        ready: false,
+        checked: false,
+        message: 'Checking character sheet workflows...',
+      }
+    }
+    const results = workflowIds.map((workflowId) => yoloDependencyPanel.byWorkflow?.[workflowId]).filter(Boolean)
+    if (results.length < workflowIds.length) {
+      return {
+        ready: false,
+        checked: false,
+        message: 'Check workflow setup before creating a character sheet.',
+      }
+    }
+    const missingManifests = results.filter((result) => !result?.hasPack || result?.status === 'no-pack')
+    if (missingManifests.length > 0) {
+      return {
+        ready: false,
+        checked: true,
+        message: `Workflow setup is missing for ${missingManifests.map((result) => getWorkflowDisplayLabel(result.workflowId)).join(' and ')}.`,
+      }
+    }
+    const blocked = results.filter((result) => result?.hasPack && result?.hasBlockingIssues)
+    if (blocked.length > 0) {
+      return {
+        ready: false,
+        checked: true,
+        message: `Install missing setup for ${blocked.map((result) => getWorkflowDisplayLabel(result.workflowId)).join(' and ')}.`,
+      }
+    }
+    const errors = results.filter((result) => result?.status === 'error')
+    if (errors.length > 0) {
+      return {
+        ready: false,
+        checked: true,
+        message: 'Workflow setup check failed for character sheet creation.',
+      }
+    }
+    return {
+      ready: true,
+      checked: true,
+      message: 'Character sheet workflows ready.',
+    }
+  }, [
+    isConnected,
+    yoloDependencyCheckInProgress,
+    yoloDependencyPanel.byWorkflow,
+    yoloDependencyPanel.status,
+  ])
+
   const yoloCloudCreditProjection = useMemo(() => {
     let minTotal = 0
     let maxTotal = 0
@@ -5155,6 +5217,90 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     selectedWorkflowManifest?.title,
     wanQualityPreset,
     workflowId,
+  ])
+
+  const handleQueueMusicCharacterBaseImage = useCallback(async ({ entry = {}, prompt = '' } = {}) => {
+    const cleanPrompt = String(prompt || '').trim()
+    if (!cleanPrompt) return { queued: 0, jobId: '', message: 'Write a base image prompt first.' }
+    if (!isConnected && !allowQueueWhileWaiting) return { queued: 0, jobId: '', message: 'ComfyUI is not connected yet.' }
+    if (!isConnected && launcherCanAutoStart) void startComfyLauncher()
+    const depsOk = await validateDependenciesForQueue(['z-image-turbo'], 'character base image')
+    if (!depsOk) return { queued: 0, jobId: '', message: 'Character base image is blocked by missing workflow requirements.' }
+
+    const label = String(entry?.label || entry?.slug || 'Character').trim()
+    const job = createQueuedJob({
+      category: 'image',
+      workflowId: 'z-image-turbo',
+      workflowLabel: 'Z-Image Turbo',
+      needsImage: false,
+      inputAssetType: null,
+      inputAssetId: null,
+      inputAssetName: '',
+      prompt: cleanPrompt,
+      negativePrompt: 'text, watermark, logo, extra fingers, distorted hands, duplicate face, blurry face',
+      seed: Math.floor(Math.random() * 1000000000),
+      resolution: { width: 1024, height: 1024 },
+      characterSheet: {
+        stage: 'base',
+        castId: entry?.id || '',
+        slug: entry?.slug || '',
+        label,
+      },
+    })
+    enqueueJob(job)
+    addComfyLog('status', `Queued character base image for ${label}.`)
+    return { queued: 1, jobId: job.id, message: 'Base image queued.' }
+  }, [
+    addComfyLog,
+    allowQueueWhileWaiting,
+    createQueuedJob,
+    enqueueJob,
+    isConnected,
+    launcherCanAutoStart,
+    startComfyLauncher,
+    validateDependenciesForQueue,
+  ])
+
+  const handleQueueMusicCharacterAngles = useCallback(async ({ entry = {}, sourceAssetId = '' } = {}) => {
+    const sourceAsset = assets.find((asset) => asset?.id === sourceAssetId)
+    if (!sourceAsset || sourceAsset.type !== 'image') return { queued: 0, jobId: '', message: 'Select or generate a base image first.' }
+    if (!isConnected && !allowQueueWhileWaiting) return { queued: 0, jobId: '', message: 'ComfyUI is not connected yet.' }
+    if (!isConnected && launcherCanAutoStart) void startComfyLauncher()
+    const depsOk = await validateDependenciesForQueue(['multi-angles'], 'character sheet')
+    if (!depsOk) return { queued: 0, jobId: '', message: 'Character sheet is blocked by missing workflow requirements.' }
+
+    const label = String(entry?.label || entry?.slug || 'Character').trim()
+    const job = createQueuedJob({
+      category: 'image',
+      workflowId: 'multi-angles',
+      workflowLabel: 'Multiple Angles (Characters)',
+      needsImage: true,
+      inputAssetType: 'image',
+      inputAssetId: sourceAsset.id,
+      inputAssetName: sourceAsset.name || label,
+      prompt: `Character angle sheet for ${label}`,
+      seed: Math.floor(Math.random() * 1000000000),
+      characterSheet: {
+        stage: 'angles',
+        castId: entry?.id || '',
+        slug: entry?.slug || '',
+        label,
+        baseAssetId: sourceAsset.id,
+      },
+    })
+    enqueueJob(job)
+    addComfyLog('status', `Queued character angles for ${label}.`)
+    return { queued: 1, jobId: job.id, message: 'Character sheet queued.' }
+  }, [
+    addComfyLog,
+    allowQueueWhileWaiting,
+    assets,
+    createQueuedJob,
+    enqueueJob,
+    isConnected,
+    launcherCanAutoStart,
+    startComfyLauncher,
+    validateDependenciesForQueue,
   ])
 
   const handleQueueShortFilmVoices = useCallback(async (payload = {}) => {
@@ -8432,18 +8578,22 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
   }, [])
 
   const handleCreateAngleSheetForJob = useCallback(async (job) => {
-    if (!job || !Array.isArray(job.resultAssetIds) || job.resultAssetIds.length === 0) return
+    if (!job || !Array.isArray(job.resultAssetIds) || job.resultAssetIds.length === 0) return null
+    if (job.angleSheetAssetId) {
+      const existingAsset = assets.find((asset) => asset?.id === job.angleSheetAssetId)
+      if (existingAsset) return existingAsset
+    }
     const targetProjectHandle = job?.originProject?.handle || currentProjectHandle
     if (!targetProjectHandle) {
       addComfyLog('error', 'Open or create a project before creating an angle sheet.')
-      return
+      return null
     }
     const imageAssets = job.resultAssetIds
       .map((id) => assets.find((asset) => asset?.id === id) || null)
       .filter((asset) => asset?.type === 'image')
     if (imageAssets.length === 0) {
       addComfyLog('error', 'No generated image angles found for this job.')
-      return
+      return null
     }
     updateJob(job.id, { isCombiningAngles: true, combineError: null })
     try {
@@ -8499,10 +8649,12 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       await saveProject?.()
       updateJob(job.id, { angleSheetAssetId: newAsset.id, isCombiningAngles: false, combineError: null })
       addComfyLog('ok', `Angle sheet created: ${assetInfo.fileName}`)
+      return newAsset
     } catch (error) {
       const message = error?.message || 'Failed to create angle sheet'
       updateJob(job.id, { isCombiningAngles: false, combineError: message })
       addComfyLog('error', message)
+      throw error
     }
   }, [addAsset, addComfyLog, assets, currentProjectHandle, saveProject, updateJob])
 
@@ -9967,6 +10119,10 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                     handleYoloMusicCastSlugChange={handleYoloMusicCastSlugChange}
                     handleYoloMusicCastLabelChange={handleYoloMusicCastLabelChange}
                     handleYoloMusicCastRoleChange={handleYoloMusicCastRoleChange}
+                    handleQueueMusicCharacterBaseImage={handleQueueMusicCharacterBaseImage}
+                    handleQueueMusicCharacterAngles={handleQueueMusicCharacterAngles}
+                    handleCreateAngleSheetForJob={handleCreateAngleSheetForJob}
+                    musicCharacterSheetWorkflowAvailability={musicCharacterSheetWorkflowAvailability}
                     generationQueue={generationQueue}
                     yoloActivePlan={yoloActivePlan}
                     yoloQueueVariants={yoloQueueVariants}

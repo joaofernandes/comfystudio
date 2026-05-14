@@ -4,11 +4,14 @@ import {
   Clipboard,
   FileText,
   Film,
+  Image as ImageIcon,
   Loader2,
   Music,
   Play,
+  RefreshCw,
   UserPlus,
   Wand2,
+  X,
 } from 'lucide-react'
 import {
   MUSIC_VIDEO_AUDIO_KIND_OPTIONS,
@@ -226,6 +229,274 @@ function getAssetUrl(asset) {
   return asset?.url || asset?.thumbnailUrl || asset?.proxyUrl || asset?.path || ''
 }
 
+function getAssetName(asset) {
+  return asset?.name || asset?.fileName || asset?.id || 'Untitled asset'
+}
+
+function buildCharacterBasePrompt(entry = {}) {
+  const label = String(entry?.label || entry?.slug || 'character').trim()
+  const role = MUSIC_VIDEO_CAST_ROLE_OPTIONS.find((option) => option.id === entry?.role)?.label || entry?.role || 'music video character'
+  return [
+    `Cinematic full-body character reference portrait of ${label}, ${role}.`,
+    'Neutral standing pose, clear face, readable hairstyle, complete wardrobe, hands visible and natural.',
+    'Clean studio background, soft directional lighting, realistic proportions, high detail, no text, no logo, no watermark.',
+  ].join(' ')
+}
+
+function getJobStatusLabel(job, fallback = 'Waiting') {
+  if (!job) return fallback
+  const status = String(job.status || '').toLowerCase()
+  if (JOB_ERROR_STATUSES.has(status)) return job.error || 'Failed'
+  if (status === 'done') return 'Ready'
+  if (JOB_BUSY_STATUSES.has(status)) return `${job.status || 'Running'}${job.progress ? ` ${Math.round(job.progress)}%` : ''}`
+  return job.status || fallback
+}
+
+function CharacterSheetWizard({
+  entry,
+  assets = [],
+  generationQueue = [],
+  onClose,
+  onApply,
+  onQueueBaseImage,
+  onQueueAngles,
+  onCreateAngleSheet,
+}) {
+  const [step, setStep] = useState('base')
+  const [prompt, setPrompt] = useState(() => buildCharacterBasePrompt(entry))
+  const [baseJobId, setBaseJobId] = useState('')
+  const [anglesJobId, setAnglesJobId] = useState('')
+  const [baseAssetId, setBaseAssetId] = useState(entry?.assetId || '')
+  const [sheetAssetId, setSheetAssetId] = useState('')
+  const [status, setStatus] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const baseJob = useMemo(() => generationQueue.find((job) => job?.id === baseJobId) || null, [baseJobId, generationQueue])
+  const anglesJob = useMemo(() => generationQueue.find((job) => job?.id === anglesJobId) || null, [anglesJobId, generationQueue])
+  const baseAsset = useMemo(() => assets.find((asset) => asset?.id === baseAssetId) || null, [assets, baseAssetId])
+  const sheetAsset = useMemo(() => assets.find((asset) => asset?.id === sheetAssetId) || null, [assets, sheetAssetId])
+  const angleAssets = useMemo(() => (
+    (anglesJob?.resultAssetIds || [])
+      .map((id) => assets.find((asset) => asset?.id === id) || null)
+      .filter((asset) => asset?.type === 'image')
+  ), [anglesJob?.resultAssetIds, assets])
+
+  useEffect(() => {
+    if (!baseJob || baseAssetId) return
+    if (baseJob.status !== 'done') return
+    const nextAssetId = (baseJob.resultAssetIds || [])[0] || ''
+    if (!nextAssetId) return
+    setBaseAssetId(nextAssetId)
+    setStep('angles')
+    setStatus('Base image ready. Generate the character sheet next.')
+  }, [baseAssetId, baseJob])
+
+  useEffect(() => {
+    if (!anglesJob || anglesJob.status !== 'done') return
+    if (angleAssets.length === 0) return
+    setStep('review')
+    setStatus('Character angles ready. Review them, then apply the sheet.')
+  }, [angleAssets.length, anglesJob])
+
+  const handleGenerateBase = async () => {
+    if (!onQueueBaseImage) return
+    setBusy(true)
+    setStatus('Queueing base portrait...')
+    try {
+      const result = await onQueueBaseImage({ entry, prompt })
+      if (!result?.jobId) throw new Error(result?.message || 'Could not queue base portrait.')
+      setBaseJobId(result.jobId)
+      setBaseAssetId('')
+      setSheetAssetId('')
+      setStatus('Base portrait queued.')
+    } catch (error) {
+      setStatus(error?.message || 'Could not queue base portrait.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleGenerateAngles = async () => {
+    if (!baseAssetId || !onQueueAngles) return
+    setBusy(true)
+    setStatus('Queueing character sheet...')
+    try {
+      const result = await onQueueAngles({ entry, sourceAssetId: baseAssetId })
+      if (!result?.jobId) throw new Error(result?.message || 'Could not queue character sheet.')
+      setAnglesJobId(result.jobId)
+      setSheetAssetId('')
+      setStatus('Character sheet queued.')
+    } catch (error) {
+      setStatus(error?.message || 'Could not queue character sheet.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleApply = async () => {
+    if (!onApply) return
+    setBusy(true)
+    setStatus('Preparing sheet asset...')
+    try {
+      let finalAssetId = sheetAssetId
+      if (!finalAssetId && anglesJob) {
+        const asset = await onCreateAngleSheet?.(anglesJob)
+        finalAssetId = asset?.id || anglesJob.angleSheetAssetId || ''
+        if (finalAssetId) setSheetAssetId(finalAssetId)
+      }
+      if (!finalAssetId) throw new Error('Create the character sheet before applying it.')
+      onApply(finalAssetId)
+      setStatus('Character sheet applied.')
+      onClose?.()
+    } catch (error) {
+      setStatus(error?.message || 'Could not apply character sheet.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const baseUrl = getAssetUrl(baseAsset)
+  const sheetUrl = getAssetUrl(sheetAsset)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+      <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-sf-dark-600 bg-sf-dark-950 shadow-2xl">
+        <div className="flex items-start justify-between gap-3 border-b border-sf-dark-700 px-5 py-4">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.14em] text-sf-accent">Character Sheet</div>
+            <h3 className="mt-1 text-lg font-semibold text-sf-text-primary">{entry?.label || entry?.slug || 'New character'}</h3>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg border border-sf-dark-600 p-2 text-sf-text-muted hover:border-sf-dark-500 hover:text-sf-text-primary" title="Close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="grid min-h-0 flex-1 gap-0 overflow-hidden lg:grid-cols-[220px_minmax(0,1fr)]">
+          <div className="border-b border-sf-dark-700 bg-sf-dark-900/70 p-4 lg:border-b-0 lg:border-r">
+            {[
+              ['base', '1', 'Base image'],
+              ['angles', '2', 'Angles'],
+              ['review', '3', 'Apply'],
+            ].map(([id, number, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setStep(id)}
+                className={`mb-2 flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${buttonClass(step === id)}`}
+              >
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-sf-dark-800 text-[10px] font-semibold">{number}</span>
+                <span className="font-semibold">{label}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="min-h-0 overflow-y-auto p-5">
+            {step === 'base' && (
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+                <div>
+                  <FieldLabel>Base portrait prompt</FieldLabel>
+                  <textarea
+                    value={prompt}
+                    onChange={(event) => setPrompt(event.target.value)}
+                    rows={8}
+                    className="mt-2 w-full resize-y rounded-lg border border-sf-dark-600 bg-sf-dark-900 px-3 py-2 text-sm leading-6 text-sf-text-primary outline-none focus:border-sf-accent"
+                  />
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleGenerateBase}
+                      disabled={busy || !prompt.trim()}
+                      className="inline-flex items-center gap-2 rounded-lg bg-sf-accent px-3 py-2 text-xs font-semibold text-white hover:bg-sf-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                      Generate Base Image
+                    </button>
+                    {baseAssetId && (
+                      <button type="button" onClick={() => setStep('angles')} className="rounded-lg border border-sf-dark-600 px-3 py-2 text-xs text-sf-text-secondary hover:border-sf-dark-500 hover:text-sf-text-primary">
+                        Next
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <FieldLabel>Base preview</FieldLabel>
+                  <div className="mt-2 flex aspect-square items-center justify-center overflow-hidden rounded-lg border border-sf-dark-700 bg-sf-dark-900">
+                    {baseUrl ? <img src={baseUrl} alt="" className="h-full w-full object-cover" /> : <ImageIcon className="h-8 w-8 text-sf-text-muted" />}
+                  </div>
+                  <div className="mt-2 text-xs text-sf-text-muted">{getJobStatusLabel(baseJob, 'No base image queued')}</div>
+                </div>
+              </div>
+            )}
+
+            {step === 'angles' && (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-sf-dark-700 bg-sf-dark-900/70 p-4">
+                  <div className="text-sm font-semibold text-sf-text-primary">Generate multi-angle character sheet</div>
+                  <p className="mt-1 text-xs leading-5 text-sf-text-secondary">The generated base portrait becomes the input image for the existing Multiple Angles character workflow.</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleGenerateAngles}
+                      disabled={busy || !baseAssetId}
+                      className="inline-flex items-center gap-2 rounded-lg bg-sf-accent px-3 py-2 text-xs font-semibold text-white hover:bg-sf-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                      Generate Angles
+                    </button>
+                    {angleAssets.length > 0 && (
+                      <button type="button" onClick={() => setStep('review')} className="rounded-lg border border-sf-dark-600 px-3 py-2 text-xs text-sf-text-secondary hover:border-sf-dark-500 hover:text-sf-text-primary">
+                        Review
+                      </button>
+                    )}
+                  </div>
+                  <div className="mt-2 text-xs text-sf-text-muted">{getJobStatusLabel(anglesJob, baseAssetId ? 'Ready to queue angles' : 'Generate a base image first')}</div>
+                </div>
+                {baseUrl && <img src={baseUrl} alt="" className="h-48 rounded-lg border border-sf-dark-700 object-cover" />}
+              </div>
+            )}
+
+            {step === 'review' && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                  {angleAssets.length > 0 ? angleAssets.map((asset) => (
+                    <div key={asset.id} className="aspect-video overflow-hidden rounded-lg border border-sf-dark-700 bg-sf-dark-900">
+                      <img src={getAssetUrl(asset)} alt={getAssetName(asset)} className="h-full w-full object-cover" />
+                    </div>
+                  )) : (
+                    <div className="col-span-full rounded-lg border border-dashed border-sf-dark-600 p-8 text-center text-xs text-sf-text-muted">Generate angles before applying a character sheet.</div>
+                  )}
+                </div>
+                {sheetUrl && (
+                  <div>
+                    <FieldLabel>Combined sheet</FieldLabel>
+                    <img src={sheetUrl} alt="" className="mt-2 max-h-72 rounded-lg border border-sf-dark-700 object-contain" />
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleApply}
+                    disabled={busy || angleAssets.length === 0}
+                    className="inline-flex items-center gap-2 rounded-lg bg-sf-accent px-3 py-2 text-xs font-semibold text-white hover:bg-sf-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                    Use This Sheet
+                  </button>
+                  <button type="button" onClick={handleGenerateAngles} disabled={busy || !baseAssetId} className="rounded-lg border border-sf-dark-600 px-3 py-2 text-xs text-sf-text-secondary hover:border-sf-dark-500 hover:text-sf-text-primary disabled:cursor-not-allowed disabled:opacity-50">
+                    Regenerate Angles
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {status && <div className="mt-4 rounded-lg border border-sf-dark-700 bg-sf-dark-900/70 px-3 py-2 text-xs text-sf-text-secondary">{status}</div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function getVideoWorkflowScopedKey(variantKey, workflowId) {
   const key = String(variantKey || '').trim()
   const workflow = String(workflowId || '').trim()
@@ -348,6 +619,10 @@ export default function MusicVideoEasyMode({
   handleYoloMusicCastSlugChange,
   handleYoloMusicCastLabelChange,
   handleYoloMusicCastRoleChange,
+  handleQueueMusicCharacterBaseImage,
+  handleQueueMusicCharacterAngles,
+  handleCreateAngleSheetForJob,
+  musicCharacterSheetWorkflowAvailability = null,
   yoloMusicKeyframeWorkflowId = 'nano-banana-2',
   setYoloMusicKeyframeWorkflowId,
   yoloMusicKeyframeWorkflowOptions = DEFAULT_KEYFRAME_WORKFLOW_OPTIONS,
@@ -394,6 +669,7 @@ export default function MusicVideoEasyMode({
   const [isQueuingKeyframes, setIsQueuingKeyframes] = useState(false)
   const [isQueuingVideos, setIsQueuingVideos] = useState(false)
   const [isAssemblingTimeline, setIsAssemblingTimeline] = useState(false)
+  const [characterSheetTargetId, setCharacterSheetTargetId] = useState(null)
 
   useEffect(() => {
     if (typeof localStorage === 'undefined') return
@@ -432,6 +708,12 @@ export default function MusicVideoEasyMode({
     () => assets.filter((asset) => asset?.type === 'image'),
     [assets]
   )
+  const characterSheetTarget = useMemo(
+    () => (yoloMusicCast || []).find((entry) => entry?.id === characterSheetTargetId) || null,
+    [characterSheetTargetId, yoloMusicCast]
+  )
+  const canCreateCharacterSheet = Boolean(musicCharacterSheetWorkflowAvailability?.ready)
+  const characterSheetAvailabilityMessage = musicCharacterSheetWorkflowAvailability?.message || 'Character sheet workflows are not ready yet.'
   const flatShots = useMemo(() => flattenPlanShots(yoloActivePlan), [yoloActivePlan])
   const variantByShotKey = useMemo(() => {
     const map = new Map()
@@ -1130,6 +1412,15 @@ export default function MusicVideoEasyMode({
                 </select>
                 <button
                   type="button"
+                  onClick={() => setCharacterSheetTargetId(entry.id)}
+                  disabled={!canCreateCharacterSheet}
+                  title={canCreateCharacterSheet ? 'Create a character sheet from Z-Image and Multiple Angles.' : characterSheetAvailabilityMessage}
+                  className={`rounded-lg border px-3 py-2 text-xs transition-colors ${canCreateCharacterSheet ? 'border-sf-dark-600 text-sf-text-secondary hover:border-sf-dark-500 hover:text-sf-text-primary' : 'cursor-not-allowed border-sf-dark-700 text-sf-text-muted opacity-60'}`}
+                >
+                  Create Sheet
+                </button>
+                <button
+                  type="button"
                   onClick={() => handleYoloMusicCastRemove(entry.id)}
                   className="rounded-lg border border-sf-dark-600 px-3 py-2 text-xs text-sf-text-muted transition-colors hover:border-red-400/60 hover:text-red-200"
                 >
@@ -1139,7 +1430,24 @@ export default function MusicVideoEasyMode({
             </div>
           ))}
         </div>
+        {!canCreateCharacterSheet && (
+          <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
+            {characterSheetAvailabilityMessage}
+          </div>
+        )}
       </div>
+      {characterSheetTarget && canCreateCharacterSheet && (
+        <CharacterSheetWizard
+          entry={characterSheetTarget}
+          assets={assets}
+          generationQueue={generationQueue}
+          onClose={() => setCharacterSheetTargetId(null)}
+          onQueueBaseImage={handleQueueMusicCharacterBaseImage}
+          onQueueAngles={handleQueueMusicCharacterAngles}
+          onCreateAngleSheet={handleCreateAngleSheetForJob}
+          onApply={(assetId) => handleYoloMusicCastAssetChange(characterSheetTarget.id, assetId)}
+        />
+      )}
     </div>
   )
 
