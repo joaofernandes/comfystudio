@@ -35,6 +35,7 @@ let mainWindow = null
 let splashWindow = null
 let exportWorkerWindow = null
 const activeFramePipeExports = new Map()
+const EXPORT_WORKER_PROGRESS_STALL_MS = 5 * 60 * 1000
 let restoreFullscreenAfterMinimize = false
 let mainWindowStateSaveTimer = null
 const settingsPath = path.join(app.getPath('userData'), 'settings.json')
@@ -2735,6 +2736,9 @@ ipcMain.handle('export:runInWorker', async (event, payload = {}) => {
     },
   })
   const workerContents = exportWorkerWindow.webContents
+  let lastWorkerProgressAt = Date.now()
+  let exportWorkerSettled = false
+  let exportWorkerWatchdog = null
   const forwardToMain = (channel, data) => {
     if (!mainWindow || mainWindow.isDestroyed()) return
     if (data && typeof data === 'object' && !Array.isArray(data)) {
@@ -2743,32 +2747,50 @@ ipcMain.handle('export:runInWorker', async (event, payload = {}) => {
     }
     mainWindow.webContents.send(channel, { requestId, error: data })
   }
+  const closeExportWorker = () => {
+    if (exportWorkerWatchdog) {
+      clearInterval(exportWorkerWatchdog)
+      exportWorkerWatchdog = null
+    }
+    if (exportWorkerWindow && !exportWorkerWindow.isDestroyed()) {
+      exportWorkerWindow.close()
+    }
+    exportWorkerWindow = null
+  }
+  const failExportWorker = (message, detail = null) => {
+    if (exportWorkerSettled) return
+    exportWorkerSettled = true
+    const errorMessage = message || 'Export worker failed.'
+    console.error('[Export] Worker failed:', errorMessage, detail || '')
+    forwardToMain('export:error', { error: errorMessage, detail })
+    closeExportWorker()
+  }
   const onProgress = (event, data) => {
-    if (event.sender === workerContents) forwardToMain('export:progress', data)
+    if (event.sender !== workerContents || exportWorkerSettled) return
+    lastWorkerProgressAt = Date.now()
+    forwardToMain('export:progress', data)
   }
   const onComplete = (event, data) => {
-    if (event.sender === workerContents) {
+    if (event.sender === workerContents && !exportWorkerSettled) {
+      exportWorkerSettled = true
       forwardToMain('export:complete', data)
-      if (exportWorkerWindow && !exportWorkerWindow.isDestroyed()) {
-        exportWorkerWindow.close()
-        exportWorkerWindow = null
-      }
+      closeExportWorker()
     }
   }
   const onError = (event, err) => {
     if (event.sender === workerContents) {
       console.error('[Export] Worker reported error:', err, typeof err)
-      forwardToMain('export:error', err)
-      if (exportWorkerWindow && !exportWorkerWindow.isDestroyed()) {
-        exportWorkerWindow.close()
-        exportWorkerWindow = null
-      }
+      failExportWorker(typeof err === 'string' ? err : (err?.error || err?.message || 'Export failed.'), err)
     }
   }
   const onWorkerReady = (event) => {
     if (event.sender === workerContents) sendJob()
   }
   const cleanupExportWorkerListeners = () => {
+    if (exportWorkerWatchdog) {
+      clearInterval(exportWorkerWatchdog)
+      exportWorkerWatchdog = null
+    }
     ipcMain.removeListener('export:progress', onProgress)
     ipcMain.removeListener('export:complete', onComplete)
     ipcMain.removeListener('export:error', onError)
@@ -2783,6 +2805,22 @@ ipcMain.handle('export:runInWorker', async (event, payload = {}) => {
     }
   }
   ipcMain.on('export:workerReady', onWorkerReady)
+  exportWorkerWindow.on('unresponsive', () => {
+    failExportWorker('Export worker stopped responding.')
+  })
+  exportWorkerWindow.webContents.on('render-process-gone', (_event, details = {}) => {
+    failExportWorker(`Export worker exited unexpectedly${details.reason ? ` (${details.reason})` : ''}.`, details)
+  })
+  exportWorkerWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+    failExportWorker(`Export worker failed to load: ${errorDescription || errorCode}.`, { errorCode, errorDescription })
+  })
+  exportWorkerWatchdog = setInterval(() => {
+    if (exportWorkerSettled) return
+    const idleMs = Date.now() - lastWorkerProgressAt
+    if (idleMs >= EXPORT_WORKER_PROGRESS_STALL_MS) {
+      failExportWorker(`Export appears stalled: no progress update for ${Math.round(idleMs / 1000)} seconds.`)
+    }
+  }, 30000)
   exportWorkerWindow.on('closed', () => {
     cleanupExportWorkerListeners()
     exportWorkerWindow = null
@@ -3207,7 +3245,8 @@ ipcMain.handle('export:encodeVideo', async (event, options = {}) => {
     duration = null,
     audioCodec = 'aac',
     audioBitrateKbps = 192,
-    audioSampleRate = 44100
+    audioSampleRate = 44100,
+    useHardwareEncoder = false
   } = options
 
   if (!ffmpegPath) {
