@@ -330,6 +330,7 @@ function ExportPanel({ isActive = true }) {
   const [renderFps, setRenderFps] = useState(null)
   const exportStartRef = useRef(null)
   const renderStartRef = useRef(null)
+  const activeExportRequestIdRef = useRef(null)
   const [nvencStatus, setNvencStatus] = useState({
     checked: false,
     available: false,
@@ -399,8 +400,10 @@ function ExportPanel({ isActive = true }) {
   }, [])
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.electronAPI?.onExportProgress) return
+    if (typeof window === 'undefined' || !window.electronAPI?.onExportProgress) return undefined
+    const isCurrentExportEvent = (data) => Boolean(data?.requestId && data.requestId === activeExportRequestIdRef.current)
     const onProgress = (data) => {
+      if (!isCurrentExportEvent(data)) return
       setExportStatus(data.status || '')
       if (typeof data.progress === 'number') setExportProgress(data.progress)
       if (exportStartRef.current && data.frame != null && data.totalFrames != null) {
@@ -414,22 +417,32 @@ function ExportPanel({ isActive = true }) {
       }
     }
     const onComplete = (data) => {
+      if (!isCurrentExportEvent(data)) return
       console.log('[ExportPanel] Worker export complete', data)
+      activeExportRequestIdRef.current = null
       setExportResult(data)
       setExportStatus('Export complete')
       setExportProgress(100)
       setIsExporting(false)
     }
     const onError = (err) => {
-      const msg = typeof err === 'string' ? err : (err?.message ?? (err && typeof err === 'object' && err.constructor?.name === 'Event' ? `Export error (${err.type})` : String(err)))
+      if (!isCurrentExportEvent(err)) return
+      activeExportRequestIdRef.current = null
+      const rawError = err?.error ?? err
+      const msg = typeof rawError === 'string' ? rawError : (rawError?.message ?? (rawError && typeof rawError === 'object' && rawError.constructor?.name === 'Event' ? `Export error (${rawError.type})` : String(rawError)))
       console.error('[ExportPanel] Worker export error', err, '-> displayed:', msg)
       setExportError(msg || 'Export failed')
       setExportStatus('Export failed')
       setIsExporting(false)
     }
-    window.electronAPI.onExportProgress(onProgress)
-    window.electronAPI.onExportComplete(onComplete)
-    window.electronAPI.onExportError(onError)
+    const offProgress = window.electronAPI.onExportProgress(onProgress)
+    const offComplete = window.electronAPI.onExportComplete(onComplete)
+    const offError = window.electronAPI.onExportError(onError)
+    return () => {
+      offProgress?.()
+      offComplete?.()
+      offError?.()
+    }
   }, [])
 
   const timelineRangeLabel = useMemo(() => {
@@ -816,12 +829,14 @@ function ExportPanel({ isActive = true }) {
       }
     }
 
-    exportStartRef.current = Date.now()
+    exportStartRef.current = null
     renderStartRef.current = null
     setEtaSeconds(null)
     setRenderFps(null)
     setExportError(null)
     setExportResult(null)
+    setExportProgress(0)
+    setExportStatus('Choose export destination...')
     setIsExporting(true)
 
     const { width, height } = resolveResolution()
@@ -873,9 +888,12 @@ function ExportPanel({ isActive = true }) {
           filters: [{ name: outputExtension.toUpperCase(), extensions: [outputExtension] }],
         })
         if (!outputPath) {
+          setExportStatus('')
           setIsExporting(false)
-          throw new Error('Export cancelled')
+          return null
         }
+        exportStartRef.current = Date.now()
+        setExportStatus('Starting export worker...')
         const state = {
           timeline: { clips, tracks, transitions },
           assets: assets.map((a) => ({
@@ -891,14 +909,21 @@ function ExportPanel({ isActive = true }) {
             maskFrames: a.maskFrames?.map((f) => ({ ...f, url: undefined })),
           })),
         }
-        await window.electronAPI.runExportInWorker({
+        const requestId = `export-${Date.now()}-${Math.random().toString(36).slice(2)}`
+        activeExportRequestIdRef.current = requestId
+        const workerStart = await window.electronAPI.runExportInWorker({
+          requestId,
           projectPath: currentProjectHandle,
           outputPath,
           options: { ...options, outputPath },
           state,
         })
+        if (workerStart?.success === false) {
+          throw new Error(workerStart.error || 'Could not start export worker.')
+        }
         return
       } catch (err) {
+        activeExportRequestIdRef.current = null
         setExportError(err?.message || 'Export failed')
         setExportStatus('Export failed')
         setIsExporting(false)
@@ -920,9 +945,11 @@ function ExportPanel({ isActive = true }) {
         filters: [{ name: outputExtension.toUpperCase(), extensions: [outputExtension] }],
       })
       if (!outputPath) {
+        setExportStatus('')
         setIsExporting(false)
-        throw new Error('Export cancelled')
+        return null
       }
+      exportStartRef.current = Date.now()
       const tempBase = `${options.filename}_rtx_source_${Date.now()}.${outputExtension}`
       const tempOutputPath = await window.electronAPI.pathJoin(outputFolder, tempBase)
       setExportStatus('Rendering source export for RTX upscale...')
@@ -995,6 +1022,7 @@ function ExportPanel({ isActive = true }) {
       }
     })
     
+    if (!result) return null
     setExportResult(result)
     setExportStatus('Export complete')
     setExportProgress(100)
@@ -1551,7 +1579,7 @@ function ExportPanel({ isActive = true }) {
               }`}
             >
               <Play className="w-3 h-3" />
-              {isExporting ? 'Exporting...' : (queueRunning ? 'Queue Running' : 'Start Export')}
+              {isExporting ? (exportStatus === 'Choose export destination...' ? 'Choosing...' : 'Exporting...') : (queueRunning ? 'Queue Running' : 'Start Export')}
             </button>
           </div>
 
@@ -1559,7 +1587,7 @@ function ExportPanel({ isActive = true }) {
             <div className="mt-3 shrink-0">
               <div className="flex items-center justify-between text-[10px] text-sf-text-muted mb-1">
                 <span>{exportStatus || 'Exporting...'}</span>
-                <span>{Math.round(exportProgress)}% • ETA {formatDuration(etaSeconds)}</span>
+                <span>{exportStatus === 'Choose export destination...' ? 'Waiting for file path' : `${Math.round(exportProgress)}% • ETA ${formatDuration(etaSeconds)}`}</span>
               </div>
               <div className="h-1.5 bg-sf-dark-800 rounded-full overflow-hidden">
                 <div
