@@ -4260,6 +4260,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     const resolvedTargets = []
     const dependencyResults = []
     const blockingResults = []
+    let usedFastFallback = false
     setYoloDependencyCheckInProgress(true)
     try {
       for (const target of requestedTargets) {
@@ -4280,7 +4281,15 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
           continue
         }
 
-        blockingResults.push(fastResult)
+        const lowVramResult = await checkWorkflowDependencies(MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID)
+        dependencyResults.push(lowVramResult)
+        if (lowVramResult?.hasPack && lowVramResult?.hasBlockingIssues) {
+          blockingResults.push(lowVramResult)
+          continue
+        }
+
+        usedFastFallback = true
+        resolvedTargets.push(MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID)
       }
 
       setYoloDependencyPanel({
@@ -4295,6 +4304,12 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         setFormError(`Cannot queue ${queueLabel}. Missing dependencies: ${summary}.`)
         addComfyLog('error', `Blocked ${queueLabel}: ${summary}`)
         return null
+      }
+
+      if (usedFastFallback) {
+        const message = 'Fast mode is not available on this system. Using Low VRAM instead.'
+        setFormError(message)
+        addComfyLog('info', message)
       }
 
       return Array.from(new Set(resolvedTargets))

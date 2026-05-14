@@ -12,6 +12,16 @@ function asStringList(values) {
     .filter(Boolean)
 }
 
+function normalizeModelChoice(value = '') {
+  return String(value || '').trim().replace(/\\/g, '/').toLowerCase()
+}
+
+function getModelChoiceBasename(value = '') {
+  const normalized = normalizeModelChoice(value)
+  const parts = normalized.split('/').filter(Boolean)
+  return parts[parts.length - 1] || normalized
+}
+
 function extractChoiceListFromSpec(inputSpec) {
   if (!inputSpec) return []
 
@@ -558,8 +568,16 @@ export async function checkWorkflowDependencies(workflowId, options = {}) {
       continue
     }
 
-    const installedChoices = new Set(choices.map((item) => item.toLowerCase()))
-    if (!installedChoices.has(filename.toLowerCase())) {
+    const expectedChoice = normalizeModelChoice(filename)
+    const expectedBasename = getModelChoiceBasename(filename)
+    const installedChoices = new Set()
+    for (const choice of choices) {
+      const normalizedChoice = normalizeModelChoice(choice)
+      if (normalizedChoice) installedChoices.add(normalizedChoice)
+      const basename = getModelChoiceBasename(choice)
+      if (basename) installedChoices.add(basename)
+    }
+    if (!installedChoices.has(expectedChoice) && !installedChoices.has(expectedBasename)) {
       missingModels.push({
         classType,
         inputKey,

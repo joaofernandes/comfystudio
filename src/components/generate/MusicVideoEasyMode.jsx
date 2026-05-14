@@ -92,7 +92,7 @@ const DEFAULT_VIDEO_WORKFLOW_OPTIONS = Object.freeze([
   {
     id: MUSIC_VIDEO_FAST_LOW_VRAM_WORKFLOW_ID,
     label: 'LTX 2.3 Music - Fast Low VRAM',
-    description: 'Faster local pass when the accelerated runtime is available.',
+    description: 'Faster local pass when the accelerated runtime is available. Falls back to Low VRAM when unavailable.',
     requiresFastRuntime: true,
   },
   {
@@ -761,7 +761,8 @@ export default function MusicVideoEasyMode({
 
   const handleVideoWorkflowChange = (workflowId) => {
     if (isMusicVideoFastLowVramWorkflowId(workflowId) && fastWorkflowUnavailable) {
-      setVideoStatus('Fast mode is not available on this system because SageAttention is missing.')
+      setVideoStatus('Fast mode is not available on this system. Using Low VRAM instead.')
+      setYoloMusicVideoWorkflowId?.(MUSIC_VIDEO_LOW_VRAM_WORKFLOW_ID)
       return
     }
     if (!workflowId || workflowId === selectedVideoWorkflowId) return
@@ -1145,7 +1146,7 @@ export default function MusicVideoEasyMode({
                   type="button"
                   onClick={() => handleVideoWorkflowChange(option.id)}
                   disabled={disabled}
-                  title={disabled ? 'Fast mode is not available on this system because SageAttention is missing.' : option.description}
+                  title={disabled ? 'Fast mode is not available on this system. Using Low VRAM instead.' : option.description}
                   className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold transition-colors ${disabled ? 'cursor-not-allowed border-sf-dark-700 bg-sf-dark-900/60 text-sf-text-muted opacity-60' : buttonClass(selectedVideoWorkflowId === option.id)}`}
                 >
                   {option.label}
@@ -1802,7 +1803,7 @@ export default function MusicVideoEasyMode({
                 type="button"
                 onClick={() => handleVideoWorkflowChange(option.id)}
                 disabled={disabled}
-                title={disabled ? 'Fast mode is not available on this system because SageAttention is missing.' : option.description}
+                title={disabled ? 'Fast mode is not available on this system. Using Low VRAM instead.' : option.description}
                 className={`rounded-lg border px-3 py-2 text-left text-xs transition-colors ${disabled ? 'cursor-not-allowed border-sf-dark-700 bg-sf-dark-900/60 text-sf-text-muted opacity-60' : buttonClass(selectedVideoWorkflowId === option.id)}`}
               >
                 <div className="font-semibold">{option.label}</div>
