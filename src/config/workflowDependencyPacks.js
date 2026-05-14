@@ -1212,13 +1212,6 @@ export const WORKFLOW_DEPENDENCY_PACKS = Object.freeze({
         displayName: 'Fast low-VRAM acceleration',
       },
     ]),
-    requiredPythonModules: Object.freeze([
-      {
-        moduleName: 'sageattention',
-        displayName: 'Fast low-VRAM acceleration',
-        notes: 'Required only for the Fast Low VRAM music-video path.',
-      },
-    ]),
     docsUrl: COMFY_REGISTRY_URL,
   }),
 })
