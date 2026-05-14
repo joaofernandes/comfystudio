@@ -5,1049 +5,454 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ComfyStudio - Music Video People Wizard Mockup</title>
   <style>
-    :root {
-      --bg-950: #090b10;
-      --bg-925: #0c0f15;
-      --bg-900: #10131a;
-      --bg-850: #151a23;
-      --bg-800: #1b2230;
-      --bg-750: #202738;
-      --border: #232b39;
-      --border-strong: #334055;
-      --text: #e8ebf2;
-      --text-muted: #a1a8b4;
-      --text-dim: #707887;
-      --accent: #7aa8ff;
-      --accent-strong: #5c8eff;
-      --accent-soft: rgba(122, 168, 255, 0.14);
-      --good: #5ee7a5;
-      --good-soft: rgba(94, 231, 165, 0.14);
-      --warn: #f6c84c;
-      --warn-soft: rgba(246, 200, 76, 0.14);
-      --pink: #f0abfc;
-      --pink-soft: rgba(240, 171, 252, 0.14);
-      --radius: 16px;
-      --shadow: 0 24px 80px rgba(0, 0, 0, 0.46);
-    }
-
-    * { box-sizing: border-box; }
-
-    html, body {
-      margin: 0;
-      min-height: 100%;
-      background:
-        radial-gradient(1000px 560px at 18% -10%, rgba(92, 142, 255, 0.20), transparent 62%),
-        radial-gradient(900px 520px at 92% 0%, rgba(240, 171, 252, 0.10), transparent 55%),
-        radial-gradient(800px 420px at 58% 115%, rgba(94, 231, 165, 0.10), transparent 50%),
-        var(--bg-950);
-      color: var(--text);
-      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Arial, sans-serif;
-      -webkit-font-smoothing: antialiased;
-    }
-
-    button, input, textarea, select { font: inherit; }
-    button { cursor: pointer; }
-
-    .app {
-      max-width: 1500px;
-      margin: 0 auto;
-      padding: 26px 26px 64px;
-    }
-
-    .topbar {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 18px;
-      margin-bottom: 18px;
-    }
-
-    .brand {
-      display: flex;
-      gap: 14px;
-      align-items: center;
-      min-width: 0;
-    }
-
-    .mark {
-      width: 38px;
-      height: 38px;
-      border-radius: 12px;
-      display: grid;
-      place-items: center;
-      color: var(--accent);
-      background: var(--accent-soft);
-      border: 1px solid rgba(122, 168, 255, 0.30);
-      font-weight: 800;
-      flex: none;
-    }
-
-    .brand h1 {
-      margin: 0;
-      font-size: 20px;
-      letter-spacing: -0.03em;
-    }
-
-    .brand p {
-      margin: 3px 0 0;
-      color: var(--text-muted);
-      font-size: 12px;
-    }
-
-    .meta {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-      gap: 8px;
-      color: var(--text-muted);
-      font-size: 12px;
-    }
-
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      background: rgba(16, 19, 26, 0.72);
-      white-space: nowrap;
-    }
-
-    .pill strong { color: var(--text); font-weight: 600; }
-
-    .shell {
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
-        rgba(11, 13, 18, 0.82);
-      box-shadow: var(--shadow);
-      overflow: hidden;
-    }
-
-    .hero {
-      display: grid;
-      grid-template-columns: 1.1fr 0.9fr;
-      gap: 18px;
-      padding: 18px;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .hero-card {
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      overflow: hidden;
-      background: var(--bg-900);
-    }
-
-    .hero-media {
-      position: relative;
-      min-height: 280px;
-      background:
-        linear-gradient(135deg, rgba(0,0,0,0.05), rgba(0,0,0,0.22)),
-        var(--bg-800);
-      overflow: hidden;
-    }
-
-    .hero-media img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-      filter: saturate(1.05) contrast(1.02);
-    }
-
-    .hero-media::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background:
-        linear-gradient(180deg, rgba(8, 10, 14, 0.15), rgba(8, 10, 14, 0.82)),
-        linear-gradient(120deg, rgba(122, 168, 255, 0.12), transparent 45%);
-      pointer-events: none;
-    }
-
-    .hero-copy {
-      position: absolute;
-      inset: auto 0 0 0;
-      padding: 18px;
-      z-index: 1;
-    }
-
-    .hero-copy .eyebrow {
-      color: var(--accent);
-      text-transform: uppercase;
-      letter-spacing: 0.18em;
-      font-size: 11px;
-      font-weight: 700;
-    }
-
-    .hero-copy h2 {
-      margin: 8px 0 0;
-      font-size: 29px;
-      line-height: 1.06;
-      letter-spacing: -0.04em;
-      max-width: 12ch;
-    }
-
-    .hero-copy p {
-      margin: 10px 0 0;
-      max-width: 58ch;
-      color: rgba(232, 235, 242, 0.86);
-      font-size: 13px;
-    }
-
-    .hero-side {
-      display: grid;
-      gap: 14px;
-    }
-
-    .panel {
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      background: var(--bg-900);
-      overflow: hidden;
-    }
-
-    .panel-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 14px 16px;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .panel-head h3 {
-      margin: 0;
-      font-size: 13px;
-      letter-spacing: 0.01em;
-    }
-
-    .panel-head .sub {
-      color: var(--text-muted);
-      font-size: 12px;
-    }
-
-    .steps {
-      display: grid;
-      gap: 10px;
-      padding: 14px 16px 16px;
-    }
-
-    .step {
-      display: flex;
-      gap: 12px;
-      align-items: flex-start;
-      padding: 12px;
-      border-radius: 14px;
-      border: 1px solid var(--border);
-      background: var(--bg-850);
-    }
-
-    .step.active {
-      border-color: rgba(122, 168, 255, 0.38);
-      background: linear-gradient(180deg, rgba(122, 168, 255, 0.12), rgba(122, 168, 255, 0.02));
-      box-shadow: 0 0 0 1px rgba(122, 168, 255, 0.12) inset;
-    }
-
-    .step .num {
-      width: 30px;
-      height: 30px;
-      border-radius: 10px;
-      flex: none;
-      display: grid;
-      place-items: center;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      font-weight: 700;
-      font-size: 12px;
-    }
-
-    .step.active .num {
-      color: white;
-      border-color: rgba(122, 168, 255, 0.34);
-      background: var(--accent);
-    }
-
-    .step .body { min-width: 0; }
-    .step .title { font-weight: 700; font-size: 13px; }
-    .step .desc { margin-top: 3px; font-size: 12px; color: var(--text-muted); }
-
-    .main {
-      display: grid;
-      grid-template-columns: 360px minmax(0, 1fr) 380px;
-      gap: 18px;
-      padding: 18px;
-    }
-
-    .column {
-      display: grid;
-      gap: 16px;
-      align-content: start;
-    }
-
-    .section-title {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      margin-bottom: 12px;
-    }
-
-    .section-title h3 {
-      margin: 0;
-      font-size: 13px;
-      letter-spacing: 0.02em;
-    }
-
-    .section-title span {
-      color: var(--text-muted);
-      font-size: 12px;
-    }
-
-    .card {
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      background: rgba(16, 19, 26, 0.92);
-      overflow: hidden;
-    }
-
-    .card .head {
-      padding: 14px 16px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: center;
-    }
-
-    .card .head .title {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      min-width: 0;
-    }
-
-    .icon {
-      width: 28px;
-      height: 28px;
-      border-radius: 10px;
-      display: grid;
-      place-items: center;
-      color: var(--accent);
-      background: var(--accent-soft);
-      border: 1px solid rgba(122, 168, 255, 0.24);
-      font-size: 14px;
-      font-weight: 700;
-    }
-
-    .card .head h4 {
-      margin: 0;
-      font-size: 13px;
-    }
-
-    .card .head p {
-      margin: 2px 0 0;
-      font-size: 12px;
-      color: var(--text-muted);
-    }
-
-    .card .body {
-      padding: 16px;
-    }
-
-    .prompt {
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      background: var(--bg-925);
-      padding: 13px;
-      color: var(--text-muted);
-      font-size: 12px;
-      line-height: 1.55;
-    }
-
-    .prompt strong {
-      color: var(--text);
-      font-weight: 600;
-    }
-
-    .cast-list {
-      display: grid;
-      gap: 10px;
-    }
-
-    .cast-item {
-      display: grid;
-      grid-template-columns: 66px minmax(0, 1fr) auto;
-      gap: 12px;
-      align-items: center;
-      padding: 10px;
-      border-radius: 14px;
-      border: 1px solid var(--border);
-      background: var(--bg-850);
-    }
-
-    .avatar {
-      position: relative;
-      width: 66px;
-      height: 66px;
-      border-radius: 14px;
-      overflow: hidden;
-      background: var(--bg-800);
-      border: 1px solid rgba(255,255,255,0.04);
-    }
-
-    .avatar img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-
-    .avatar.badge::after {
-      content: attr(data-role);
-      position: absolute;
-      left: 6px;
-      bottom: 6px;
-      padding: 2px 6px;
-      border-radius: 999px;
-      background: rgba(0, 0, 0, 0.55);
-      color: white;
-      font-size: 10px;
-      font-weight: 700;
-      backdrop-filter: blur(4px);
-    }
-
-    .cast-meta {
-      min-width: 0;
-    }
-
-    .cast-name {
-      font-weight: 700;
-      font-size: 13px;
-      line-height: 1.2;
-    }
-
-    .cast-slug {
-      margin-top: 3px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 11px;
-      color: var(--text-muted);
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.02);
-      color: var(--text-muted);
-      padding: 4px 8px;
-      font-size: 11px;
-      white-space: nowrap;
-    }
-
-    .badge.good {
-      color: #bff9d9;
-      border-color: rgba(94, 231, 165, 0.28);
-      background: var(--good-soft);
-    }
-
-    .badge.warn {
-      color: #fff0bf;
-      border-color: rgba(246, 200, 76, 0.28);
-      background: var(--warn-soft);
-    }
-
-    .badge.pink {
-      color: #fed7ff;
-      border-color: rgba(240, 171, 252, 0.26);
-      background: var(--pink-soft);
-    }
-
-    .field-grid {
-      display: grid;
-      gap: 10px;
-    }
-
-    .field {
-      display: grid;
-      gap: 6px;
-    }
-
-    .label {
-      color: var(--text-muted);
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-    }
-
-    .input, .select, .textarea {
-      width: 100%;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      background: var(--bg-925);
-      color: var(--text);
-      padding: 11px 12px;
-      outline: none;
-    }
-
-    .textarea {
-      min-height: 120px;
-      resize: vertical;
-      line-height: 1.5;
-    }
-
-    .input::placeholder, .textarea::placeholder {
-      color: #667085;
-    }
-
-    .mini-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-    }
-
-    .image-chip {
-      position: relative;
-      min-height: 132px;
-      border-radius: 16px;
-      overflow: hidden;
-      border: 1px solid var(--border);
-      background: var(--bg-850);
-    }
-
-    .image-chip img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-
-    .image-chip .label {
-      position: absolute;
-      left: 10px;
-      bottom: 10px;
-      padding: 4px 8px;
-      border-radius: 999px;
-      background: rgba(0,0,0,0.52);
-      color: #fff;
-      font-size: 10px;
-      letter-spacing: 0.12em;
-      backdrop-filter: blur(4px);
-    }
-
-    .route-grid {
-      display: grid;
-      gap: 10px;
-    }
-
-    .route-card {
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      overflow: hidden;
-      background: var(--bg-850);
-    }
-
-    .route-card .thumb {
-      position: relative;
-      min-height: 116px;
-      background: var(--bg-800);
-      overflow: hidden;
-    }
-
-    .route-card .thumb img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-
-    .route-card .thumb::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(180deg, rgba(0,0,0,0.10), rgba(0,0,0,0.56));
-    }
-
-    .route-card .content {
-      padding: 12px;
-    }
-
-    .route-card .content .top {
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
-      align-items: flex-start;
-    }
-
-    .route-card .content h5 {
-      margin: 0;
-      font-size: 13px;
-    }
-
-    .route-card .content p {
-      margin: 5px 0 0;
-      font-size: 12px;
-      color: var(--text-muted);
-      line-height: 1.5;
-    }
-
-    .plan {
-      display: grid;
-      gap: 10px;
-    }
-
-    .plan-item {
-      display: flex;
-      gap: 10px;
-      align-items: flex-start;
-      padding: 10px 12px;
-      border-radius: 14px;
-      border: 1px solid var(--border);
-      background: var(--bg-850);
-    }
-
-    .plan-item .dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 999px;
-      margin-top: 4px;
-      background: var(--accent);
-      box-shadow: 0 0 14px rgba(122, 168, 255, 0.6);
-      flex: none;
-    }
-
-    .plan-item .text {
-      min-width: 0;
-    }
-
-    .plan-item strong {
-      display: block;
-      font-size: 12px;
-      margin-bottom: 2px;
-    }
-
-    .plan-item span {
-      font-size: 11px;
-      color: var(--text-muted);
-      line-height: 1.45;
-    }
-
-    .footer-note {
-      padding: 0 18px 18px;
-      color: var(--text-dim);
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.16em;
-    }
-
-    @media (max-width: 1280px) {
-      .hero, .main {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    @media (max-width: 900px) {
-      .app { padding: 18px 14px 40px; }
-      .topbar { flex-direction: column; align-items: flex-start; }
-      .meta { justify-content: flex-start; }
-      .cast-item { grid-template-columns: 54px minmax(0, 1fr); }
-      .cast-item .badge { grid-column: 1 / -1; justify-self: start; }
-      .mini-grid { grid-template-columns: 1fr; }
-    }
+    :root{
+      --bg-950:#0b0d11;
+      --bg-900:#11141a;
+      --bg-850:#161a22;
+      --bg-800:#1b2230;
+      --bg-750:#202637;
+      --border:#262c38;
+      --border-strong:#313847;
+      --text:#e7eaf0;
+      --text-muted:#9aa1ad;
+      --text-dim:#6c7280;
+      --accent:#6aa6ff;
+      --accent-strong:#4f8cff;
+      --accent-soft:rgba(106,166,255,.14);
+      --good:#4ade80;
+      --good-soft:rgba(74,222,128,.12);
+      --warn:#fbbf24;
+      --warn-soft:rgba(251,191,36,.13);
+      --pink:#f0abfc;
+      --pink-soft:rgba(240,171,252,.12);
+      --shadow:0 18px 52px rgba(0,0,0,.38);
+      --radius:16px;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;min-height:100%;background:radial-gradient(1200px 700px at 20% -10%,#1a2030 0%,var(--bg-950) 58%);color:var(--text);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+    button,input,textarea,select{font:inherit}
+    .app{max-width:1480px;margin:0 auto;padding:18px 18px 42px}
+    .titlebar{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:14px}
+    .brand{display:flex;align-items:center;gap:12px;min-width:0}
+    .mark{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:var(--accent-soft);border:1px solid rgba(106,166,255,.26);color:var(--accent);font-weight:800}
+    .brand h1{margin:0;font-size:18px;letter-spacing:-.03em}
+    .brand .crumb{margin-top:3px;color:var(--text-muted);font-size:12px}
+    .top-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+    .pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid var(--border);background:rgba(16,19,26,.72);color:var(--text-muted);white-space:nowrap}
+    .pill strong{color:var(--text)}
+    .shell{border:1px solid var(--border);border-radius:20px;background:rgba(13,16,22,.88);box-shadow:var(--shadow);overflow:hidden}
+    .toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,0))}
+    .tabs{display:inline-flex;padding:4px;gap:4px;border:1px solid var(--border);border-radius:12px;background:var(--bg-900)}
+    .tab{border:0;border-radius:8px;padding:7px 13px;background:transparent;color:var(--text-muted);font-size:12px}
+    .tab.active{background:var(--accent-strong);color:#fff}
+    .toolbar-right{display:flex;align-items:center;gap:8px;color:var(--text-muted);font-size:12px}
+    .search{width:min(380px,32vw);min-width:240px;border:1px solid var(--border);border-radius:10px;background:var(--bg-850);color:var(--text);padding:9px 12px;outline:none}
+    .workspace{display:grid;grid-template-columns:260px minmax(0,1fr) 360px;min-height:calc(100vh - 120px)}
+    .sidebar,.inspector{background:rgba(15,18,24,.76)}
+    .sidebar{border-right:1px solid var(--border)}
+    .inspector{border-left:1px solid var(--border)}
+    .panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)}
+    .panel-head h3{margin:0;font-size:13px;letter-spacing:.02em}
+    .panel-head p{margin:3px 0 0;color:var(--text-muted);font-size:12px}
+    .sidebar-list{padding:12px 12px 16px;display:grid;gap:10px}
+    .sidebar-step{display:flex;gap:12px;align-items:flex-start;padding:12px;border:1px solid var(--border);border-radius:14px;background:var(--bg-850)}
+    .sidebar-step.active{border-color:rgba(106,166,255,.38);background:linear-gradient(180deg,rgba(106,166,255,.12),rgba(106,166,255,.02));box-shadow:0 0 0 1px rgba(106,166,255,.10) inset}
+    .step-num{width:28px;height:28px;border-radius:10px;display:grid;place-items:center;background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--text-muted);font-weight:700;font-size:12px;flex:none}
+    .sidebar-step.active .step-num{background:var(--accent);border-color:rgba(106,166,255,.4);color:#fff}
+    .step-title{font-weight:700;font-size:13px}
+    .step-desc{margin-top:3px;color:var(--text-muted);font-size:12px}
+    .sidebar-note{margin:0 12px 12px;padding:12px;border:1px solid var(--border);border-radius:14px;background:var(--bg-900);font-size:12px;color:var(--text-muted);line-height:1.5}
+    .sidebar-note strong{color:var(--text)}
+    .content{padding:16px;display:grid;gap:16px;align-content:start}
+    .hero{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr);gap:16px}
+    .hero-card,.card{border:1px solid var(--border);border-radius:18px;background:var(--bg-900);overflow:hidden}
+    .hero-media{position:relative;min-height:250px;overflow:hidden;background:var(--bg-800)}
+    .hero-media img,.cover img,.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+    .hero-media::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(6,8,10,.12),rgba(6,8,10,.78)),linear-gradient(110deg,rgba(106,166,255,.10),transparent 42%)}
+    .hero-copy{position:absolute;left:0;right:0;bottom:0;padding:18px;z-index:1}
+    .eyebrow{color:var(--accent);text-transform:uppercase;letter-spacing:.18em;font-size:11px;font-weight:700}
+    .hero-copy h2{margin:8px 0 0;font-size:27px;line-height:1.04;letter-spacing:-.04em;max-width:13ch}
+    .hero-copy p{margin:10px 0 0;max-width:58ch;color:rgba(231,234,240,.88);font-size:13px}
+    .copy-box{padding:14px 16px}
+    .copy-box .prompt{border:1px solid var(--border);border-radius:14px;background:var(--bg-850);padding:12px 13px;color:var(--text-muted);font-size:12px;line-height:1.55}
+    .copy-box .prompt strong{color:var(--text)}
+    .grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+    .card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)}
+    .card-head .title{display:flex;align-items:center;gap:10px;min-width:0}
+    .icon{width:28px;height:28px;border-radius:10px;display:grid;place-items:center;background:var(--accent-soft);border:1px solid rgba(106,166,255,.22);color:var(--accent);font-weight:700;font-size:13px;flex:none}
+    .card-head h4{margin:0;font-size:13px}
+    .card-head p{margin:2px 0 0;color:var(--text-muted);font-size:12px}
+    .body{padding:16px}
+    .badge{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:999px;padding:4px 9px;background:rgba(255,255,255,.02);color:var(--text-muted);font-size:11px;white-space:nowrap}
+    .badge.good{color:#bff9d9;border-color:rgba(74,222,128,.24);background:var(--good-soft)}
+    .badge.warn{color:#fff0bf;border-color:rgba(251,191,36,.24);background:var(--warn-soft)}
+    .badge.pink{color:#fed7ff;border-color:rgba(240,171,252,.24);background:var(--pink-soft)}
+    .cast-list{display:grid;gap:10px}
+    .cast-item{display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px;border-radius:14px;border:1px solid var(--border);background:var(--bg-850)}
+    .avatar{width:64px;height:64px;border-radius:14px;overflow:hidden;position:relative;background:var(--bg-800);border:1px solid rgba(255,255,255,.04)}
+    .avatar::after{content:attr(data-role);position:absolute;left:6px;bottom:6px;padding:2px 6px;border-radius:999px;background:rgba(0,0,0,.54);color:#fff;font-size:10px;font-weight:700}
+    .cast-meta{min-width:0}
+    .cast-name{font-size:13px;font-weight:700;line-height:1.2}
+    .cast-slug{margin-top:3px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:11px;color:var(--text-muted)}
+    .fields{display:grid;gap:10px}
+    .field{display:grid;gap:6px}
+    .label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted)}
+    .input,.select,.textarea{width:100%;border:1px solid var(--border);border-radius:12px;background:var(--bg-850);color:var(--text);padding:11px 12px;outline:none}
+    .textarea{min-height:110px;resize:vertical;line-height:1.5}
+    .role-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    .mini-note{margin-top:10px;padding:12px;border-radius:14px;border:1px solid var(--border);background:var(--bg-850);color:var(--text-muted);font-size:12px;line-height:1.5}
+    .mini-note strong{color:var(--text)}
+    .script-block{white-space:pre-wrap;border:1px solid var(--border);border-radius:14px;background:var(--bg-850);padding:12px 13px;color:var(--text-muted);font-size:12px;line-height:1.55}
+    .route-grid{display:grid;gap:10px}
+    .route-card{border:1px solid var(--border);border-radius:16px;overflow:hidden;background:var(--bg-850)}
+    .thumb{position:relative;min-height:110px;background:var(--bg-800);overflow:hidden}
+    .thumb::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.10),rgba(0,0,0,.54))}
+    .route-card .content{padding:11px 12px}
+    .route-card h5{margin:0;font-size:13px}
+    .route-card p{margin:5px 0 0;color:var(--text-muted);font-size:12px;line-height:1.5}
+    .plan{display:grid;gap:10px}
+    .plan-item{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:14px;border:1px solid var(--border);background:var(--bg-850)}
+    .plan-dot{width:10px;height:10px;border-radius:999px;background:var(--accent);box-shadow:0 0 14px rgba(106,166,255,.55);margin-top:4px;flex:none}
+    .plan-item strong{display:block;font-size:12px;margin-bottom:2px}
+    .plan-item span{font-size:11px;color:var(--text-muted);line-height:1.45}
+    .footer-note{padding:0 16px 16px;color:var(--text-dim);font-size:11px;text-transform:uppercase;letter-spacing:.16em}
+    @media (max-width: 1320px){.workspace{grid-template-columns:240px minmax(0,1fr)} .inspector{grid-column:1 / -1;border-left:0;border-top:1px solid var(--border)}}
+    @media (max-width: 980px){.hero,.grid-2,.workspace{grid-template-columns:1fr}.sidebar{border-right:0;border-bottom:1px solid var(--border)}.toolbar{flex-direction:column;align-items:stretch}.search{width:100%}.cast-item{grid-template-columns:54px minmax(0,1fr)}.cast-item .badge{grid-column:1 / -1;justify-self:start}.role-grid{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
   <div class="app">
-    <div class="topbar">
+    <div class="titlebar">
       <div class="brand">
         <div class="mark">CS</div>
         <div>
           <h1>Music Video People Wizard</h1>
-          <p>Proof-of-concept mock for the People step, built from the current music-video copy and workflow assets.</p>
+          <div class="crumb">Generate · Music Video · Step 2 / People</div>
         </div>
       </div>
-      <div class="meta">
-        <div class="pill"><strong>Step</strong> People / 2</div>
-        <div class="pill"><strong>Mode</strong> Wizard mock</div>
-        <div class="pill"><strong>Source</strong> existing app content</div>
+      <div class="top-actions">
+        <div class="pill"><strong>Step</strong> People</div>
+        <div class="pill"><strong>Status</strong> Proof of concept</div>
+        <div class="pill"><strong>Source</strong> Existing app content</div>
       </div>
     </div>
 
     <div class="shell">
-      <section class="hero">
-        <div class="hero-card">
-          <div class="hero-media">
-            <img src="../public/workflows/setup-covers/create-music-video.jpg" alt="Create music video cover" />
-            <div class="hero-copy">
-              <div class="eyebrow">Director Mode / People</div>
-              <h2>Define who appears on camera.</h2>
-              <p>Add reference images for artists, band members, or performers so the script can route shots by Artist fields. The goal is to make the People step feel like a guided wizard, not just a form.</p>
-            </div>
-          </div>
+      <div class="toolbar">
+        <div class="tabs">
+          <button class="tab">Audio</button>
+          <button class="tab active">People</button>
+          <button class="tab">Script</button>
+          <button class="tab">Keyframes</button>
         </div>
+        <div class="toolbar-right">
+          <input class="search" value="Music video wizard mockup" />
+          <div class="pill">Cast-aware</div>
+        </div>
+      </div>
 
-        <div class="hero-side">
-          <div class="panel">
-            <div class="panel-head">
+      <div class="workspace">
+        <aside class="sidebar">
+          <div class="panel-head">
+            <div>
+              <h3>Wizard flow</h3>
+              <p>Same content, guided step-by-step</p>
+            </div>
+            <span class="badge pink">Mock</span>
+          </div>
+          <div class="sidebar-list">
+            <div class="sidebar-step">
+              <div class="step-num">1</div>
               <div>
-                <h3>Wizard path</h3>
-                <div class="sub">A guided flow for cast setup</div>
-              </div>
-              <span class="badge pink">PoC</span>
-            </div>
-            <div class="steps">
-              <div class="step">
-                <div class="num">1</div>
-                <div class="body">
-                  <div class="title">Audio & timing</div>
-                  <div class="desc">Import the song, transcribe the lyrics, and line up the beats.</div>
-                </div>
-              </div>
-              <div class="step active">
-                <div class="num">2</div>
-                <div class="body">
-                  <div class="title">People</div>
-                  <div class="desc">Add cast references, choose roles, and decide how the script should refer to them.</div>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">3</div>
-                <div class="body">
-                  <div class="title">Script</div>
-                  <div class="desc">Copy the LLM brief with timing, cast slugs, and format rules.</div>
-                </div>
-              </div>
-              <div class="step">
-                <div class="num">4</div>
-                <div class="body">
-                  <div class="title">Keyframes</div>
-                  <div class="desc">Use the resolved cast to generate shot images and route them downstream.</div>
-                </div>
+                <div class="step-title">Audio and timing</div>
+                <div class="step-desc">Import song, transcribe lyrics, establish beat timing.</div>
               </div>
             </div>
-          </div>
-          <div class="panel">
-            <div class="panel-head">
+            <div class="sidebar-step active">
+              <div class="step-num">2</div>
               <div>
-                <h3>Existing copy cues</h3>
-                <div class="sub">Pulled from the current People step</div>
+                <div class="step-title">People</div>
+                <div class="step-desc">Add reference images for artists, band members, or performers.</div>
               </div>
             </div>
-            <div class="body">
-              <div class="prompt">
-                <strong>“Add reference images for artists, band members, or performers so the script can route shots by Artist fields.”</strong><br />
-                “Add at least one person if the video has lip-sync performance shots.”<br />
-                “Qwen Image Edit needs a cast/reference image.”
+            <div class="sidebar-step">
+              <div class="step-num">3</div>
+              <div>
+                <div class="step-title">Script</div>
+                <div class="step-desc">Copy the LLM brief with timing, cast slugs, and format rules.</div>
               </div>
             </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="main">
-        <div class="column">
-          <div class="card">
-            <div class="head">
-              <div class="title">
-                <div class="icon">👤</div>
-                <div>
-                  <h4>Cast references</h4>
-                  <p>Resolved people, script slugs, and roles</p>
-                </div>
-              </div>
-              <span class="badge good">3 resolved people</span>
-            </div>
-            <div class="body">
-              <div class="cast-list">
-                <div class="cast-item">
-                  <div class="avatar badge" data-role="Lead">
-                    <img src="../public/workflows/setup-covers/ltx23-i2v.webp" alt="Reference portrait for Ava" />
-                  </div>
-                  <div class="cast-meta">
-                    <div class="cast-name">Ava</div>
-                    <div class="cast-slug">ava · asset / cast slug</div>
-                  </div>
-                  <span class="badge pink">Lead vocal</span>
-                </div>
-                <div class="cast-item">
-                  <div class="avatar badge" data-role="Back">
-                    <img src="../public/workflows/setup-covers/happyhorse-image-video.webp" alt="Reference portrait for Noah" />
-                  </div>
-                  <div class="cast-meta">
-                    <div class="cast-name">Noah</div>
-                    <div class="cast-slug">noah · route by Artist fields</div>
-                  </div>
-                  <span class="badge good">Backing vocal</span>
-                </div>
-                <div class="cast-item">
-                  <div class="avatar badge" data-role="Band">
-                    <img src="../public/workflows/setup-covers/multi-angles.webp" alt="Reference portrait for Mina" />
-                  </div>
-                  <div class="cast-meta">
-                    <div class="cast-name">Mina</div>
-                    <div class="cast-slug">mina · reference image selected</div>
-                  </div>
-                  <span class="badge warn">Instrumentalist</span>
-                </div>
+            <div class="sidebar-step">
+              <div class="step-num">4</div>
+              <div>
+                <div class="step-title">Keyframes</div>
+                <div class="step-desc">Use the resolved cast to generate shot images downstream.</div>
               </div>
             </div>
           </div>
-
-          <div class="card">
-            <div class="head">
-              <div class="title">
-                <div class="icon">↳</div>
-                <div>
-                  <h4>How the script would read this</h4>
-                  <p>Cast-aware brief copy, built from existing step language</p>
-                </div>
-              </div>
-            </div>
-            <div class="body">
-              <div class="prompt">
-                <strong>Script Slugs:</strong> ava, noah, mina<br />
-                <strong>Roles:</strong> lead vocal, backing vocal, instrumentalist<br />
-                <strong>Routing:</strong> if a line says “Artist: ava”, shots should target the Ava reference; if it says “both” or “band”, expand to the whole cast.
-              </div>
-            </div>
+          <div class="sidebar-note">
+            <strong>Current app copy:</strong> “Add reference images for artists, band members, or performers so the script can route shots by Artist fields.”
           </div>
+        </aside>
 
-          <div class="card">
-            <div class="head">
-              <div class="title">
-                <div class="icon">✎</div>
-                <div>
-                  <h4>Wizard inputs</h4>
-                  <p>Simple, guided fields instead of a raw form</p>
+        <main class="content">
+          <section class="hero">
+            <div class="hero-card">
+              <div class="hero-media">
+                <img src="../public/workflows/setup-covers/create-music-video.jpg" alt="Create music video cover" />
+                <div class="hero-copy">
+                  <div class="eyebrow">Director Mode / People</div>
+                  <h2>Define who appears on camera.</h2>
+                  <p>A guided wizard for cast setup using the current music-video People step language. This lets the owner evaluate the concept without needing the full implementation.</p>
                 </div>
               </div>
             </div>
-            <div class="body">
-              <div class="field-grid">
-                <div class="field">
-                  <div class="label">Person name</div>
-                  <input class="input" value="Ava" />
-                </div>
-                <div class="field">
-                  <div class="label">Script slug</div>
-                  <input class="input" value="ava" />
-                </div>
-                <div class="field">
-                  <div class="label">Reference image</div>
-                  <select class="select">
-                    <option>ltx23-i2v.webp</option>
-                    <option>happyhorse-image-video.webp</option>
-                    <option>multi-angles.webp</option>
-                  </select>
-                </div>
-                <div class="field">
-                  <div class="label">Role</div>
-                  <select class="select">
-                    <option>Lead vocal</option>
-                    <option>Co-lead vocal</option>
-                    <option>Backing vocal</option>
-                    <option>Instrumentalist</option>
-                    <option>Never sings</option>
-                    <option>Other</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="column">
-          <div class="card">
-            <div class="head">
-              <div class="title">
-                <div class="icon">🧭</div>
-                <div>
-                  <h4>People wizard preview</h4>
-                  <p>What the owner would see inside the flow</p>
-                </div>
-              </div>
-              <span class="badge">Existing content</span>
-            </div>
-            <div class="body">
-              <div class="mini-grid">
-                <div class="image-chip">
-                  <img src="../public/workflows/setup-covers/create-music-video.jpg" alt="Music video setup cover" />
-                  <div class="label">Setup</div>
-                </div>
-                <div class="image-chip">
-                  <img src="../public/workflows/setup-covers/music-gen.webp" alt="Music generation cover" />
-                  <div class="label">Audio</div>
-                </div>
-                <div class="image-chip">
-                  <img src="../public/workflows/setup-covers/image-edit.webp" alt="Image edit cover" />
-                  <div class="label">Reference edit</div>
-                </div>
-                <div class="image-chip">
-                  <img src="../public/workflows/setup-covers/multi-angles-scene.webp" alt="Multi angles scene cover" />
-                  <div class="label">Shot coverage</div>
-                </div>
-              </div>
-              <div style="margin-top: 14px" class="prompt">
-                <strong>Goal:</strong> use the current music-video content to help the user add people, choose the right reference image, and generate a cast-aware script without leaving the flow.
-              </div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="head">
-              <div class="title">
-                <div class="icon">🎬</div>
-                <div>
-                  <h4>How shots could route</h4>
-                  <p>Inline proof that the wizard would drive later steps</p>
-                </div>
-              </div>
-            </div>
-            <div class="body">
-              <div class="route-grid">
-                <div class="route-card">
-                  <div class="thumb">
-                    <img src="../public/workflows/setup-covers/ltx23-i2v.webp" alt="Performance route preview" />
+            <div class="card">
+              <div class="card-head">
+                <div class="title">
+                  <div class="icon">📌</div>
+                  <div>
+                    <h4>Why this matters</h4>
+                    <p>People first, then script, then keyframes</p>
                   </div>
-                  <div class="content">
-                    <div class="top">
+                </div>
+              </div>
+              <div class="body">
+                <div class="plan">
+                  <div class="plan-item"><div class="plan-dot"></div><div><strong>Cast references</strong><span>Add people with a reference image and a script slug so later steps can reuse the same identity.</span></div></div>
+                  <div class="plan-item"><div class="plan-dot"></div><div><strong>Dependency awareness</strong><span>Warn early if the chosen keyframe model needs a cast/reference image.</span></div></div>
+                  <div class="plan-item"><div class="plan-dot"></div><div><strong>Script routing</strong><span>Route shots by Artist fields directly from the resolved cast list.</span></div></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="grid-2">
+            <div class="card">
+              <div class="card-head">
+                <div class="title">
+                  <div class="icon">👤</div>
+                  <div>
+                    <h4>Cast references</h4>
+                    <p>Resolved people, slugs, and roles</p>
+                  </div>
+                </div>
+                <span class="badge good">3 resolved people</span>
+              </div>
+              <div class="body">
+                <div class="cast-list">
+                  <div class="cast-item">
+                    <div class="avatar" data-role="Lead"><img src="../public/workflows/setup-covers/ltx23-i2v.webp" alt="Ava reference" /></div>
+                    <div class="cast-meta">
+                      <div class="cast-name">Ava</div>
+                      <div class="cast-slug">ava · script slug / Artist field</div>
+                    </div>
+                    <span class="badge pink">Lead vocal</span>
+                  </div>
+                  <div class="cast-item">
+                    <div class="avatar" data-role="Back"><img src="../public/workflows/setup-covers/happyhorse-image-video.webp" alt="Noah reference" /></div>
+                    <div class="cast-meta">
+                      <div class="cast-name">Noah</div>
+                      <div class="cast-slug">noah · routing by cast slug</div>
+                    </div>
+                    <span class="badge good">Backing vocal</span>
+                  </div>
+                  <div class="cast-item">
+                    <div class="avatar" data-role="Band"><img src="../public/workflows/setup-covers/multi-angles.webp" alt="Mina reference" /></div>
+                    <div class="cast-meta">
+                      <div class="cast-name">Mina</div>
+                      <div class="cast-slug">mina · reference image selected</div>
+                    </div>
+                    <span class="badge warn">Instrumentalist</span>
+                  </div>
+                </div>
+                <div class="mini-note">
+                  Add at least one person if the video has lip-sync performance shots.
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-head">
+                <div class="title">
+                  <div class="icon">✎</div>
+                  <div>
+                    <h4>Wizard inputs</h4>
+                    <p>Guided fields instead of a raw form</p>
+                  </div>
+                </div>
+              </div>
+              <div class="body">
+                <div class="fields">
+                  <div class="field">
+                    <div class="label">Person name</div>
+                    <input class="input" value="Ava" />
+                  </div>
+                  <div class="field">
+                    <div class="label">Script slug</div>
+                    <input class="input" value="ava" />
+                  </div>
+                  <div class="field">
+                    <div class="label">Reference image</div>
+                    <select class="select">
+                      <option>ltx23-i2v.webp</option>
+                      <option>happyhorse-image-video.webp</option>
+                      <option>multi-angles.webp</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <div class="label">Role</div>
+                    <select class="select">
+                      <option>Lead vocal</option>
+                      <option>Co-lead vocal</option>
+                      <option>Backing vocal</option>
+                      <option>Instrumentalist</option>
+                      <option>Never sings</option>
+                      <option>Other</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="mini-note">
+                  This mirrors the existing People step behavior: add a person, pick a reference, choose a role, and let the script use the same cast data later.
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="grid-2">
+            <div class="card">
+              <div class="card-head">
+                <div class="title">
+                  <div class="icon">↳</div>
+                  <div>
+                    <h4>Current step copy</h4>
+                    <p>Lifted from the existing People step</p>
+                  </div>
+                </div>
+              </div>
+              <div class="copy-box">
+                <div class="prompt">
+                  <strong>Define who appears on camera.</strong><br />
+                  Add reference images for artists, band members, or performers so the script can route shots by Artist fields.<br /><br />
+                  Cast References · resolved people · Add Person · Reference · Script Slug · Role<br /><br />
+                  Qwen Image Edit needs a cast/reference image. Add a person in the People step, or switch to Nano Banana 2 for reference-free keyframes.
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-head">
+                <div class="title">
+                  <div class="icon">📋</div>
+                  <div>
+                    <h4>Brief preview</h4>
+                    <p>How the wizard feeds the script step</p>
+                  </div>
+                </div>
+                <span class="badge">Ready to copy</span>
+              </div>
+              <div class="body">
+                <div class="script-block">Script Slugs: ava, noah, mina
+Roles: lead vocal, backing vocal, instrumentalist
+Routing: if a line says “Artist: ava”, shots should target the Ava reference.
+Collective tags like “band” or “all” expand to the full cast roster.</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="grid-2">
+            <div class="card">
+              <div class="card-head">
+                <div class="title">
+                  <div class="icon">🎬</div>
+                  <div>
+                    <h4>Route preview</h4>
+                    <p>Existing setup covers used as proof of concept</p>
+                  </div>
+                </div>
+              </div>
+              <div class="body">
+                <div class="route-grid">
+                  <div class="route-card">
+                    <div class="thumb"><img src="../public/workflows/setup-covers/ltx23-i2v.webp" alt="Performance route preview" /></div>
+                    <div class="content">
                       <h5>Performance close-up</h5>
-                      <span class="badge pink">ava</span>
+                      <p>Artist: ava routes to the resolved cast reference.</p>
                     </div>
-                    <p>Route to the resolved cast reference when the script says Artist: ava.</p>
                   </div>
-                </div>
-                <div class="route-card">
-                  <div class="thumb">
-                    <img src="../public/workflows/setup-covers/ltx23-t2v.webp" alt="Band route preview" />
-                  </div>
-                  <div class="content">
-                    <div class="top">
-                      <h5>Band-wide chorus</h5>
-                      <span class="badge good">band</span>
+                  <div class="route-card">
+                    <div class="thumb"><img src="../public/workflows/setup-covers/ltx23-t2v.webp" alt="Band route preview" /></div>
+                    <div class="content">
+                      <h5>Band chorus</h5>
+                      <p>“band” and “all” expand to every person in the cast list.</p>
                     </div>
-                    <p>Collective tags like “all” or “band” expand to the full cast roster.</p>
                   </div>
-                </div>
-                <div class="route-card">
-                  <div class="thumb">
-                    <img src="../public/workflows/setup-covers/topaz-video-enhance.webp" alt="Reference cleanup preview" />
-                  </div>
-                  <div class="content">
-                    <div class="top">
+                  <div class="route-card">
+                    <div class="thumb"><img src="../public/workflows/setup-covers/topaz-video-enhance.webp" alt="Reference cleanup preview" /></div>
+                    <div class="content">
                       <h5>Reference cleanup</h5>
-                      <span class="badge warn">image edit</span>
+                      <p>Surface missing reference-image dependencies before keyframe generation.</p>
                     </div>
-                    <p>Qwen Image Edit needs a cast/reference image. The wizard can surface that dependency before keyframes.</p>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
 
-        <div class="column">
-          <div class="card">
-            <div class="head">
-              <div class="title">
-                <div class="icon">📋</div>
-                <div>
-                  <h4>Script brief preview</h4>
-                  <p>Copy-ready text that matches the current flow</p>
-                </div>
-              </div>
-              <span class="badge good">ready to copy</span>
-            </div>
-            <div class="body">
-              <div class="prompt" style="white-space: pre-wrap;">
-Shot 1: Highway flight
-Artist: ava
-Start: 00:00
-Keyframe prompt: moody close-up, neon rim light, wind in hair
-Motion prompt: push-in, slight head turn, soft sway
-
-Shot 2: Rooftop chorus
-Artist: band
-Start: 00:18
-Keyframe prompt: full cast on a rooftop at dusk
-Motion prompt: camera drift, synchronized performance beats
-
-Shot 3: Bridge moment
-Artist: noah
-Start: 00:42
-Keyframe prompt: intimate medium shot, handheld energy
-Motion prompt: slow rotation, expressive eye contact
-              </div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="head">
-              <div class="title">
-                <div class="icon">⚙</div>
-                <div>
-                  <h4>Why this is a wizard</h4>
-                  <p>It should guide, not just collect fields</p>
-                </div>
-              </div>
-            </div>
-            <div class="body">
-              <div class="plan">
-                <div class="plan-item">
-                  <div class="dot"></div>
-                  <div class="text">
-                    <strong>Start with people, not prompts</strong>
-                    <span>The user adds who matters first, so later script and keyframe steps can reuse the same cast data.</span>
-                  </div>
-                </div>
-                <div class="plan-item">
-                  <div class="dot"></div>
-                  <div class="text">
-                    <strong>Show missing dependencies early</strong>
-                    <span>If no reference image exists, the wizard can tell the user before they hit the keyframe step.</span>
-                  </div>
-                </div>
-                <div class="plan-item">
-                  <div class="dot"></div>
-                  <div class="text">
-                    <strong>Keep the existing content flow</strong>
-                    <span>The same cast names, slugs, and role options already used by the app can drive the mock.</span>
+            <div class="card">
+              <div class="card-head">
+                <div class="title">
+                  <div class="icon">⚙</div>
+                  <div>
+                    <h4>Prototype behavior</h4>
+                    <p>Small enough for owner review</p>
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="head">
-              <div class="title">
-                <div class="icon">⚡</div>
-                <div>
-                  <h4>Suggested prototype behavior</h4>
-                  <p>Small enough to evaluate quickly</p>
+              <div class="body">
+                <div class="plan">
+                  <div class="plan-item"><div class="plan-dot"></div><div><strong>People-first wizard</strong><span>The reviewable mock should start with cast setup, not a blank script box.</span></div></div>
+                  <div class="plan-item"><div class="plan-dot"></div><div><strong>Shared content</strong><span>Use the existing names, slugs, and helper copy already in the app.</span></div></div>
+                  <div class="plan-item"><div class="plan-dot"></div><div><strong>Follow-on steps</strong><span>Script and keyframe steps should pick up the exact same cast data.</span></div></div>
                 </div>
               </div>
             </div>
-            <div class="body">
-              <div class="prompt">
-                1. Add one or more people.<br />
-                2. Assign a reference image and role.<br />
-                3. Generate the cast-aware brief.<br />
-                4. Reuse the same cast in keyframe generation.<br />
-                5. Warn if the selected model needs a reference image.
+          </section>
+        </main>
+
+        <aside class="inspector">
+          <div class="panel-head">
+            <div>
+              <h3>Inspector</h3>
+              <p>What the People wizard exposes</p>
+            </div>
+            <span class="badge pink">PoC</span>
+          </div>
+          <div class="body">
+            <div class="route-grid" style="margin-bottom:16px">
+              <div class="route-card">
+                <div class="thumb"><img src="../public/workflows/setup-covers/create-music-video.jpg" alt="Inspector hero" /></div>
+                <div class="content">
+                  <h5>People step focus</h5>
+                  <p>Make the current step feel guided, cast-aware, and ready for script generation.</p>
+                </div>
               </div>
             </div>
+            <div class="mini-note" style="margin:0 0 14px">
+              <strong>Existing app language:</strong> “The brief includes song timing, cast slugs, and the required script format.”
+            </div>
+            <div class="plan">
+              <div class="plan-item"><div class="plan-dot"></div><div><strong>Add cast references</strong><span>Artist, band member, or performer references are the core of this step.</span></div></div>
+              <div class="plan-item"><div class="plan-dot"></div><div><strong>Generate brief</strong><span>Copy an LLM brief that already knows the cast names and timings.</span></div></div>
+              <div class="plan-item"><div class="plan-dot"></div><div><strong>Warn on missing images</strong><span>Surface the Qwen Image Edit dependency early, before keyframes.</span></div></div>
+            </div>
+            <div class="mini-note" style="margin-top:14px">
+              This is intentionally a mock only. It is meant to prove the interaction and visual language for the owner before full implementation.
+            </div>
           </div>
-        </div>
-      </section>
+        </aside>
+      </div>
 
-      <div class="footer-note">Mockup only · using existing Music Video step copy and bundled setup-cover images from the repo</div>
+      <div class="footer-note">Mockup only · built from existing People-step copy and bundled workflow cover images</div>
     </div>
   </div>
 </body>
