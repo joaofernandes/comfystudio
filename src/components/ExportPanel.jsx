@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Download, Plus, Trash2, Play, Settings, Film, Clock, RotateCcw, Sparkles } from 'lucide-react'
+import { Download, Plus, Trash2, Play, Settings, Film, Clock, RotateCcw, Sparkles, Square } from 'lucide-react'
 import useProjectStore, { RESOLUTION_PRESETS, FPS_PRESETS } from '../stores/projectStore'
 import useTimelineStore from '../stores/timelineStore'
 import useAssetsStore from '../stores/assetsStore'
@@ -331,6 +331,8 @@ function ExportPanel({ isActive = true }) {
   const exportStartRef = useRef(null)
   const renderStartRef = useRef(null)
   const activeExportRequestIdRef = useRef(null)
+  const activeExportAbortRef = useRef(null)
+  const exportCancelledRef = useRef(false)
   const [nvencStatus, setNvencStatus] = useState({
     checked: false,
     available: false,
@@ -428,6 +430,7 @@ function ExportPanel({ isActive = true }) {
     const onError = (err) => {
       if (!isCurrentExportEvent(err)) return
       activeExportRequestIdRef.current = null
+      activeExportAbortRef.current = null
       const rawError = err?.error ?? err
       const msg = typeof rawError === 'string' ? rawError : (rawError?.message ?? (rawError && typeof rawError === 'object' && rawError.constructor?.name === 'Event' ? `Export error (${rawError.type})` : String(rawError)))
       console.error('[ExportPanel] Worker export error', err, '-> displayed:', msg)
@@ -829,6 +832,9 @@ function ExportPanel({ isActive = true }) {
       }
     }
 
+    const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null
+    activeExportAbortRef.current = abortController
+    exportCancelledRef.current = false
     exportStartRef.current = null
     renderStartRef.current = null
     setEtaSeconds(null)
@@ -959,6 +965,7 @@ function ExportPanel({ isActive = true }) {
         videoCodec: 'h264',
         audioCodec: 'aac',
         outputPath: tempOutputPath,
+        signal: abortController?.signal || null,
       }, (progress) => {
         setExportStatus(`Source render • ${progress.status || ''}`.trim())
         if (typeof progress.progress === 'number') {
@@ -1022,6 +1029,7 @@ function ExportPanel({ isActive = true }) {
       }
     })
     
+    activeExportAbortRef.current = null
     if (!result) return null
     setExportResult(result)
     setExportStatus('Export complete')
@@ -1036,10 +1044,42 @@ function ExportPanel({ isActive = true }) {
     try {
       await runExportJob(settings)
     } catch (err) {
-      setExportError(err.message || 'Export failed')
-      setExportStatus('Export failed')
+      if (exportCancelledRef.current || err?.message === 'Export cancelled') {
+        setExportError(null)
+        setExportStatus('Export cancelled')
+      } else {
+        setExportError(err.message || 'Export failed')
+        setExportStatus('Export failed')
+      }
+      activeExportAbortRef.current = null
       setIsExporting(false)
     }
+  }
+
+
+  const handleStopExport = async () => {
+    if (!isExporting && !queueRunning) return
+    exportCancelledRef.current = true
+    queueControllerRef.current.paused = true
+    setQueuePauseRequested(false)
+    setQueuePaused(true)
+    setExportStatus('Cancelling export...')
+    try {
+      activeExportAbortRef.current?.abort?.()
+    } catch {
+      // ignore abort errors
+    }
+    try {
+      await window.electronAPI?.cancelExportWorker?.()
+    } catch {
+      // ignore worker cancel errors
+    }
+    activeExportRequestIdRef.current = null
+    activeExportAbortRef.current = null
+    setQueueRunning(false)
+    setIsExporting(false)
+    setExportError(null)
+    setExportStatus('Export cancelled')
   }
   
   return (
@@ -1569,18 +1609,24 @@ function ExportPanel({ isActive = true }) {
               <Plus className="w-3 h-3" />
               Add to Queue
             </button>
-            <button
-              onClick={handleStartExport}
-              disabled={isExporting || queueRunning}
-              className={`px-3 py-1.5 text-xs rounded border flex items-center gap-1.5 transition-colors ${
-                isExporting || queueRunning
-                  ? 'bg-sf-dark-800 text-sf-text-muted border-sf-dark-600 cursor-not-allowed'
-                  : 'bg-sf-accent text-white border-sf-accent hover:bg-sf-accent-hover'
-              }`}
-            >
-              <Play className="w-3 h-3" />
-              {isExporting ? (exportStatus === 'Choose export destination...' ? 'Choosing...' : 'Exporting...') : (queueRunning ? 'Queue Running' : 'Start Export')}
-            </button>
+            {isExporting || queueRunning ? (
+              <button
+                onClick={handleStopExport}
+                className="px-3 py-1.5 text-xs rounded border border-red-500/50 bg-red-500/15 text-red-200 hover:bg-red-500/25 transition-colors flex items-center gap-1.5"
+                title="Cancel the current export"
+              >
+                <Square className="w-3 h-3" />
+                Stop Export
+              </button>
+            ) : (
+              <button
+                onClick={handleStartExport}
+                className="px-3 py-1.5 text-xs rounded border flex items-center gap-1.5 transition-colors bg-sf-accent text-white border-sf-accent hover:bg-sf-accent-hover"
+              >
+                <Play className="w-3 h-3" />
+                Start Export
+              </button>
+            )}
           </div>
 
           {(isExporting || exportProgress > 0) && (
