@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ComfyStudio · Music Video People Wizard Mock</title>
+  <title>ComfyStudio · Music Video People Wizard Mock v3</title>
   <style>
     :root {
       --sf-dark-950: #0d0d0d;
@@ -16,12 +16,9 @@
       --sf-text-muted: #737373;
       --sf-accent: #565c6b;
       --sf-accent-hover: #6a7080;
-      --shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
-      --radius: 14px;
     }
 
     * { box-sizing: border-box; }
-
     html, body {
       margin: 0;
       min-height: 100%;
@@ -30,514 +27,128 @@
       font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Arial, sans-serif;
       -webkit-font-smoothing: antialiased;
     }
-
     button, input, select, textarea { font: inherit; }
-
-    .app {
-      max-width: 1440px;
-      margin: 0 auto;
-      padding: 14px;
-    }
-
-    .topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      margin-bottom: 12px;
-    }
-
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      min-width: 0;
-    }
-
-    .logo {
-      width: 34px;
-      height: 34px;
-      border-radius: 11px;
-      display: grid;
-      place-items: center;
-      font-weight: 800;
-      color: white;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid var(--sf-dark-600);
-    }
-
-    .brand h1 {
-      margin: 0;
-      font-size: 18px;
-      letter-spacing: -0.03em;
-      font-weight: 600;
-    }
-
-    .crumb {
-      margin-top: 2px;
-      color: var(--sf-text-muted);
-      font-size: 12px;
-    }
-
-    .pill-row {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-      gap: 8px;
-    }
-
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--sf-dark-600);
-      background: rgba(26, 26, 26, 0.86);
-      color: var(--sf-text-muted);
-      font-size: 12px;
-      white-space: nowrap;
-    }
-
-    .pill strong { color: var(--sf-text-primary); }
-
-    .shell {
-      border: 1px solid var(--sf-dark-600);
-      border-radius: 18px;
-      background: rgba(22, 22, 22, 0.92);
-      box-shadow: var(--shadow);
-      overflow: hidden;
-      min-height: calc(100vh - 100px);
-    }
-
-    .toolbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 12px 14px;
-      border-bottom: 1px solid var(--sf-dark-600);
-      background: rgba(18, 18, 18, 0.8);
-    }
-
-    .tabs {
-      display: inline-flex;
-      gap: 4px;
-      padding: 4px;
-      border: 1px solid var(--sf-dark-600);
-      border-radius: 12px;
-      background: var(--sf-dark-900);
-    }
-
-    .tab {
-      border: 0;
-      border-radius: 8px;
-      padding: 7px 12px;
-      background: transparent;
-      color: var(--sf-text-muted);
-      font-size: 12px;
-    }
-
-    .tab.active {
-      color: var(--sf-text-primary);
-      background: rgba(255,255,255,0.04);
-    }
-
-    .toolbar-right {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      color: var(--sf-text-muted);
-      font-size: 12px;
-    }
-
-    .search {
-      width: min(380px, 34vw);
-      min-width: 220px;
-      border: 1px solid var(--sf-dark-600);
-      border-radius: 10px;
-      background: var(--sf-dark-900);
-      color: var(--sf-text-primary);
-      padding: 9px 12px;
-    }
-
-    .main {
-      display: grid;
-      grid-template-columns: 1fr;
-      padding: 14px;
-      gap: 14px;
-    }
-
-    .section {
-      border: 1px solid var(--sf-dark-600);
-      border-radius: 16px;
-      background: rgba(20, 20, 20, 0.88);
-      overflow: hidden;
-    }
-
-    .section-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 12px;
-      padding: 14px 16px;
-      border-bottom: 1px solid var(--sf-dark-600);
-    }
-
-    .section-head h2, .section-head h3 {
-      margin: 0;
-      font-size: 14px;
-      font-weight: 600;
-    }
-
-    .section-head p {
-      margin: 3px 0 0;
-      color: var(--sf-text-muted);
-      font-size: 12px;
-    }
-
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      border: 1px solid var(--sf-dark-600);
-      border-radius: 10px;
-      padding: 9px 12px;
-      background: rgba(255,255,255,0.04);
-      color: var(--sf-text-primary);
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-    }
-
-    .btn.primary {
-      background: var(--sf-accent);
-      border-color: var(--sf-accent-hover);
-    }
-
-    .btn.ghost {
-      background: transparent;
-    }
-
-    .people-list {
-      padding: 16px;
-      display: grid;
-      gap: 10px;
-    }
-
-    .cast-item {
-      display: grid;
-      grid-template-columns: 62px minmax(0, 1fr) auto;
-      gap: 12px;
-      align-items: center;
-      padding: 10px;
-      border-radius: 14px;
-      border: 1px solid var(--sf-dark-600);
-      background: rgba(17, 17, 17, 0.76);
-    }
-
-    .avatar {
-      position: relative;
-      width: 62px;
-      height: 62px;
-      border-radius: 13px;
-      overflow: hidden;
-      background: var(--sf-dark-800);
-      flex: none;
-    }
-
-    .avatar::after {
-      content: attr(data-role);
-      position: absolute;
-      left: 6px;
-      bottom: 6px;
-      padding: 2px 6px;
-      border-radius: 999px;
-      background: rgba(0,0,0,0.58);
-      color: #fff;
-      font-size: 10px;
-      font-weight: 700;
-    }
-
-    .cast-name {
-      font-size: 13px;
-      font-weight: 600;
-    }
-
-    .cast-slug {
-      margin-top: 3px;
-      color: var(--sf-text-muted);
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 11px;
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 9px;
-      border-radius: 999px;
-      border: 1px solid var(--sf-dark-600);
-      background: rgba(255,255,255,0.03);
-      color: var(--sf-text-muted);
-      font-size: 11px;
-      white-space: nowrap;
-    }
-
-    .empty {
-      margin-top: 8px;
-      padding: 14px;
-      border: 1px dashed var(--sf-dark-600);
-      border-radius: 14px;
-      color: var(--sf-text-muted);
-      text-align: center;
-      font-size: 12px;
-    }
-
-    .footer-note {
-      padding: 0 16px 16px;
-      color: var(--sf-text-muted);
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-    }
-
-    /* Modal wizard */
+    .app { max-width: 1440px; margin: 0 auto; padding: 14px; }
+    .topbar { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:12px; }
+    .brand { display:flex; align-items:center; gap:12px; }
+    .logo { width:34px; height:34px; border-radius:11px; display:grid; place-items:center; font-weight:800; color:#fff; background:rgba(255,255,255,.04); border:1px solid var(--sf-dark-600); }
+    .brand h1 { margin:0; font-size:18px; font-weight:600; letter-spacing:-.03em; }
+    .crumb { margin-top:2px; color:var(--sf-text-muted); font-size:12px; }
+    .pill-row { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
+    .pill { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; border:1px solid var(--sf-dark-600); background:rgba(26,26,26,.86); color:var(--sf-text-muted); font-size:12px; white-space:nowrap; }
+    .pill strong { color:var(--sf-text-primary); }
+    .shell { border:1px solid var(--sf-dark-600); border-radius:18px; background:rgba(22,22,22,.92); overflow:hidden; }
+    .toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border-bottom:1px solid var(--sf-dark-600); background:rgba(18,18,18,.8); }
+    .tabs { display:inline-flex; gap:4px; padding:4px; border:1px solid var(--sf-dark-600); border-radius:12px; background:var(--sf-dark-900); }
+    .tab { border:0; border-radius:8px; padding:7px 12px; background:transparent; color:var(--sf-text-muted); font-size:12px; }
+    .tab.active { color:var(--sf-text-primary); background:rgba(255,255,255,.04); }
+    .toolbar-right { display:flex; align-items:center; gap:8px; color:var(--sf-text-muted); font-size:12px; }
+    .search { width:min(340px,34vw); min-width:220px; border:1px solid var(--sf-dark-600); border-radius:10px; background:var(--sf-dark-900); color:var(--sf-text-primary); padding:9px 12px; }
+    .main { display:grid; grid-template-columns: 1fr; padding:14px; gap:14px; }
+    .section { border:1px solid var(--sf-dark-600); border-radius:16px; background:rgba(20,20,20,.88); overflow:hidden; }
+    .section-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:14px 16px; border-bottom:1px solid var(--sf-dark-600); }
+    .section-head h2 { margin:0; font-size:14px; font-weight:600; }
+    .section-head p { margin:3px 0 0; color:var(--sf-text-muted); font-size:12px; }
+    .badge { display:inline-flex; align-items:center; gap:6px; padding:4px 9px; border-radius:999px; border:1px solid var(--sf-dark-600); background:rgba(255,255,255,.03); color:var(--sf-text-muted); font-size:11px; white-space:nowrap; }
+    .section-body { padding:16px; }
+    .people-top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+    .people-top h3 { margin:0; font-size:16px; font-weight:600; }
+    .people-top p { margin:3px 0 0; color:var(--sf-text-secondary); font-size:12px; }
+    .btn { display:inline-flex; align-items:center; gap:8px; border:1px solid var(--sf-dark-600); border-radius:10px; padding:9px 12px; background:rgba(255,255,255,.04); color:var(--sf-text-primary); font-size:12px; font-weight:600; }
+    .btn.primary { background:var(--sf-accent); border-color:var(--sf-accent-hover); }
+    .cast-list { display:grid; gap:10px; }
+    .cast-item { display:grid; grid-template-columns:62px minmax(0,1fr) auto; gap:12px; align-items:center; padding:10px; border-radius:14px; border:1px solid var(--sf-dark-600); background:rgba(17,17,17,.76); }
+    .avatar { position:relative; width:62px; height:62px; border-radius:13px; overflow:hidden; background:var(--sf-dark-800); flex:none; }
+    .avatar::after { content:attr(data-role); position:absolute; left:6px; bottom:6px; padding:2px 6px; border-radius:999px; background:rgba(0,0,0,.58); color:#fff; font-size:10px; font-weight:700; }
+    .cast-name { font-size:13px; font-weight:600; }
+    .cast-slug { margin-top:3px; color:var(--sf-text-muted); font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:11px; }
+    .empty { margin-top:8px; padding:14px; border:1px dashed var(--sf-dark-600); border-radius:14px; color:var(--sf-text-muted); text-align:center; font-size:12px; }
+    .grid-2 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+    .block { border:1px solid var(--sf-dark-600); border-radius:16px; background:rgba(20,20,20,.88); overflow:hidden; }
+    .block-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; padding:14px 16px; border-bottom:1px solid var(--sf-dark-600); }
+    .block-head h3 { margin:0; font-size:14px; font-weight:600; }
+    .block-head p { margin:3px 0 0; color:var(--sf-text-muted); font-size:12px; }
+    .block-body { padding:16px; }
+    .label { color:var(--sf-text-muted); font-size:11px; text-transform:uppercase; letter-spacing:.12em; }
+    .input, .select, .textarea { width:100%; border:1px solid var(--sf-dark-600); border-radius:12px; background:var(--sf-dark-900); color:var(--sf-text-primary); padding:10px 12px; outline:none; }
+    .textarea { min-height:108px; resize:vertical; line-height:1.5; }
+    .field-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+    .field { display:grid; gap:6px; }
+    .mini-note { margin-top:10px; padding:12px; border-radius:14px; border:1px solid var(--sf-dark-600); background:rgba(17,17,17,.76); color:var(--sf-text-secondary); font-size:12px; line-height:1.5; }
+    .thumb { position:relative; min-height:140px; background:var(--sf-dark-800); overflow:hidden; }
+    .thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+    .thumb::after { content:""; position:absolute; inset:0; background:linear-gradient(180deg, rgba(0,0,0,.05), rgba(0,0,0,.45)); pointer-events:none; }
+    .reference-box { display:grid; gap:10px; }
+    .reference-item { display:grid; grid-template-columns:88px minmax(0,1fr); gap:12px; align-items:center; padding:10px; border-radius:14px; border:1px solid var(--sf-dark-600); background:rgba(17,17,17,.76); }
+    .reference-item h4 { margin:0; font-size:13px; font-weight:600; }
+    .reference-item p { margin:4px 0 0; color:var(--sf-text-muted); font-size:12px; line-height:1.5; }
+    .script-block { border:1px solid var(--sf-dark-600); border-radius:14px; background:rgba(17,17,17,.76); padding:12px 13px; color:var(--sf-text-secondary); font-size:12px; line-height:1.6; white-space:pre-wrap; }
+    .keyframe-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+    .keyframe-card { border:1px solid var(--sf-dark-600); border-radius:14px; overflow:hidden; background:rgba(17,17,17,.76); }
+    .keyframe-card .block-body { padding:11px 12px; }
+    .keyframe-card h4 { margin:0; font-size:13px; font-weight:600; }
+    .keyframe-card p { margin:5px 0 0; color:var(--sf-text-muted); font-size:12px; line-height:1.5; }
+    .footer-note { padding:0 16px 16px; color:var(--sf-text-muted); font-size:11px; text-transform:uppercase; letter-spacing:.14em; }
     .modal-backdrop {
       position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.66);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 18px;
+      left: 50%;
+      top: 24px;
+      transform: translateX(-50%);
+      width: min(920px, calc(100vw - 32px));
+      height: calc(100vh - 48px);
+      z-index: 50;
+      display: none;
+      border:1px solid var(--sf-dark-600);
+      border-radius:18px;
+      background:rgba(13,13,13,.96);
+      overflow:auto;
+      box-shadow:0 26px 72px rgba(0,0,0,.75);
     }
-
-    .modal {
-      width: min(1220px, 100%);
-      border: 1px solid var(--sf-dark-600);
-      border-radius: 18px;
-      background: rgba(22, 22, 22, 0.98);
-      box-shadow: 0 26px 72px rgba(0,0,0,0.6);
-      overflow: hidden;
-    }
-
-    .modal-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 14px 16px;
-      border-bottom: 1px solid var(--sf-dark-600);
-    }
-
-    .modal-head h2 {
-      margin: 0;
-      font-size: 14px;
-      font-weight: 600;
-    }
-
-    .modal-head p {
-      margin: 3px 0 0;
-      color: var(--sf-text-muted);
-      font-size: 12px;
-    }
-
-    .progress {
-      display: flex;
-      gap: 6px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-
-    .progress span {
-      width: 9px;
-      height: 9px;
-      border-radius: 999px;
-      background: var(--sf-dark-600);
-    }
-
-    .progress span.active { background: var(--sf-accent-hover); }
-
-    .modal-body {
-      display: grid;
-      grid-template-columns: 1.15fr 0.85fr;
-      min-height: 620px;
-    }
-
-    .wizard {
-      padding: 16px;
-      border-right: 1px solid var(--sf-dark-600);
-    }
-
-    .preview {
-      padding: 16px;
-      display: grid;
-      gap: 12px;
-      align-content: start;
-      background: rgba(17,17,17,0.52);
-    }
-
-    .wizard h3 {
-      margin: 0 0 8px;
-      font-size: 14px;
-      font-weight: 600;
-    }
-
-    .wizard p.helper {
-      margin: 0 0 14px;
-      color: var(--sf-text-muted);
-      font-size: 12px;
-    }
-
-    .cards {
-      display: grid;
-      gap: 10px;
-    }
-
-    .choice {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 12px 13px;
-      border: 1px solid var(--sf-dark-600);
-      border-radius: 14px;
-      background: rgba(17,17,17,0.76);
-    }
-
-    .choice strong { display: block; font-size: 13px; }
-    .choice span { color: var(--sf-text-muted); font-size: 12px; }
-
-    .choice.active {
-      border-color: rgba(106,112,128,0.95);
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03);
-    }
-
-    .grid-2 {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-    }
-
-    .field {
-      display: grid;
-      gap: 6px;
-    }
-
-    .label {
-      color: var(--sf-text-muted);
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-    }
-
-    .input, .select, .textarea {
-      width: 100%;
-      border: 1px solid var(--sf-dark-600);
-      border-radius: 12px;
-      background: var(--sf-dark-900);
-      color: var(--sf-text-primary);
-      padding: 10px 12px;
-      outline: none;
-    }
-
-    .textarea {
-      min-height: 104px;
-      resize: vertical;
-      line-height: 1.5;
-    }
-
-    .block {
-      border: 1px solid var(--sf-dark-600);
-      border-radius: 16px;
-      background: rgba(20,20,20,0.88);
-      overflow: hidden;
-    }
-
-    .thumb {
-      position: relative;
-      min-height: 160px;
-      background: var(--sf-dark-800);
-      overflow: hidden;
-    }
-
-    .thumb img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-
-    .thumb::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(180deg, rgba(0,0,0,0.05), rgba(0,0,0,0.45));
-      pointer-events: none;
-    }
-
-    .block-body {
-      padding: 12px 13px;
-    }
-
-    .block-body h4 {
-      margin: 0;
-      font-size: 13px;
-      font-weight: 600;
-    }
-
-    .block-body p {
-      margin: 5px 0 0;
-      color: var(--sf-text-muted);
-      font-size: 12px;
-      line-height: 1.5;
-    }
-
-    .actions {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      margin-top: 14px;
-    }
-
-    .actions .right {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
-
-    .tiny {
-      color: var(--sf-text-muted);
-      font-size: 11px;
-    }
-
-    @media (max-width: 1100px) {
-      .modal-body { grid-template-columns: 1fr; }
-      .wizard { border-right: 0; border-bottom: 1px solid var(--sf-dark-600); }
-    }
-
-    @media (max-width: 980px) {
-      .topbar { flex-direction: column; align-items: flex-start; }
-      .pill-row { justify-content: flex-start; }
-      .toolbar { flex-direction: column; align-items: stretch; }
-      .search { width: 100%; }
-      .cast-item { grid-template-columns: 54px minmax(0, 1fr); }
-      .cast-item .badge { grid-column: 1 / -1; justify-self: start; }
-      .grid-2 { grid-template-columns: 1fr; }
-      .choice { align-items: flex-start; flex-direction: column; }
+    .modal-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 16px; border-bottom:1px solid var(--sf-dark-600); }
+    .modal-head h2 { margin:0; font-size:14px; font-weight:600; }
+    .modal-head p { margin:3px 0 0; color:var(--sf-text-muted); font-size:12px; }
+    .progress { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+    .progress span { width:9px; height:9px; border-radius:999px; background:var(--sf-dark-600); }
+    .progress span.active { background:var(--sf-accent-hover); }
+    .modal-body { display:grid; grid-template-columns:1fr; min-height:560px; }
+    .wizard { padding:16px; border-right:1px solid var(--sf-dark-600); display:flex; flex-direction:column; }
+    .wizard-content { display:grid; gap:12px; }
+    .wizard-step { display:grid; gap:12px; }
+    .wizard h3 { margin:0 0 8px; font-size:14px; font-weight:600; }
+    .wizard p.helper { margin:0 0 14px; color:var(--sf-text-muted); font-size:12px; }
+    .cards { display:grid; gap:10px; }
+    .choice { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 13px; border:1px solid var(--sf-dark-600); border-radius:14px; background:rgba(17,17,17,.76); }
+    .choice strong { display:block; font-size:13px; }
+    .choice span { color:var(--sf-text-muted); font-size:12px; }
+    .choice.active { border-color:rgba(106,112,128,.95); }
+    .actions { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:auto; padding-top:16px; border-top:1px solid var(--sf-dark-600); }
+    .actions .right { display:flex; gap:8px; align-items:center; }
+    .tiny { color:var(--sf-text-muted); font-size:11px; }
+    @media (max-width:1100px){ .modal-body{grid-template-columns:1fr} .wizard{border-right:0;border-bottom:1px solid var(--sf-dark-600)} }
+    @media (max-width:980px){
+      .topbar{flex-direction:column;align-items:flex-start}
+      .pill-row{justify-content:flex-start}
+      .toolbar{flex-direction:column;align-items:stretch}
+      .search{width:100%}
+      .grid-2,.field-row{grid-template-columns:1fr}
+      .cast-item{grid-template-columns:54px minmax(0,1fr)}
+      .cast-item .badge{grid-column:1 / -1; justify-self:start}
+      .reference-item{grid-template-columns:1fr}
+      .keyframe-grid{grid-template-columns:1fr}
     }
   </style>
 </head>
 <body>
   <div class="app">
+    <div style="margin-bottom:12px;padding:14px 16px;border:2px solid #7aa6ff;border-radius:16px;background:#0f1626;color:#f4f8ff;font-weight:700;letter-spacing:-0.01em">
+      People Wizard Mock v4 - if you can read this, the page is loading correctly.
+    </div>
     <div class="topbar">
       <div class="brand">
         <div class="logo">CS</div>
         <div>
           <h1>Music Video People Wizard</h1>
-          <div class="crumb">Generate · Music Video · People</div>
+          <div class="crumb">Generate · Music Video · People · v3</div>
         </div>
       </div>
       <div class="pill-row">
@@ -569,80 +180,67 @@
             </div>
             <button class="btn primary" id="createBtn">Add Person</button>
           </div>
-          <div class="people-list" id="castList">
-            <div class="cast-item">
-              <div class="avatar" data-role="Lead"><img src="../public/workflows/setup-covers/ltx23-i2v.webp" alt="Ava reference" /></div>
-              <div>
-                <div class="cast-name">Ava</div>
-                <div class="cast-slug">slug: ava · role: Lead vocal</div>
+          <div class="section-body">
+            <div class="people-top">
+              <div class="title">
+                <h3>Existing cast members</h3>
+                <p>3 resolved people</p>
               </div>
-              <button class="btn ghost editBtn" data-name="Ava" data-slug="ava" data-role="Lead vocal" data-source="existing">Edit</button>
             </div>
-            <div class="cast-item">
-              <div class="avatar" data-role="Back"><img src="../public/workflows/setup-covers/happyhorse-image-video.webp" alt="Noah reference" /></div>
-              <div>
-                <div class="cast-name">Noah</div>
-                <div class="cast-slug">slug: noah · role: Backing vocal</div>
+            <div class="cast-list">
+              <div class="cast-item">
+                <div class="avatar" data-role="Lead"><img src="../public/workflows/setup-covers/ltx23-i2v.webp" alt="Ava reference" /></div>
+                <div>
+                  <div class="cast-name">Ava</div>
+                  <div class="cast-slug">slug: ava · role: Lead vocal</div>
+                </div>
+                <button class="btn editBtn" data-name="Ava" data-slug="ava" data-role="Lead vocal">Edit</button>
               </div>
-              <button class="btn ghost editBtn" data-name="Noah" data-slug="noah" data-role="Backing vocal" data-source="existing">Edit</button>
-            </div>
-            <div class="cast-item">
-              <div class="avatar" data-role="Band"><img src="../public/workflows/setup-covers/multi-angles.webp" alt="Mina reference" /></div>
-              <div>
-                <div class="cast-name">Mina</div>
-                <div class="cast-slug">slug: mina · role: Instrumentalist</div>
+              <div class="cast-item">
+                <div class="avatar" data-role="Back"><img src="../public/workflows/setup-covers/happyhorse-image-video.webp" alt="Noah reference" /></div>
+                <div>
+                  <div class="cast-name">Noah</div>
+                  <div class="cast-slug">slug: noah · role: Backing vocal</div>
+                </div>
+                <button class="btn editBtn" data-name="Noah" data-slug="noah" data-role="Backing vocal">Edit</button>
               </div>
-              <button class="btn ghost editBtn" data-name="Mina" data-slug="mina" data-role="Instrumentalist" data-source="existing">Edit</button>
+              <div class="cast-item">
+                <div class="avatar" data-role="Band"><img src="../public/workflows/setup-covers/multi-angles.webp" alt="Mina reference" /></div>
+                <div>
+                  <div class="cast-name">Mina</div>
+                  <div class="cast-slug">slug: mina · role: Instrumentalist</div>
+                </div>
+                <button class="btn editBtn" data-name="Mina" data-slug="mina" data-role="Instrumentalist">Edit</button>
+              </div>
             </div>
+            <div class="empty">Add at least one person if the video has lip-sync performance shots.</div>
           </div>
-          <div class="empty">Add at least one person if the video has lip-sync performance shots.</div>
         </section>
+
+        <div class="modal-backdrop" id="wizard">
+          <div class="modal-head">
+            <div>
+              <h2 id="wizardTitle">Create person</h2>
+              <p id="wizardSubtitle">Step 1 of 4 · decide if we use an existing image or create a new one</p>
+            </div>
+            <div class="progress"><span class="active"></span><span></span><span></span><span></span></div>
+          </div>
+          <div class="modal-body">
+            <div class="wizard">
+              <div class="wizard-content" id="wizardContent"></div>
+              <div class="actions">
+                <div class="tiny" id="stepHint">This mirrors the real people flow: create or edit, then drill down into image generation.</div>
+                <div class="right">
+                  <button class="btn ghost" id="backBtn" type="button" onclick="goBack()">Back</button>
+                  <button class="btn primary" id="nextBtn" type="button" onclick="goNext()">Next</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div class="footer-note">Mockup only · the real screen would keep this list view and launch the wizard in a popup</div>
-    </div>
-  </div>
-
-  <div class="modal-backdrop" id="wizard" style="display:none">
-    <div class="modal">
-      <div class="modal-head">
-        <div>
-          <h2 id="wizardTitle">Create person</h2>
-          <p id="wizardSubtitle">Step 1 of 4 · decide whether to use an existing image or create a new one</p>
-        </div>
-        <div class="progress" aria-hidden="true">
-          <span class="active"></span><span></span><span></span><span></span>
-        </div>
-      </div>
-      <div class="modal-body">
-        <div class="wizard">
-          <h3 id="stepHeading">Use existing image or create a new one</h3>
-          <p class="helper" id="stepHelper">Choose how this cast member will get their reference image.</p>
-          <div id="stepContent"></div>
-          <div class="actions">
-            <div class="tiny" id="stepHint">This mirrors the real people flow: create or edit, then drill down into image generation.</div>
-            <div class="right">
-              <button class="btn ghost" id="backBtn">Back</button>
-              <button class="btn primary" id="nextBtn">Next</button>
-            </div>
-          </div>
-        </div>
-        <div class="preview">
-          <div class="block" id="previewBlock">
-            <div class="thumb"><img id="previewImg" src="../public/workflows/setup-covers/ltx23-i2v.webp" alt="Preview" /></div>
-            <div class="block-body">
-              <h4 id="previewTitle">Reference preview</h4>
-              <p id="previewText">The right side shows the selected / generated reference image, just like the current image generation flow.</p>
-            </div>
-          </div>
-          <div class="block">
-            <div class="block-body">
-              <h4>Current app sections this builds on</h4>
-              <p>People panel, image generator, and multiple angles / characters sheet generator.</p>
-            </div>
-          </div>
-        </div>
-      </div>
+      <div class="footer-note">Mockup only · composed from the existing People panel, image generator, and multi-angle character sheet patterns</div>
     </div>
   </div>
 
@@ -650,236 +248,350 @@
     const wizard = document.getElementById('wizard')
     const createBtn = document.getElementById('createBtn')
     const editBtns = Array.from(document.querySelectorAll('.editBtn'))
-    const backBtn = document.getElementById('backBtn')
-    const nextBtn = document.getElementById('nextBtn')
     const wizardTitle = document.getElementById('wizardTitle')
     const wizardSubtitle = document.getElementById('wizardSubtitle')
-    const stepHeading = document.getElementById('stepHeading')
-    const stepHelper = document.getElementById('stepHelper')
-    const stepContent = document.getElementById('stepContent')
+    const wizardContent = document.getElementById('wizardContent')
     const stepHint = document.getElementById('stepHint')
-    const previewImg = document.getElementById('previewImg')
-    const previewTitle = document.getElementById('previewTitle')
-    const previewText = document.getElementById('previewText')
+    const backBtn = document.getElementById('backBtn')
+    const nextBtn = document.getElementById('nextBtn')
     const progressDots = Array.from(document.querySelectorAll('.progress span'))
 
     const state = {
       step: 1,
+      choice: 'existing',
       mode: 'create',
-      imageChoice: 'existing',
-      name: '',
-      slug: '',
-      description: '',
-      role: 'lead',
-      imageMode: 'z-image',
-      sheetMode: 'multi-angle',
-    }
-
-    function showWizard(mode = 'create', defaults = {}) {
-      state.mode = mode
-      state.step = 1
-      state.imageChoice = defaults.source || 'existing'
-      state.name = defaults.name || ''
-      state.slug = defaults.slug || ''
-      state.description = defaults.description || ''
-      state.role = defaults.role || 'lead'
-      wizard.style.display = 'flex'
-      renderStep()
-    }
-
-    function hideWizard() {
-      wizard.style.display = 'none'
-    }
-
-    function roleLabel(role) {
-      return {
-        lead: 'Lead',
-        'lead vocal': 'Lead vocal',
-        'co-lead': 'Co-lead vocal',
-        'co-lead vocal': 'Co-lead vocal',
-        backing: 'Backing vocal',
-        'backing vocal': 'Backing vocal',
-        instrumentalist: 'Instrumentalist',
-        other: 'Other',
-      }[String(role || '').toLowerCase()] || 'Other'
-    }
-
-    function updateProgress() {
-      progressDots.forEach((dot, index) => dot.classList.toggle('active', index < state.step))
-    }
-
-    function renderStep() {
-      updateProgress()
-      backBtn.style.visibility = state.step === 1 ? 'hidden' : 'visible'
-
-      if (state.step === 1) {
-        wizardTitle.textContent = state.mode === 'edit' ? 'Edit cast member' : 'Create person'
-        wizardSubtitle.textContent = 'Step 1 of 4 · decide if we use an existing image or create a new one'
-        stepHeading.textContent = 'Use existing image or create a new one'
-        stepHelper.textContent = 'Choose whether this person already has a reference image or needs a new one created.'
-        stepHint.textContent = 'If you pick an existing image, the button says Create. If you pick a new image, the button says Next.'
-        stepContent.innerHTML = `
-          <div class="cards">
-            <label class="choice ${state.imageChoice === 'existing' ? 'active' : ''}">
-              <div>
-                <strong>Use existing image</strong>
-                <span>Pick a reference from the project assets.</span>
-              </div>
-              <input type="radio" name="imageChoice" ${state.imageChoice === 'existing' ? 'checked' : ''} />
-            </label>
-            <label class="choice ${state.imageChoice === 'new' ? 'active' : ''}">
-              <div>
-                <strong>Create new image</strong>
-                <span>Generate a fresh reference using z-image-turbo.</span>
-              </div>
-              <input type="radio" name="imageChoice" ${state.imageChoice === 'new' ? 'checked' : ''} />
-            </label>
-          </div>
-        `
-        nextBtn.textContent = state.imageChoice === 'existing' ? 'Create' : 'Next'
-        previewTitle.textContent = 'People list preview'
-        previewText.textContent = 'This is what the current list would look like before opening the wizard.'
-        previewImg.src = '../public/workflows/setup-covers/create-music-video.jpg'
+      selectedImage: 'Ava reference',
+      fields: {
+        name: 'Ava',
+        slug: 'ava',
+        description: 'Lead vocalist with stage-ready wardrobe and confident eye contact.',
+        role: 'lead',
+        prompt: 'portrait reference for Ava, clean lighting, wardrobe consistency, music-video friendly framing',
+        imageSize: '1080p',
       }
+    }
 
-      if (state.step === 2) {
-        wizardTitle.textContent = state.mode === 'edit' ? 'Edit cast member' : 'Create person'
-        wizardSubtitle.textContent = 'Step 2 of 4 · configure the person details'
-        stepHeading.textContent = 'Configure the cast member'
-        stepHelper.textContent = 'Set the identity fields that are shared across script, voice, and shot routing.'
-        stepHint.textContent = 'This is the same data that later steps consume, just presented in a wizard.'
-        stepContent.innerHTML = `
-          <div class="fields">
+    function renderWizardContent() {
+      if (state.step === 1) {
+        wizardContent.innerHTML = `
+          <div class="wizard-step">
+            <h3>Configure the cast member</h3>
+            <p class="helper">Set the identity fields that are shared across script, voice, and shot routing.</p>
             <div class="field-row">
               <div class="field">
                 <div class="label">Name</div>
-                <input class="input" id="nameField" value="${state.name}" placeholder="Ava" />
+                <input class="input" id="nameField" value="${state.fields.name}" />
               </div>
               <div class="field">
                 <div class="label">Slug</div>
-                <input class="input" id="slugField" value="${state.slug}" placeholder="ava" />
+                <input class="input" id="slugField" value="${state.fields.slug}" />
               </div>
             </div>
             <div class="field">
               <div class="label">Description</div>
-              <textarea class="textarea" id="descField" placeholder="Short description of the person">${state.description}</textarea>
+              <textarea class="textarea" id="descField">${state.fields.description}</textarea>
             </div>
             <div class="field">
               <div class="label">Role</div>
               <select class="select" id="roleField">
-                ${['lead', 'other', 'co-lead', 'backing', 'instrumentalist'].map((role) => `<option value="${role}" ${String(state.role) === role ? 'selected' : ''}>${roleLabel(role)}</option>`).join('')}
+                <option value="lead" ${state.fields.role === 'lead' ? 'selected' : ''}>Lead vocal</option>
+                <option value="other" ${state.fields.role === 'other' ? 'selected' : ''}>Other</option>
+                <option value="co-lead" ${state.fields.role === 'co-lead' ? 'selected' : ''}>Co-lead vocal</option>
+                <option value="backing" ${state.fields.role === 'backing' ? 'selected' : ''}>Backing vocal</option>
+                <option value="instrumentalist" ${state.fields.role === 'instrumentalist' ? 'selected' : ''}>Instrumentalist</option>
               </select>
             </div>
           </div>
         `
-        nextBtn.textContent = state.imageChoice === 'existing' ? 'Create' : 'Next'
-        previewTitle.textContent = 'Person details preview'
-        previewText.textContent = 'The right side can keep showing the image context while you configure the identity fields.'
-        previewImg.src = '../public/workflows/setup-covers/happyhorse-image-video.webp'
+        stepHint.textContent = 'Set the name, slug, description, and role.'
+        backBtn.style.visibility = 'hidden'
+        nextBtn.textContent = 'Next'
+        return
+      }
+
+      if (state.step === 2) {
+        wizardContent.innerHTML = `
+          <div class="wizard-step">
+            <h3>Use existing image or create a new one</h3>
+            <p class="helper">Choose whether this person already has a reference image or needs a new one created.</p>
+            <div class="cards">
+              <button class="choice ${state.choice === 'existing' ? 'active' : ''}" type="button" onclick="chooseExisting()">
+                <div>
+                  <strong>Use existing image</strong>
+                  <span>Pick a reference from the project assets.</span>
+                </div>
+                <span class="badge">${state.choice === 'existing' ? 'Create' : 'Choose'}</span>
+              </button>
+              <button class="choice ${state.choice === 'new' ? 'active' : ''}" type="button" onclick="chooseNew()">
+                <div>
+                  <strong>Create new image</strong>
+                  <span>Generate a fresh reference using z-image-turbo.</span>
+                </div>
+                <span class="badge">${state.choice === 'new' ? 'Next' : 'Choose'}</span>
+              </button>
+            </div>
+          </div>
+        `
+        stepHint.textContent = 'Pick the source image for this cast member.'
+        backBtn.style.visibility = 'visible'
+        nextBtn.textContent = 'Next'
+        return
       }
 
       if (state.step === 3) {
-        wizardTitle.textContent = 'Create reference image'
-        wizardSubtitle.textContent = 'Step 3 of 4 · generate a new image using z-image-turbo'
-        stepHeading.textContent = 'Generate a new image'
-        stepHelper.textContent = 'Use the same prompt approach the app already has for image generation.'
-        stepHint.textContent = 'A create multi angle button moves to the next step.'
-        stepContent.innerHTML = `
-          <div class="fields">
-            <div class="field">
-              <div class="label">Prompt</div>
-              <textarea class="textarea" id="promptField">portrait reference for ${state.name || 'the performer'}, clean lighting, wardrobe consistency, music-video friendly framing</textarea>
+        if (state.choice === 'existing') {
+          wizardContent.innerHTML = `
+            <div class="wizard-step">
+              <h3>Choose an existing image</h3>
+              <p class="helper">Pick one of the available project images. There is no separate preview here, just the selection grid.</p>
+              <div class="cast-list" style="grid-template-columns:repeat(2,minmax(0,1fr));">
+                <button class="cast-item" type="button" onclick="selectExistingImage('Ava reference')">
+                  <div class="avatar" data-role="Ref"><img src="../public/workflows/setup-covers/ltx23-i2v.webp" alt="Ava reference" /></div>
+                  <div>
+                    <div class="cast-name">Ava reference</div>
+                    <div class="cast-slug">project asset · performance still</div>
+                  </div>
+                  <span class="badge">${state.selectedImage === 'Ava reference' ? 'Selected' : 'Pick'}</span>
+                </button>
+                <button class="cast-item" type="button" onclick="selectExistingImage('Noah reference')">
+                  <div class="avatar" data-role="Ref"><img src="../public/workflows/setup-covers/happyhorse-image-video.webp" alt="Noah reference" /></div>
+                  <div>
+                    <div class="cast-name">Noah reference</div>
+                    <div class="cast-slug">project asset · alternate cast</div>
+                  </div>
+                  <span class="badge">${state.selectedImage === 'Noah reference' ? 'Selected' : 'Pick'}</span>
+                </button>
+                <button class="cast-item" type="button" onclick="selectExistingImage('Image edit reference')">
+                  <div class="avatar" data-role="Ref"><img src="../public/workflows/setup-covers/image-edit.webp" alt="Image edit reference" /></div>
+                  <div>
+                    <div class="cast-name">Image edit reference</div>
+                    <div class="cast-slug">project asset · reusable</div>
+                  </div>
+                  <span class="badge">${state.selectedImage === 'Image edit reference' ? 'Selected' : 'Pick'}</span>
+                </button>
+                <button class="cast-item" type="button" onclick="selectExistingImage('Multi angles reference')">
+                  <div class="avatar" data-role="Ref"><img src="../public/workflows/setup-covers/multi-angles.webp" alt="Multi angles reference" /></div>
+                  <div>
+                    <div class="cast-name">Multi angles reference</div>
+                    <div class="cast-slug">project asset · sheet-ready</div>
+                  </div>
+                  <span class="badge">${state.selectedImage === 'Multi angles reference' ? 'Selected' : 'Pick'}</span>
+                </button>
+              </div>
             </div>
+          `
+          stepHint.textContent = 'Pick the existing image that will feed the sheet generator.'
+          backBtn.style.visibility = 'visible'
+          nextBtn.textContent = state.mode === 'edit' ? 'Update' : 'Create'
+          return
+        }
+
+        wizardContent.innerHTML = `
+          <div class="wizard-step">
+            <h3>Generate a new image</h3>
+            <p class="helper">Use the same prompt approach the app already has for image generation. Only prompt and image size are needed here.</p>
             <div class="grid-2">
-              <div class="field">
-                <div class="label">Model</div>
-                <input class="input" value="z-image-turbo" readonly />
+              <div>
+                <div class="field">
+                  <div class="label">Prompt</div>
+                  <textarea class="textarea" id="promptField">${state.fields.prompt}</textarea>
+                </div>
+                <div class="field" style="margin-top:10px">
+                  <div class="label">Image size</div>
+                  <div class="tabs" id="imageSizeTabs">
+                    <button class="tab ${state.fields.imageSize === '1080p' ? 'active' : ''}" type="button" onclick="setImageSize('1080p')">1080p</button>
+                    <button class="tab ${state.fields.imageSize === 'square1k' ? 'active' : ''}" type="button" onclick="setImageSize('square1k')">Square 1K</button>
+                    <button class="tab ${state.fields.imageSize === 'square2k' ? 'active' : ''}" type="button" onclick="setImageSize('square2k')">Square 2K</button>
+                    <button class="tab ${state.fields.imageSize === 'portrait' ? 'active' : ''}" type="button" onclick="setImageSize('portrait')">Portrait</button>
+                  </div>
+                </div>
+                <div class="mini-note">The button says <strong>Create multi angle</strong>.</div>
               </div>
-              <div class="field">
-                <div class="label">Aspect</div>
-                <input class="input" value="portrait / sheet-friendly" readonly />
+              <div class="block">
+                <div class="thumb"><img src="../public/workflows/setup-covers/z-image-turbo.webp" alt="z-image preview" /></div>
+                <div class="block-body">
+                  <h4>Preview</h4>
+                  <p>Keep the generated image visible on the right while adjusting the prompt.</p>
+                  <div style="margin-top:12px">
+                    <button class="btn primary" type="button" onclick="generateImage()">Generate image</button>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div class="field">
-              <div class="label">Existing options</div>
-              <select class="select">
-                <option>Use current prompt</option>
-                <option>Make it more cinematic</option>
-                <option>Make it cleaner for reference sheets</option>
-              </select>
             </div>
           </div>
         `
+        stepHint.textContent = 'Generate a new reference image with z-image-turbo.'
+        backBtn.style.visibility = 'visible'
         nextBtn.textContent = 'Create multi angle'
-        previewTitle.textContent = 'z-image-turbo preview'
-        previewText.textContent = 'The preview stays on the right while the user iterates on prompt settings.'
-        previewImg.src = '../public/workflows/setup-covers/z-image-turbo.webp'
+        return
       }
 
-      if (state.step === 4) {
-        wizardTitle.textContent = 'Generate character sheet'
-        wizardSubtitle.textContent = 'Step 4 of 4 · use the new image to generate a sheet, repeat if needed'
-        stepHeading.textContent = 'Generate the multi-angle sheet'
-        stepHelper.textContent = 'Run the sheet generator, inspect the output, and repeat until the owner is happy.'
-        stepHint.textContent = 'When done, the final Create button adds the new character to the list.'
-        stepContent.innerHTML = `
-          <div class="cards">
-            <div class="choice active">
+      wizardContent.innerHTML = `
+        <div class="wizard-step">
+          <div class="block">
+            <div class="block-head">
               <div>
-                <strong>Use newly created image</strong>
-                <span>Generate a multi-angle character sheet from the latest reference.</span>
+                <h3>WORKFLOW SETUP</h3>
+                <p>Character angle sheet</p>
               </div>
-              <span class="badge">Ready</span>
+              <div class="badge">Runnable</div>
             </div>
-            <div class="choice">
-              <div>
-                <strong>Regenerate sheet</strong>
-                <span>You can do this multiple times until the sheet looks right.</span>
+            <div class="block-body" style="display:grid; gap:14px">
+              <div class="grid-2">
+                <div class="reference-item" style="grid-template-columns:96px minmax(0,1fr); align-items:center">
+                  <div class="thumb" style="min-height:90px"><img src="../public/workflows/setup-covers/multi-angles.webp" alt="selected reference" /></div>
+                  <div>
+                    <h4>${state.selectedImage}</h4>
+                    <p>Initial image from previous step</p>
+                  </div>
+                </div>
+                <div class="reference-item" style="grid-template-columns:96px minmax(0,1fr); align-items:center">
+                  <div class="thumb" style="min-height:90px"><img src="../public/workflows/setup-covers/multi-angles-scene.webp" alt="generated sheet preview" /></div>
+                  <div>
+                    <h4>Final sheet preview</h4>
+                    <p>Preview of the generated multi-angle character sheet</p>
+                  </div>
+                </div>
               </div>
-              <span class="badge">Repeat</span>
+              <div class="field-row">
+                <div class="field">
+                  <div class="label">Seed</div>
+                  <input class="input" value="763219054" readonly />
+                </div>
+                <div style="display:flex; align-items:end">
+                  <button class="btn" type="button" style="height:44px">↻</button>
+                </div>
+              </div>
+              <button class="btn primary" type="button" onclick="generateSheet()">Generate</button>
             </div>
           </div>
-        `
-        nextBtn.textContent = 'Create'
-        previewTitle.textContent = 'Multiple angles preview'
-        previewText.textContent = 'This is where the multi-angle character sheet lives before the person is added to the list.'
-        previewImg.src = '../public/workflows/setup-covers/multi-angles.webp'
-      }
+        </div>
+      `
+      stepHint.textContent = 'Open directly on the character sheet generator.'
+      backBtn.style.visibility = 'visible'
+      nextBtn.textContent = state.mode === 'edit' ? 'Update' : 'Create'
     }
 
-    createBtn.addEventListener('click', () => showWizard('create', { source: 'new' }))
+    function updateStepUI() {
+      progressDots.forEach((dot, index) => dot.classList.toggle('active', index < state.step))
+      wizardTitle.textContent = state.mode === 'edit' ? 'Edit cast member' : 'Create person'
+      wizardSubtitle.textContent = `Step ${state.step} of 4 · ` + (
+        state.step === 1
+          ? 'configure the person details'
+          : state.step === 2
+            ? 'decide if we use an existing image or create a new one'
+            : state.step === 3
+              ? (state.choice === 'existing'
+                ? 'choose an existing image and preview it'
+                : 'generate a new image using z-image-turbo')
+              : 'use the new image to generate a sheet, repeat if needed'
+      )
+      renderWizardContent()
+    }
+
+    function openWizard(mode, defaults = {}) {
+      state.mode = mode
+      state.step = 1
+      state.choice = defaults.choice || 'existing'
+      state.fields.name = defaults.name || 'Ava'
+      state.fields.slug = defaults.slug || 'ava'
+      state.fields.description = defaults.description || 'Lead vocalist with stage-ready wardrobe and confident eye contact.'
+      state.fields.role = defaults.role || 'lead'
+      state.fields.prompt = `portrait reference for ${defaults.name || 'Ava'}, clean lighting, wardrobe consistency, music-video friendly framing`
+      updateStepUI()
+      wizard.style.display = 'block'
+    }
+
+    function closeWizard() {
+      wizard.style.display = 'none'
+      console.log((state.mode === 'edit' ? 'Updated' : 'Created') + ' cast member: ' + state.fields.name)
+    }
+
+    window.chooseExisting = function chooseExisting() {
+      state.choice = 'existing'
+      updateStepUI()
+    }
+
+    window.chooseNew = function chooseNew() {
+      state.choice = 'new'
+      updateStepUI()
+    }
+
+    window.selectExistingImage = function selectExistingImage(label) {
+      state.selectedImage = label
+      updateStepUI()
+    }
+
+    window.setImageSize = function setImageSize(size) {
+      state.fields.imageSize = size
+      updateStepUI()
+    }
+
+    window.generateImage = function generateImage() {
+      state.fields.prompt = (document.getElementById('promptField')?.value) || state.fields.prompt
+      alert('Generating image...')
+    }
+
+    window.generateSheet = function generateSheet() {
+      alert('Generating...')
+    }
+
+    window.goBack = function goBack() {
+      state.step = Math.max(1, state.step - 1)
+      updateStepUI()
+    }
+
+    window.goNext = function goNext() {
+      if (state.step < 4) {
+        if (state.step === 2) {
+          const nameField = document.getElementById('nameField')
+          const slugField = document.getElementById('slugField')
+          const descField = document.getElementById('descField')
+          const roleField = document.getElementById('roleField')
+          if (nameField) state.fields.name = nameField.value
+          if (slugField) state.fields.slug = slugField.value
+          if (descField) state.fields.description = descField.value
+          if (roleField) state.fields.role = roleField.value
+        }
+        if (state.step === 3) {
+          const promptField = document.getElementById('promptField')
+          if (promptField) state.fields.prompt = promptField.value
+        }
+        if (state.step === 3 && state.choice === 'existing') {
+          closeWizard()
+          return
+        }
+        if (state.step === 3 && state.choice === 'new') {
+          state.step = 4
+          updateStepUI()
+          return
+        }
+        state.step += 1
+        updateStepUI()
+        return
+      }
+      closeWizard()
+    }
+
+    createBtn.addEventListener('click', () => openWizard('create', { choice: 'new' }))
     editBtns.forEach((btn) => {
-      btn.addEventListener('click', () => showWizard('edit', {
-        source: 'existing',
+      btn.addEventListener('click', () => openWizard('edit', {
+        choice: 'existing',
         name: btn.dataset.name,
         slug: btn.dataset.slug,
         role: btn.dataset.role,
       }))
     })
 
-    backBtn.addEventListener('click', () => {
-      state.step = Math.max(1, state.step - 1)
-      renderStep()
-    })
-
-    nextBtn.addEventListener('click', () => {
-      if (state.step < 4) {
-        if (state.step === 2) {
-          state.name = document.getElementById('nameField')?.value || state.name
-          state.slug = document.getElementById('slugField')?.value || state.slug
-          state.description = document.getElementById('descField')?.value || state.description
-          state.role = document.getElementById('roleField')?.value || state.role
-        }
-        state.step += 1
-        renderStep()
-        return
-      }
-      hideWizard()
-    })
-
     wizard.addEventListener('click', (event) => {
-      if (event.target === wizard) hideWizard()
+      if (event.target === wizard) closeWizard()
     })
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeWizard()
+    })
+
+    wizard.style.display = 'none'
   </script>
 </body>
 </html>
