@@ -945,6 +945,7 @@ export async function exportTimeline(options = {}, onProgress = () => {}) {
     : outputPath
   let framePipeSessionId = null
   let framePipeEncoderUsed = null
+  let segmentFramesFolder = null
   
   onProgress({ status: EXPORT_STATUS.preparing, progress: 2 })
   
@@ -1823,6 +1824,11 @@ export async function exportTimeline(options = {}, onProgress = () => {}) {
           if (!writeResult?.success) {
             throw new Error(writeResult?.error || 'Failed to write frame to FFmpeg pipe.')
           }
+        } else if (segmentFramesFolder) {
+          const frameBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'))
+          const frameBuffer = await frameBlob.arrayBuffer()
+          const framePath = await window.electronAPI.pathJoin(segmentFramesFolder, `frame_${formatFrameNumber(frameIndex + 1)}.png`)
+          await window.electronAPI.writeFileFromArrayBuffer(framePath, frameBuffer)
         } else {
           const frameBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'))
           const frameBuffer = await frameBlob.arrayBuffer()
@@ -1850,44 +1856,42 @@ export async function exportTimeline(options = {}, onProgress = () => {}) {
     const safeSegmentToken = String(segmentIndex).replaceAll('/', '_')
     const segmentDir = await window.electronAPI.pathJoin(tempFolder, `segment_${safeSegmentToken}`)
     await window.electronAPI.createDirectory(segmentDir)
+    const segmentFramesDir = await window.electronAPI.pathJoin(segmentDir, 'frames')
+    await window.electronAPI.createDirectory(segmentFramesDir)
     const segmentOutputPath = await window.electronAPI.pathJoin(segmentDir, `${safeSegmentToken}.mp4`)
-    const pipeStart = await window.electronAPI.startFramePipe({
-      width,
-      height,
-      fps,
-      outputPath: segmentOutputPath,
-      format: outputExtension,
-      duration: Math.max(0, segment.end - segment.start),
-      videoCodec,
-      proresProfile: format === 'prores' ? proresProfile : undefined,
-      useHardwareEncoder,
-      nvencPreset,
-      preset,
-      qualityMode,
-      crf,
-      bitrateKbps,
-      keyframeInterval,
-    })
-    if (!pipeStart?.success || !pipeStart.sessionId) {
-      throw new Error(pipeStart?.error || `Failed to start canvas segment pipe ${segmentIndex}.`)
-    }
-    const segmentSessionId = pipeStart.sessionId
+    const previousFramePipeSessionId = framePipeSessionId
+    const previousSegmentFramesFolder = segmentFramesFolder
+    segmentFramesFolder = segmentFramesDir
     try {
       for (let frameIndex = startFrame; frameIndex <= endFrame; frameIndex += 1) {
         await renderCanvasFrame(frameIndex)
       }
-      const pipeFinish = await window.electronAPI.finishFramePipe(segmentSessionId)
-      if (!pipeFinish?.success) {
-        throw new Error(pipeFinish?.error || `Failed to finish canvas segment ${segmentIndex}.`)
+      const framePattern = await window.electronAPI.pathJoin(segmentFramesDir, 'frame_%06d.png')
+      const encodeResult = await window.electronAPI.encodeVideo({
+        framePattern,
+        fps,
+        outputPath: segmentOutputPath,
+        format: outputExtension,
+        duration: Math.max(0, segment.end - segment.start),
+        videoCodec,
+        proresProfile: format === 'prores' ? proresProfile : undefined,
+        useHardwareEncoder,
+        nvencPreset,
+        preset,
+        qualityMode,
+        crf,
+        bitrateKbps,
+        keyframeInterval,
+      })
+      if (!encodeResult?.success) {
+        throw new Error(encodeResult?.error || `Failed to encode canvas segment ${segmentIndex}.`)
       }
       return segmentOutputPath
     } catch (error) {
-      try {
-        await window.electronAPI.abortFramePipe(segmentSessionId)
-      } catch {
-        // ignore abort errors
-      }
       throw error
+    } finally {
+      framePipeSessionId = previousFramePipeSessionId
+      segmentFramesFolder = previousSegmentFramesFolder
     }
   }
 
@@ -2340,7 +2344,13 @@ export async function exportTimeline(options = {}, onProgress = () => {}) {
   })
   
   if (!stitchResult?.success) {
-    throw new Error('Failed to stitch export segments.')
+    const stitchError = stitchResult?.encodeResult?.error
+      || stitchResult?.muxResult?.error
+      || stitchResult?.encodeResult?.errorMessage
+      || stitchResult?.muxResult?.errorMessage
+      || 'Unknown stitch failure.'
+    console.error('[Export] Stitch failed:', stitchResult)
+    throw new Error(`Failed to stitch export segments: ${stitchError}`)
   }
   if (stitchResult?.encodeResult?.encoderUsed) {
     console.log(`Export encoded with: ${stitchResult.encodeResult.encoderUsed}`)

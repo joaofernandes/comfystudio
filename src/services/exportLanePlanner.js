@@ -1,3 +1,6 @@
+import { cullVisualLayerEntries, getTransitionClipIds } from '../utils/layerCompositing'
+import { isGlslEffectType } from '../utils/glslEffects'
+
 const roundUs = (n) => Math.round(n * 1000000) / 1000000
 
 const getSortedCutPoints = ({ timelineState, rangeStart, rangeEnd }) => {
@@ -37,7 +40,16 @@ const isCanvasOnlyClip = (clip) => clip?.type === 'text' || clip?.type === 'adju
 
 const isCanvasOnlyEffect = (effect) => {
   if (!effect || effect.enabled === false) return false
-  return ['mask', 'chromaticAberration', 'sharpen', 'filmGrain', 'vhsDamage', 'glow', 'vignette', 'letterbox'].includes(effect.type)
+  return [
+    'mask',
+    'chromaticAberration',
+    'sharpen',
+    'filmGrain',
+    'vhsDamage',
+    'glow',
+    'vignette',
+    'letterbox',
+  ].includes(effect.type) || isGlslEffectType(effect.type)
 }
 
 const isGlobalCanvasReason = (clip, activeEntries, timelineState) => {
@@ -65,8 +77,93 @@ const isGlobalCanvasReason = (clip, activeEntries, timelineState) => {
   return false
 }
 
+const getTransitionWindow = (transition, clipA, clipB) => {
+  if (!transition || !clipA || !clipB) return null
+  const duration = Number(transition.duration)
+  if (!Number.isFinite(duration) || duration <= 0) return null
+
+  const overlapStart = Number(clipB.startTime) || 0
+  const overlapEnd = (Number(clipA.startTime) || 0) + (Number(clipA.duration) || 0)
+  if (overlapEnd > overlapStart + 1e-6) {
+    return { start: overlapStart, end: overlapEnd, mode: 'overlap' }
+  }
+
+  const editPoint = Number(transition.editPoint)
+  if (Number.isFinite(editPoint)) {
+    return { start: editPoint, end: editPoint + duration, mode: 'cut' }
+  }
+
+  return { start: overlapStart, end: overlapStart + duration, mode: 'fallback' }
+}
+
 const laneForScope = ({ activeEntries, segmentStart, segmentEnd, timelineState, segmentTime }) => {
+  const transitionInfo = typeof timelineState?.getTransitionAtTime === 'function'
+    ? timelineState.getTransitionAtTime(segmentTime)
+    : null
   const clips = (activeEntries || []).map((entry) => entry?.clip).filter(Boolean)
+
+  if (transitionInfo) {
+    const transitionTrackIds = [transitionInfo.clip?.trackId, transitionInfo.clipA?.trackId, transitionInfo.clipB?.trackId].filter(Boolean)
+    const visibleTransition = transitionTrackIds.length === 0
+      ? true
+      : transitionTrackIds.some((trackId) => {
+          const track = Array.isArray(timelineState?.tracks)
+            ? timelineState.tracks.find((t) => t.id === trackId)
+            : null
+          return track?.visible !== false && track?.muted !== true
+        })
+
+    if (visibleTransition) {
+      return {
+        lane: 'canvas',
+        reasons: [
+          `transition:${transitionInfo.transition?.id || 'unknown'} type:${transitionInfo.transition?.type || 'unknown'}`,
+        ],
+        global: false,
+      }
+    }
+  }
+
+  const visibleClips = cullVisualLayerEntries(activeEntries || [], {
+    time: segmentTime,
+    getAssetById: timelineState?.getAssetById,
+    transitionClipIds: getTransitionClipIds(transitionInfo),
+    timelineWidth: timelineState?.width,
+    timelineHeight: timelineState?.height,
+  })
+
+  if (visibleClips.length > 1) {
+    return {
+      lane: 'canvas',
+      reasons: [
+        `layers:${visibleClips.length}`,
+      ],
+      global: true,
+    }
+  }
+
+  const transitions = Array.isArray(timelineState?.transitions) ? timelineState.transitions : []
+  const clipsById = Array.isArray(timelineState?.clips) ? new Map(timelineState.clips.map((clip) => [clip.id, clip])) : new Map()
+  const cutAnchoredTransition = transitions.find((transition) => {
+    if (!transition || transition.kind !== 'between') return false
+    const clipA = clipsById.get(transition.clipAId)
+    const clipB = clipsById.get(transition.clipBId)
+    if (!clipA || !clipB) return false
+    const window = getTransitionWindow(transition, clipA, clipB)
+    if (!window) return false
+    return segmentTime >= window.start && segmentTime < window.end
+  })
+
+  if (cutAnchoredTransition) {
+    return {
+      lane: 'canvas',
+      reasons: [
+        `transition:${cutAnchoredTransition.id || 'unknown'} type:${cutAnchoredTransition.type || 'unknown'}`,
+      ],
+      global: false,
+    }
+  }
+
   if (clips.some((clip) => isCanvasOnlyClip(clip))) {
     return { lane: 'canvas', reasons: clips.filter(isCanvasOnlyClip).map((clip) => `clip:${clip.id || 'unknown'} type:${clip.type}`), global: true }
   }
