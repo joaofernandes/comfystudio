@@ -6,7 +6,7 @@ import {
   Diamond, Zap, AlertTriangle, Loader2, ChevronLeft, ChevronRight, Maximize2, Flag, Scissors, Clock,
   Copy, ClipboardPaste, Trash2,
 } from 'lucide-react'
-import useTimelineStore, { isSyncLockedClip } from '../stores/timelineStore'
+import useTimelineStore, { buildClipSyncLock, isMusicVideoSyncCapableClip, isSyncLockedClip } from '../stores/timelineStore'
 import useProjectStore from '../stores/projectStore'
 import renderCacheService from '../services/renderCache'
 import { deleteRenderCache } from '../services/fileSystem'
@@ -744,6 +744,8 @@ function Timeline({ isActive = true, onOpenAudioGenerate, onActiveToolChange }) 
     getLinkedClipIds,
     linkSelectedClips,
     unlinkSelectedClips,
+    lockSyncClips,
+    unlockSyncLockedClips,
     addMarker,
     removeMarker,
     selectMarker,
@@ -760,6 +762,10 @@ function Timeline({ isActive = true, onOpenAudioGenerate, onActiveToolChange }) 
     canRedoTimelineStructureChange,
     projectHistoryLastChangedAt,
   } = useProjectStore()
+  // Assets store needs to be available before we derive sync-lock state.
+  // The sync-lock helpers below read asset metadata during render, so keep
+  // this destructure above any memo that uses getAssetById.
+  const { assets, currentPreview, setPreviewMode, getAssetUrl, getAssetById, updateAsset, isPlaying: assetIsPlaying, setIsPlaying: setAssetIsPlaying, folders, addFolder, addAsset, removeAsset } = useAssetsStore()
   const timelineFps = getCurrentTimelineSettings()?.fps
   const timecodeFps = Number.isFinite(Number(timelineFps)) && Number(timelineFps) > 0
     ? Number(timelineFps)
@@ -923,6 +929,29 @@ function Timeline({ isActive = true, onOpenAudioGenerate, onActiveToolChange }) 
       .filter(Boolean),
     [clips, clipContextSelectionIds]
   )
+  const isSyncCapableClip = useCallback((clip) => {
+    const asset = clip.assetId ? getAssetById(clip.assetId) : null
+    return isMusicVideoSyncCapableClip(clip, asset)
+  }, [getAssetById])
+  const clipContextSyncEligibleClips = useMemo(
+    () => clipContextSelectionClips.filter((clip) => isSyncCapableClip(clip)),
+    [clipContextSelectionClips, isSyncCapableClip]
+  )
+  const clipContextSyncLockByClipId = useMemo(() => (
+    clipContextSyncEligibleClips.reduce((acc, clip) => {
+      const asset = clip.assetId ? getAssetById(clip.assetId) : null
+      const syncLock = buildClipSyncLock({ clip, asset, fps: timecodeFps })
+      if (syncLock) {
+        acc[clip.id] = syncLock
+      }
+      return acc
+    }, {})
+  ), [buildClipSyncLock, clipContextSyncEligibleClips, getAssetById, timecodeFps])
+  const clipContextAllSyncLocked = useMemo(
+    () => clipContextSyncEligibleClips.length > 0
+      && clipContextSyncEligibleClips.every((clip) => isSyncLockedClip(clip)),
+    [clipContextSyncEligibleClips]
+  )
   const clipContextLinkedGroupIds = useMemo(
     () => [...new Set(clipContextSelectionClips.map((clip) => clip.linkGroupId).filter(Boolean))],
     [clipContextSelectionClips]
@@ -1075,9 +1104,6 @@ function Timeline({ isActive = true, onOpenAudioGenerate, onActiveToolChange }) 
   
   // Snapping hook
   const { snapClipPosition, snapTrim, pixelsPerSecond: snapPixelsPerSecond } = useSnapping()
-
-  // Assets store for drag & drop and preview mode
-  const { assets, currentPreview, setPreviewMode, getAssetUrl, getAssetById, updateAsset, isPlaying: assetIsPlaying, setIsPlaying: setAssetIsPlaying, folders, addFolder, addAsset, removeAsset } = useAssetsStore()
 
   // Timeline-wide caption workspace state. We mount CaptionWorkspace at the
   // timeline level (rather than per-asset in AssetsPanel) so captions can span
@@ -2539,7 +2565,7 @@ function Timeline({ isActive = true, onOpenAudioGenerate, onActiveToolChange }) 
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [toggleSnapping, toggleRippleEdit, addMarker, selectedClipIds, selectedGap, selectedTransitionId, selectedMarkerId, removeSelectedClips, rippleDeleteSelectedClips, rippleDeleteSelectedGap, removeTransition, removeMarker, clearSelection, selectMarker, clips, handleUndoAction, handleRedoAction, activeTrackId, playheadPosition, saveToHistory, resizeClip, addClip, addTextClip, addTextClipAtPlayhead, addAdjustmentClip, updateClipTrim, assets, timelineFps, copySelectedClips, pasteClipsAtPlayhead, copiedClips, selectClipsFromPlayheadToEnd, selectClipsFromTimelineStartToPlayhead, splitClipAtTime, splitAllTracksAtPlayhead, openMoveOffsetDialog, openDurationDeltaDialog, moveOffsetDialogOpen, durationDeltaDialogOpen, editorHotkeys, linkSelectedClips, unlinkSelectedClips, toggleClipSelectionEnabled, applyZoomWithPlayheadPivot, zoom, rippleEditMode, activeTrackClipAtPlayhead, canDeleteCurrentSelection, handleCopySelection, handleDeleteCurrentSelection, handlePasteAtPlayhead, handleSplitActiveTrackAtPlayhead, jumpPlayheadToClipBoundary, jumpPlayheadToMarker, isActive])
+  }, [toggleSnapping, toggleRippleEdit, addMarker, selectedClipIds, selectedGap, selectedTransitionId, selectedMarkerId, removeSelectedClips, rippleDeleteSelectedClips, rippleDeleteSelectedGap, removeTransition, removeMarker, clearSelection, selectMarker, clips, handleUndoAction, handleRedoAction, activeTrackId, playheadPosition, saveToHistory, resizeClip, addClip, addTextClip, addTextClipAtPlayhead, addAdjustmentClip, updateClipTrim, assets, timelineFps, copySelectedClips, pasteClipsAtPlayhead, copiedClips, selectClipsFromPlayheadToEnd, selectClipsFromTimelineStartToPlayhead, splitClipAtTime, splitAllTracksAtPlayhead, openMoveOffsetDialog, openDurationDeltaDialog, moveOffsetDialogOpen, durationDeltaDialogOpen, editorHotkeys, linkSelectedClips, unlinkSelectedClips, lockSyncClips, unlockSyncLockedClips, toggleClipSelectionEnabled, applyZoomWithPlayheadPivot, zoom, rippleEditMode, activeTrackClipAtPlayhead, canDeleteCurrentSelection, handleCopySelection, handleDeleteCurrentSelection, handlePasteAtPlayhead, handleSplitActiveTrackAtPlayhead, jumpPlayheadToClipBoundary, jumpPlayheadToMarker, clipContextSyncEligibleClips, clipContextSyncLockByClipId, clipContextAllSyncLocked, isActive])
 
   // Spacebar panning key state (dedicated listeners so keyup cannot get "stuck")
   useEffect(() => {
@@ -3271,6 +3297,17 @@ function Timeline({ isActive = true, onOpenAudioGenerate, onActiveToolChange }) 
       case 'unlink-selection':
         unlinkSelectedClips()
         break
+      case 'sync-toggle': {
+        const targetIds = clipContextSyncEligibleClips.length > 0
+          ? clipContextSyncEligibleClips.map((targetClip) => targetClip.id)
+          : (clipContextSelectionIds.length > 0 ? clipContextSelectionIds : [clip.id])
+        if (clipContextAllSyncLocked) {
+          unlockSyncLockedClips(targetIds)
+        } else {
+          lockSyncClips(targetIds, clipContextSyncLockByClipId)
+        }
+        break
+      }
       case 'split':
         handleSplitClipAtPlayhead(clip)
         break
@@ -6478,6 +6515,22 @@ function Timeline({ isActive = true, onOpenAudioGenerate, onActiveToolChange }) 
             <span>Unlink Selected</span>
             <span className="ml-auto text-sf-text-muted text-[10px]">{unlinkHotkeyLabel}</span>
           </button>
+          {clipContextSyncEligibleClips.length > 0 && (
+            <button
+              onClick={() => handleContextMenuAction('sync-toggle')}
+              className="w-full px-3 py-1.5 text-left text-xs text-sf-text-primary hover:bg-sf-dark-700 flex items-center gap-2 transition-colors"
+              title={clipContextAllSyncLocked
+                ? 'Convert synced performance clips back into normal timeline clips'
+                : 'Lock synced performance clips to their song timing'}
+            >
+              {clipContextAllSyncLocked ? (
+                <Unlock className="w-3 h-3" />
+              ) : (
+                <Lock className="w-3 h-3" />
+              )}
+              <span>{clipContextAllSyncLocked ? 'Unlock Sync' : 'Lock Sync'}</span>
+            </button>
+          )}
           <button
             onClick={() => { copySelectedClips(); setClipContextMenu(null) }}
             className="w-full px-3 py-1.5 text-left text-xs text-sf-text-primary hover:bg-sf-dark-700 flex items-center gap-2 transition-colors"

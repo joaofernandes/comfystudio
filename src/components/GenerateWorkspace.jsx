@@ -7919,7 +7919,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
           const assembly = clip?.metadata?.musicVideoAssembly || null
           if (assembly?.mode === MUSIC_VIDEO_TIMELINE_ASSEMBLY_MODE && assembly?.kind === 'video') return true
           const asset = clip?.assetId ? projectAssetById.get(clip.assetId) : null
-          return asset?.yolo?.mode === 'music' && asset?.yolo?.stage === 'video'
+          const yolo = asset?.yolo || asset?.settings?.yolo || null
+          return yolo?.mode === 'music' && yolo?.stage === 'video'
         })
         .map(getMusicVideoClipAssemblyKey)
         .filter(Boolean)
