@@ -905,6 +905,11 @@ export function hasPixelFilterEffect(effects) {
     ))
 }
 
+export function hasBlurEffect(effects) {
+  return Array.isArray(effects)
+    && effects.some((e) => e && e.enabled !== false && (e.type === 'gaussianBlur' || e.type === 'directionalBlur'))
+}
+
 export function hasGlowEffect(effects) {
   return Array.isArray(effects)
     && effects.some((e) => e && e.enabled !== false && (e.type === 'glow' || e.type === 'halation'))

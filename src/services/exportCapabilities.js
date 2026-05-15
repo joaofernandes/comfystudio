@@ -14,6 +14,8 @@ const FFMPEG_SUPPORTED_TRANSITIONS = new Set([
 
 const CANVAS_ONLY_EFFECTS = new Set([
   'mask',
+  'gaussianBlur',
+  'directionalBlur',
   'chromaticAberration',
   'sharpen',
   'filmGrain',

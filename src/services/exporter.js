@@ -13,6 +13,7 @@ import { getAudioClipFadeGain, getAudioClipFadeValues } from '../utils/audioClip
 import { getAudioClipLinearGain, normalizeAudioClipGainDb } from '../utils/audioClipGain'
 import {
   applyEffectsToTransform,
+  applyBlurPassesToCanvas,
   applyGlowPassesToCanvas,
   applyPixelEffectsToImageData,
   drawLetterboxOverlay,
@@ -20,6 +21,7 @@ import {
   getActiveLetterboxEffect,
   getActiveVignetteEffect,
   hasGlowEffect,
+  hasBlurEffect,
   hasLetterboxEffect,
   hasPixelFilterEffect,
   hasVignetteEffect,
@@ -576,6 +578,7 @@ const hasManagedPixelOrVignetteEffect = (clip, clipTime) => {
   if (!clip) return false
   const effects = clip.effects || []
   return hasPixelFilterEffect(effects, clipTime)
+    || hasBlurEffect(effects)
     || hasGlslEffect(effects)
     || hasVignetteEffect(effects, clipTime)
     || hasLetterboxEffect(effects, clipTime)
@@ -613,6 +616,7 @@ const applyClipManagedEffectsToOffCanvas = (offCanvas, offCtx, width, height, cl
   if (hasGlowEffect(effects)) {
     applyGlowPassesToCanvas(offCanvas, offCtx, width, height, effects, clipTime)
   }
+  applyBlurPassesToCanvas(offCanvas, offCtx, width, height, effects, clipTime)
   if (hasGlslEffect(effects)) {
     applyGlslEffectsToCanvas(offCanvas, offCtx, width, height, effects, clipTime, glslQualityScale)
   }

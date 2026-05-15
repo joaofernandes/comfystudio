@@ -42,6 +42,8 @@ const isCanvasOnlyEffect = (effect) => {
   if (!effect || effect.enabled === false) return false
   return [
     'mask',
+    'gaussianBlur',
+    'directionalBlur',
     'chromaticAberration',
     'sharpen',
     'filmGrain',
