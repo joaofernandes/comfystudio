@@ -8332,6 +8332,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     effectiveImageResolution.width,
     yoloMusicArtistAsset,
     yoloMusicArtistAsset?.id,
+    yoloMusicResolvedCast,
     yoloMusicQualityProfile,
     yoloMusicResolvedCast,
     yoloNormalizedAdStoryboardTier,
