@@ -5,6 +5,13 @@ const DEFAULT_WIDTH = 360
 const DEFAULT_HEIGHT = 204
 const DEFAULT_QUALITY = 78
 const pendingThumbnails = new Map()
+let thumbnailQueue = Promise.resolve()
+
+function enqueueThumbnailJob(job) {
+  const run = thumbnailQueue.then(() => job())
+  thumbnailQueue = run.catch(() => {})
+  return run
+}
 
 function hashString(value) {
   let hash = 5381
@@ -50,9 +57,11 @@ function getThumbnailKey(asset, options) {
 }
 
 export async function getExistingImageThumbnail(projectHandle, asset, options = {}) {
+  if (!asset || asset.type !== 'image') return null
   const sourceUrl = asset?.url || asset?.thumbnailUrl || ''
-  if (!sourceUrl) return null
-  if (!isElectron() || !projectHandle || !window.electronAPI?.createImageThumbnail) {
+  const sourcePath = getSourcePath(projectHandle, asset)
+  if (!sourceUrl && !sourcePath) return null
+  if (!isElectron() || !projectHandle || !window.electronAPI?.pathJoin) {
     return null
   }
 
@@ -74,10 +83,12 @@ export async function getExistingImageThumbnail(projectHandle, asset, options = 
 }
 
 export async function getOrCreateImageThumbnail(projectHandle, asset, options = {}) {
+  if (!asset || asset.type !== 'image') return null
   const sourceUrl = asset?.url || asset?.thumbnailUrl || ''
-  if (!sourceUrl) return null
+  const sourcePath = getSourcePath(projectHandle, asset)
+  if (!sourceUrl && !sourcePath) return null
   if (!isElectron() || !projectHandle || !window.electronAPI?.createImageThumbnail) {
-    return sourceUrl
+    return sourceUrl || null
   }
 
   const width = Math.max(1, Math.round(Number(options.width) || DEFAULT_WIDTH))
@@ -87,7 +98,7 @@ export async function getOrCreateImageThumbnail(projectHandle, asset, options = 
   const pendingKey = `${projectHandle}|${key}`
   if (pendingThumbnails.has(pendingKey)) return pendingThumbnails.get(pendingKey)
 
-  const promise = (async () => {
+  const promise = enqueueThumbnailJob(async () => {
     try {
       const thumbDir = await window.electronAPI.pathJoin(projectHandle, IMAGE_THUMB_DIR)
       await window.electronAPI.createDirectory(thumbDir)
@@ -98,7 +109,7 @@ export async function getOrCreateImageThumbnail(projectHandle, asset, options = 
 
       const sourcePath = await getSourcePath(projectHandle, asset)
       if (!sourcePath || !(await window.electronAPI.exists(sourcePath))) {
-        return sourceUrl
+        return sourceUrl || null
       }
 
       const result = await window.electronAPI.createImageThumbnail({
@@ -110,16 +121,16 @@ export async function getOrCreateImageThumbnail(projectHandle, asset, options = 
       })
       if (!result?.success) {
         console.warn('Image thumbnail generation failed:', result?.error || 'Unknown error')
-        return sourceUrl
+        return sourceUrl || null
       }
       return await window.electronAPI.getFileUrlDirect(outputPath)
     } catch (error) {
       console.warn('Image thumbnail lookup failed:', error)
-      return sourceUrl
+      return sourceUrl || null
     } finally {
       pendingThumbnails.delete(pendingKey)
     }
-  })()
+  })
 
   pendingThumbnails.set(pendingKey, promise)
   return promise
