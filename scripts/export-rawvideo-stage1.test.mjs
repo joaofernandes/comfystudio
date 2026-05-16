@@ -6,6 +6,7 @@ import { buildExportFramePlan } from '../src/services/exportFramePlan.mjs'
 import { resolveExportRange } from '../src/services/exportRange.mjs'
 import { getClipsOverlappingRange, getClippedClipsForRange } from '../src/services/exportPlanValidation.js'
 import { getSelectionScopedExportClips } from '../src/services/exportRange.mjs'
+import { analyzeExportCapabilities } from '../src/services/exportCapabilities.js'
 import {
   createExportTimelineQueries,
   getExportActiveClipsAtTime,
@@ -158,4 +159,27 @@ test('export timeline queries use the scoped timeline state instead of the live 
   assert.deepEqual(getExportActiveClipsAtTime(state, 1).map((entry) => entry.clip.id), ['clip-a', 'adj-a'])
   assert.deepEqual(queries.getActiveClipsAtTime(5).map((entry) => entry.clip.id), ['clip-b', 'adj-a'])
   assert.equal(getExportTransitionAtTime(state, 5), null)
+})
+
+test('export capabilities classify VHS-look GLSL effects as canvas-only', () => {
+  const result = analyzeExportCapabilities({
+    timelineState: {
+      clips: [
+        {
+          id: 'clip-a',
+          type: 'video',
+          trackId: 'video-1',
+          startTime: 0,
+          duration: 4,
+          effects: [
+            { id: 'fx-a', type: 'glslVhsLook', enabled: true },
+          ],
+        },
+      ],
+      transitions: [],
+    },
+  })
+
+  assert.equal(result.ffmpegSafe, false)
+  assert.ok(result.reasons.some((reason) => reason.includes('glslVhsLook')))
 })

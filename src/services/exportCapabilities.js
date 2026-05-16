@@ -1,3 +1,5 @@
+import { isGlslEffectType } from '../utils/glslEffects.js'
+
 const FFMPEG_SUPPORTED_TRANSITIONS = new Set([
   'dissolve',
   'fade-black',
@@ -47,7 +49,7 @@ export const analyzeExportCapabilities = ({ timelineState }) => {
     const effects = Array.isArray(clip.effects) ? clip.effects : []
     for (const effect of effects) {
       if (!isEnabledEffect(effect)) continue
-      if (CANVAS_ONLY_EFFECTS.has(effect.type)) {
+      if (CANVAS_ONLY_EFFECTS.has(effect.type) || isGlslEffectType(effect.type)) {
         reasons.push(`clip:${clip.id || 'unknown'} effect:${effect.type}`)
       }
     }

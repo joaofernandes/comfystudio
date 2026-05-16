@@ -1128,7 +1128,7 @@ export async function exportTimeline(options = {}, onProgress = () => {}) {
 
     for (const clip of visibleClips) {
       if (clip.type === 'video' && clip.reverse) rejectionReasons.push(`clip:${clip.id || 'unknown'} reverse`)
-      if ((clip.effects || []).some((effect) => effect?.enabled !== false && ['mask', 'chromaticAberration', 'sharpen', 'filmGrain', 'vhsDamage', 'glow', 'vignette', 'letterbox'].includes(effect.type))) {
+      if ((clip.effects || []).some((effect) => effect?.enabled !== false && ['mask', 'chromaticAberration', 'sharpen', 'filmGrain', 'vhsDamage', 'glow', 'vignette', 'letterbox', 'glslCameraShake', 'glslDirectionalBlur', 'glslLensBlur', 'glslFisheye', 'glslChromaWarp', 'glslDigitalGlitch', 'glslSharpen', 'glslFilmGrain', 'glslFilmLook', 'glslFlicker', 'glslVhsLook', 'glslVignette'].includes(effect.type))) {
         rejectionReasons.push(`clip:${clip.id || 'unknown'} unsupported-effect`)
       }
       if (clip?.transform?.blendMode && clip.transform.blendMode !== 'normal') rejectionReasons.push(`clip:${clip.id || 'unknown'} blendMode:${clip.transform.blendMode}`)

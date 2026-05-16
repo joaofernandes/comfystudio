@@ -13,7 +13,7 @@
  * `effect.<effectId>.<paramKey>` on the clip's keyframe map.
  */
 
-import { getValueAtTime } from './keyframes'
+import { getValueAtTime } from './keyframes.js'
 
 const clampNumber = (value, min, max, fallback = 0) => {
   const parsed = Number(value)
