@@ -5162,26 +5162,26 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
 
   const handleRequeueFailedJob = useCallback((failedJob) => {
     if (!failedJob || failedJob.status !== 'error') return
-    const nextId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-    const nextJob = {
-      ...failedJob,
-      id: nextId,
-      createdAt: Date.now(),
-      status: 'queued',
-      progress: 0,
-      error: undefined,
-      node: undefined,
-      promptId: undefined,
-      resultAssetIds: undefined,
-      restoredFromLedger: undefined,
-      isCombiningAngles: undefined,
-      combineError: undefined,
-      retryOfJobId: failedJob.id,
-      retryCount: (Number(failedJob.retryCount) || 0) + 1,
-    }
+    const retryCount = (Number(failedJob.retryCount) || 0) + 1
     startedJobIdsRef.current.delete(failedJob.id)
-    setGenerationQueue(prev => [...prev, nextJob])
-    addComfyLog('status', `Requeued failed job: ${failedJob.workflowLabel || failedJob.workflowId || failedJob.id}`)
+    setGenerationQueue(prev => prev.map((job) => {
+      if (job.id !== failedJob.id) return job
+      return {
+        ...job,
+        status: 'queued',
+        progress: 0,
+        error: undefined,
+        node: undefined,
+        promptId: undefined,
+        resultAssetIds: undefined,
+        restoredFromLedger: undefined,
+        isCombiningAngles: undefined,
+        combineError: undefined,
+        retryCount,
+        retryOfJobId: failedJob.retryOfJobId || failedJob.id,
+      }
+    }))
+    addComfyLog('status', `Retrying failed job: ${failedJob.workflowLabel || failedJob.workflowId || failedJob.id}`)
   }, [addComfyLog])
 
   const createQueuedJob = useCallback((overrides = {}) => {
@@ -12647,8 +12647,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                             type="button"
                             onClick={() => handleRequeueFailedJob(job)}
                             className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded border border-sf-dark-600 bg-sf-dark-700 text-sf-text-muted transition-colors hover:border-sf-accent/50 hover:bg-sf-dark-600 hover:text-sf-text-primary"
-                            title="Requeue this failed job"
-                            aria-label="Requeue failed job"
+                            title="Retry this failed job"
+                            aria-label="Retry failed job"
                           >
                             <RefreshCw className="h-3.5 w-3.5" />
                           </button>
