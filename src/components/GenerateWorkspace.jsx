@@ -21,7 +21,7 @@ import useProjectStore from '../stores/projectStore'
 import useTimelineStore from '../stores/timelineStore'
 import { useFrameForAIStore } from '../stores/frameForAIStore'
 import { BUILTIN_WORKFLOW_PATHS } from '../config/workflowRegistry'
-import { comfyui } from '../services/comfyui'
+import { comfyui, validateCustomKeyframeWorkflow, validateCustomVideoWorkflow } from '../services/comfyui'
 import { markPromptHandledByApp } from '../services/comfyPromptGuard'
 import {
   getProjectFileUrl,
@@ -39,12 +39,14 @@ import {
   parseStructuredDirectorScript,
 } from '../utils/yoloPlanning'
 import { checkWorkflowDependencies, buildMissingDependencyClipboardText } from '../services/workflowDependencies'
-import { openBundledWorkflowInComfyUi } from '../services/workflowSetupManager'
+import { openApiWorkflowInComfyUi, openBundledWorkflowInComfyUi } from '../services/workflowSetupManager'
 import {
   getComfyLauncherSnapshot,
   isComfyLauncherAvailable,
+  restartComfyLauncher,
   startComfyLauncher,
   subscribeComfyLauncherState,
+  waitForComfyLauncherState,
 } from '../services/comfyLauncher'
 import {
   GENERATE_WORKFLOW_CATALOG,
@@ -53,6 +55,10 @@ import {
 import {
   ACTIVE_JOB_STATUSES,
   CATEGORY_ORDER,
+  CUSTOM_GENERATE_IMAGE_WORKFLOW_ID,
+  CUSTOM_GENERATE_VIDEO_WORKFLOW_ID,
+  CUSTOM_MUSIC_KEYFRAME_WORKFLOW_ID,
+  CUSTOM_MUSIC_VIDEO_WORKFLOW_ID,
   DIRECTOR_MODE_BETA_LABEL,
   GENERATED_ASSET_FOLDERS,
   HARDWARE_TIERS,
@@ -146,6 +152,54 @@ const DIRECTOR_SUBTABS = [
   },
 ]
 
+const EMPTY_CUSTOM_KEYFRAME_WORKFLOW = Object.freeze({
+  name: '',
+  jsonText: '',
+  updatedAt: 0,
+})
+
+const COMFYSTUDIO_BRIDGE_SOURCE = 'comfystudio-comfyui-bridge'
+const EMPTY_COMFYSTUDIO_BRIDGE_STATUS = Object.freeze({
+  state: 'unknown',
+  installed: false,
+  version: '',
+  expectedVersion: '',
+  targetDir: '',
+  comfyRootPath: '',
+  customNodesPath: '',
+  message: 'Bridge status has not been checked yet.',
+  error: '',
+  restartRequired: false,
+})
+
+function normalizeCustomKeyframeWorkflow(value) {
+  if (!value || typeof value !== 'object') return { ...EMPTY_CUSTOM_KEYFRAME_WORKFLOW }
+  return {
+    name: String(value.name || '').trim(),
+    jsonText: String(value.jsonText || ''),
+    updatedAt: Number(value.updatedAt) || 0,
+  }
+}
+
+function normalizeComfyStudioBridgeStatus(value) {
+  if (!value || typeof value !== 'object') return { ...EMPTY_COMFYSTUDIO_BRIDGE_STATUS }
+  const state = String(value.state || (value.installed ? 'installed' : 'not_installed') || 'unknown').trim()
+  return {
+    ...EMPTY_COMFYSTUDIO_BRIDGE_STATUS,
+    ...value,
+    state: state || 'unknown',
+    installed: Boolean(value.installed),
+    version: String(value.version || ''),
+    expectedVersion: String(value.expectedVersion || ''),
+    targetDir: String(value.targetDir || ''),
+    comfyRootPath: String(value.comfyRootPath || ''),
+    customNodesPath: String(value.customNodesPath || ''),
+    message: String(value.message || value.error || EMPTY_COMFYSTUDIO_BRIDGE_STATUS.message),
+    error: String(value.error || ''),
+    restartRequired: Boolean(value.restartRequired),
+  }
+}
+
 const SINGLE_VIDEO_WORKFLOW_IDS = new Set([
   'wan22-i2v',
   'ltx23-i2v',
@@ -156,6 +210,8 @@ const SINGLE_VIDEO_WORKFLOW_IDS = new Set([
   'grok-video-i2v',
   'vidu-q2-i2v',
   MUSIC_VIDEO_SHOT_WORKFLOW_ID,
+  CUSTOM_MUSIC_VIDEO_WORKFLOW_ID,
+  CUSTOM_GENERATE_VIDEO_WORKFLOW_ID,
 ])
 
 const WORKFLOW_RUNTIME_GROUPS = Object.freeze({
@@ -676,6 +732,8 @@ function getDirectorWorkflowShortToken(workflowId = '', stage = '') {
       return 'vidu'
     case MUSIC_VIDEO_SHOT_WORKFLOW_ID:
       return 'ltx23_audio'
+    case CUSTOM_MUSIC_VIDEO_WORKFLOW_ID:
+      return 'custom_video'
     case SHORT_FILM_DIALOGUE_VIDEO_WORKFLOW_ID:
       return 'ltx23_dialogue'
     case 'nano-banana-2':
@@ -715,6 +773,23 @@ function buildDirectorAssetDisplayName(directorMeta, workflowId = '') {
   return [sceneToken, shotToken, angleToken, takeToken, passToken, workflowToken]
     .filter(Boolean)
     .join('_')
+}
+
+function buildDirectorGeneratedFolderName(directorMeta, workflowId = '', mediaKind = '') {
+  if (!directorMeta || directorMeta?.mode !== 'music') return ''
+  const normalizedWorkflowId = String(directorMeta?.workflowId || workflowId || '').trim()
+  if (
+    normalizedWorkflowId === CUSTOM_MUSIC_KEYFRAME_WORKFLOW_ID
+    || normalizedWorkflowId === CUSTOM_MUSIC_VIDEO_WORKFLOW_ID
+  ) {
+    return 'MVC Custom Workflow'
+  }
+
+  const stage = String(directorMeta?.stage || '').trim()
+  if (stage === 'storyboard' || mediaKind === 'image') return 'MVC Keyframes'
+  if (stage === 'video' || mediaKind === 'video') return 'MVC Video'
+  if (mediaKind === 'audio') return 'MVC Audio'
+  return 'MVC'
 }
 
 function clampNumberValue(value, min, max, fallback) {
@@ -2537,36 +2612,113 @@ async function extractFrameAsFile(videoUrl, time, filename = 'frame.png') {
   })
 }
 
+const GENERATE_WORKSPACE_LEGACY_STORAGE_KEY = 'generate-workspace-state'
+const GENERATE_WORKSPACE_PROJECT_STORAGE_PREFIX = 'generate-workspace-state:project:'
+
+function migrateGenerateWorkspaceState(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const migrated = { ...value }
+  if (migrated.workflowId === 'nano-banana-pro') {
+    migrated.workflowId = 'nano-banana-2'
+  }
+  if (migrated.workflowId === 'ltx2-t2v' || migrated.workflowId === 'ltx2-i2v') {
+    migrated.workflowId = 'wan22-i2v'
+  }
+  if (migrated.yoloVideoWorkflowTarget === 'ltx2-i2v' || migrated.yoloVideoWorkflowTarget === 'both') {
+    migrated.yoloVideoWorkflowTarget = 'wan22-i2v'
+  }
+  return migrated
+}
+
+function getGenerateWorkspaceProjectScope(projectHandle, project) {
+  if (typeof projectHandle === 'string' && projectHandle.trim()) {
+    return `path:${projectHandle.trim()}`
+  }
+  if (project?.created) return `created:${project.created}`
+  if (project?.name) return `name:${project.name}`
+  return ''
+}
+
+function getGenerateWorkspaceProjectStorageKey(projectScope) {
+  return projectScope ? `${GENERATE_WORKSPACE_PROJECT_STORAGE_PREFIX}${projectScope}` : ''
+}
+
+function getProjectAssetIdSet(project) {
+  return new Set((Array.isArray(project?.assets) ? project.assets : [])
+    .map((asset) => String(asset?.id || '').trim())
+    .filter(Boolean))
+}
+
+function collectGenerateWorkspaceAssetIds(state) {
+  const ids = [
+    state?.selectedAssetId,
+    state?.selectedAudioAssetId,
+    state?.referenceAssetId1,
+    state?.referenceAssetId2,
+    state?.yoloAdProductAssetId,
+    state?.yoloAdModelAssetId,
+    state?.yoloAdVoiceoverAssetId,
+    state?.yoloMusicAudioAssetId,
+    state?.yoloMusicArtistAssetId,
+  ]
+  Object.values(state?.selectedAssetFieldIds || {}).forEach((assetId) => ids.push(assetId))
+  ;(Array.isArray(state?.yoloMusicCast) ? state.yoloMusicCast : []).forEach((entry) => ids.push(entry?.assetId))
+  return ids.map((id) => String(id || '').trim()).filter(Boolean)
+}
+
+function legacyGenerateStateMatchesProject(state, project) {
+  const assetIds = collectGenerateWorkspaceAssetIds(state)
+  if (assetIds.length === 0) return false
+  const projectAssetIds = getProjectAssetIdSet(project)
+  if (projectAssetIds.size === 0) return false
+  return assetIds.every((assetId) => projectAssetIds.has(assetId))
+}
+
+function readGenerateWorkspaceStorage(storageKey) {
+  if (!storageKey || typeof localStorage === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(storageKey)
+    return raw ? migrateGenerateWorkspaceState(JSON.parse(raw)) : null
+  } catch (error) {
+    console.error('Failed to load persisted Generate workspace state:', error)
+    return null
+  }
+}
+
+function loadPersistedGenerateWorkspaceState(project, projectHandle) {
+  if (project && Object.prototype.hasOwnProperty.call(project, 'generateWorkspace')) {
+    return migrateGenerateWorkspaceState(project.generateWorkspace)
+  }
+
+  const projectStorageKey = getGenerateWorkspaceProjectStorageKey(
+    getGenerateWorkspaceProjectScope(projectHandle, project)
+  )
+  const projectState = readGenerateWorkspaceStorage(projectStorageKey)
+  if (projectState) return projectState
+
+  const legacyState = readGenerateWorkspaceStorage(GENERATE_WORKSPACE_LEGACY_STORAGE_KEY)
+  return legacyGenerateStateMatchesProject(legacyState, project) ? legacyState : null
+}
+
 // ============================================
 // Main GenerateWorkspace Component
 // ============================================
 function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
-  // Load persisted state from localStorage
-  const loadPersistedState = () => {
-    try {
-      const saved = localStorage.getItem('generate-workspace-state')
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        // Migrate legacy workflow id after Nano Banana 2 replacement.
-        if (parsed?.workflowId === 'nano-banana-pro') {
-          parsed.workflowId = 'nano-banana-2'
-        }
-        // Migrate removed LTX2 workflows/targets to WAN 2.2.
-        if (parsed?.workflowId === 'ltx2-t2v' || parsed?.workflowId === 'ltx2-i2v') {
-          parsed.workflowId = 'wan22-i2v'
-        }
-        if (parsed?.yoloVideoWorkflowTarget === 'ltx2-i2v' || parsed?.yoloVideoWorkflowTarget === 'both') {
-          parsed.yoloVideoWorkflowTarget = 'wan22-i2v'
-        }
-        return parsed
-      }
-    } catch (error) {
-      console.error('Failed to load persisted Generate workspace state:', error)
-    }
-    return null
-  }
-
-  const persistedState = loadPersistedState()
+  const {
+    currentProjectHandle,
+    currentProject,
+    saveProject,
+    setGenerateWorkspaceState,
+  } = useProjectStore()
+  const generateWorkspaceProjectScope = useMemo(() => (
+    getGenerateWorkspaceProjectScope(currentProjectHandle, currentProject)
+  ), [currentProject?.created, currentProject?.name, currentProjectHandle])
+  const generateWorkspaceProjectStorageKey = useMemo(() => (
+    getGenerateWorkspaceProjectStorageKey(generateWorkspaceProjectScope)
+  ), [generateWorkspaceProjectScope])
+  const persistedState = useMemo(() => (
+    loadPersistedGenerateWorkspaceState(currentProject, currentProjectHandle)
+  ), [currentProject?.created, currentProject?.name, currentProjectHandle])
 
   // UI mode
   const [generationMode, setGenerationMode] = useState(persistedState?.generationMode || 'single')
@@ -2813,6 +2965,23 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     if (legacyProfileId === 'draft') return 'image-edit'
     return 'nano-banana-2'
   })
+  const [yoloMusicCustomKeyframeWorkflow, setYoloMusicCustomKeyframeWorkflow] = useState(() => (
+    normalizeCustomKeyframeWorkflow(persistedState?.yoloMusicCustomKeyframeWorkflow)
+  ))
+  const [yoloMusicCustomVideoWorkflow, setYoloMusicCustomVideoWorkflow] = useState(() => (
+    normalizeCustomKeyframeWorkflow(persistedState?.yoloMusicCustomVideoWorkflow)
+  ))
+  const [customGenerateImageWorkflow, setCustomGenerateImageWorkflow] = useState(() => (
+    normalizeCustomKeyframeWorkflow(persistedState?.customGenerateImageWorkflow)
+  ))
+  const [customGenerateVideoWorkflow, setCustomGenerateVideoWorkflow] = useState(() => (
+    normalizeCustomKeyframeWorkflow(persistedState?.customGenerateVideoWorkflow)
+  ))
+  const [customWorkflowBridgeTarget, setCustomWorkflowBridgeTarget] = useState('music-keyframe')
+  const [yoloMusicCustomKeyframeBridgeStatus, setYoloMusicCustomKeyframeBridgeStatus] = useState(() => (
+    normalizeComfyStudioBridgeStatus()
+  ))
+  const [yoloMusicCustomKeyframeBridgeBusy, setYoloMusicCustomKeyframeBridgeBusy] = useState(false)
   const [yoloMusicVideoWorkflowId, setYoloMusicVideoWorkflowId] = useState(() => {
     const saved = String(persistedState?.yoloMusicVideoWorkflowId || '').trim()
     return YOLO_MUSIC_VIDEO_WORKFLOW_OPTIONS.some((option) => option.id === saved)
@@ -2888,7 +3057,6 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
   // Hooks
   const { isConnected, wsConnected, queueCount, recheckConnection } = useComfyUI()
   const { addAsset, generateName, assets } = useAssetsStore()
-  const { currentProjectHandle, currentProject, saveProject } = useProjectStore()
   const timelineTracks = useTimelineStore((s) => s.tracks)
   const timelineAddTextClip = useTimelineStore((s) => s.addTextClip)
   const timelineAddTrack = useTimelineStore((s) => s.addTrack)
@@ -2988,6 +3156,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
   useEffect(() => {
     try {
       const stateToSave = {
+        version: 2,
+        projectScope: generateWorkspaceProjectScope,
         generationMode,
         category,
         workflowId,
@@ -3056,15 +3226,25 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         yoloMusicTargetDuration,
         yoloMusicQualityProfile,
         yoloMusicKeyframeWorkflowId,
+        yoloMusicCustomKeyframeWorkflow,
+        yoloMusicCustomVideoWorkflow,
+        customGenerateImageWorkflow,
+        customGenerateVideoWorkflow,
         yoloMusicVideoWorkflowId,
         yoloMusicPlan,
         yoloMusicPlanSignature,
       }
-      localStorage.setItem('generate-workspace-state', JSON.stringify(stateToSave))
+      if (generateWorkspaceProjectStorageKey && typeof localStorage !== 'undefined') {
+        localStorage.setItem(generateWorkspaceProjectStorageKey, JSON.stringify(stateToSave))
+      }
+      setGenerateWorkspaceState?.(stateToSave)
     } catch (error) {
       console.error('Failed to save Generate workspace state:', error)
     }
   }, [
+    generateWorkspaceProjectScope,
+    generateWorkspaceProjectStorageKey,
+    setGenerateWorkspaceState,
     generationMode,
     category,
     workflowId,
@@ -3133,6 +3313,10 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     yoloMusicTargetDuration,
     yoloMusicQualityProfile,
     yoloMusicKeyframeWorkflowId,
+    yoloMusicCustomKeyframeWorkflow,
+    yoloMusicCustomVideoWorkflow,
+    customGenerateImageWorkflow,
+    customGenerateVideoWorkflow,
     yoloMusicVideoWorkflowId,
     yoloMusicPlan,
     yoloMusicPlanSignature,
@@ -3548,7 +3732,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
 
   const dependencyCheckInProgress = generationMode === 'single' && dependencyCheck.status === 'checking'
   const hasBlockingDependencies = generationMode === 'single' && dependencyCheck.hasBlockingIssues
-  const isGenerateDisabled = (
+  const baseGenerateDisabled = (
     (!isConnected && !allowQueueWhileWaiting)
     || (generationMode === 'single' && selectedWorkflowManifest && !selectedWorkflowManifest.runnable)
     || (generationMode === 'single' && (dependencyCheckInProgress || hasBlockingDependencies))
@@ -3735,6 +3919,841 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     saveProject,
     yoloMusicAudioImporting,
   ])
+  const createYoloMusicCustomKeyframeStarter = useCallback(async () => {
+    const starter = {
+      '1': {
+        class_type: 'LoadImage',
+        inputs: {
+          image: '',
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_INPUT_IMAGE',
+        },
+      },
+      '2': {
+        class_type: 'PrimitiveStringMultiline',
+        inputs: {
+          value: 'ComfyStudio will inject the shot keyframe prompt here.',
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_PROMPT',
+        },
+      },
+      '3': {
+        class_type: 'PrimitiveInt',
+        inputs: {
+          value: 0,
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_SEED',
+        },
+      },
+      '4': {
+        class_type: 'PrimitiveInt',
+        inputs: {
+          value: 1280,
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_WIDTH',
+        },
+      },
+      '5': {
+        class_type: 'PrimitiveInt',
+        inputs: {
+          value: 720,
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_HEIGHT',
+        },
+      },
+      '6': {
+        class_type: 'ImageScale',
+        inputs: {
+          image: ['1', 0],
+          upscale_method: 'lanczos',
+          width: ['4', 0],
+          height: ['5', 0],
+          crop: 'center',
+        },
+        _meta: {
+          title: 'ComfyStudio Output Resize',
+        },
+      },
+      '7': {
+        class_type: 'SaveImage',
+        inputs: {
+          images: ['6', 0],
+          filename_prefix: 'image/custom_keyframe_starter',
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_OUTPUT_IMAGE',
+        },
+      },
+    }
+    const validation = validateCustomKeyframeWorkflow(starter)
+    return {
+      name: 'ComfyStudio custom keyframe starter',
+      workflow: starter,
+      jsonText: JSON.stringify(starter, null, 2),
+      validation,
+    }
+  }, [])
+
+  const createYoloMusicCustomVideoStarter = useCallback(async () => {
+    const starter = {
+      '1': {
+        class_type: 'LoadImage',
+        inputs: {
+          image: '',
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_INPUT_IMAGE',
+        },
+      },
+      '2': {
+        class_type: 'PrimitiveStringMultiline',
+        inputs: {
+          value: 'ComfyStudio will inject the shot video prompt here.',
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_PROMPT',
+        },
+      },
+      '3': {
+        class_type: 'PrimitiveInt',
+        inputs: {
+          value: 0,
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_SEED',
+        },
+      },
+      '4': {
+        class_type: 'PrimitiveInt',
+        inputs: {
+          value: 1280,
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_WIDTH',
+        },
+      },
+      '5': {
+        class_type: 'PrimitiveInt',
+        inputs: {
+          value: 720,
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_HEIGHT',
+        },
+      },
+      '6': {
+        class_type: 'PrimitiveInt',
+        inputs: {
+          value: 24,
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_FPS',
+        },
+      },
+      '7': {
+        class_type: 'PrimitiveFloat',
+        inputs: {
+          value: 5,
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_DURATION',
+        },
+      },
+      '8': {
+        class_type: 'LoadAudio',
+        inputs: {
+          audio: '',
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_AUDIO',
+        },
+      },
+      '9': {
+        class_type: 'ImageScale',
+        inputs: {
+          image: ['1', 0],
+          upscale_method: 'lanczos',
+          width: ['4', 0],
+          height: ['5', 0],
+          crop: 'center',
+        },
+        _meta: {
+          title: 'ComfyStudio Output Resize',
+        },
+      },
+      '10': {
+        class_type: 'SaveVideo',
+        inputs: {
+          images: ['9', 0],
+          filename_prefix: 'video/custom_video_starter',
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_OUTPUT_VIDEO',
+        },
+      },
+    }
+    const validation = validateCustomVideoWorkflow(starter)
+    return {
+      name: 'ComfyStudio custom video starter',
+      workflow: starter,
+      jsonText: JSON.stringify(starter, null, 2),
+      validation,
+    }
+  }, [])
+
+  const selectGenerateCustomWorkflow = useCallback((kind = 'image') => {
+    const isVideo = kind === 'video'
+    const nextWorkflowId = isVideo ? CUSTOM_GENERATE_VIDEO_WORKFLOW_ID : CUSTOM_GENERATE_IMAGE_WORKFLOW_ID
+    const manifest = getWorkflowManifestByWorkflowId(nextWorkflowId)
+    setGenerationMode('single')
+    setWorkflowRoute('custom')
+    setCategory(isVideo ? 'video' : 'image')
+    setWorkflowId(nextWorkflowId)
+    setSelectedWorkflowManifestId(manifest?.id || nextWorkflowId)
+  }, [])
+
+  const readCustomWorkflowJsonFromUser = useCallback(async (title = 'Select custom ComfyUI workflow JSON') => {
+    const readBrowserFile = () => new Promise((resolve) => {
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = 'application/json,.json'
+      input.onchange = async () => {
+        const file = input.files?.[0] || null
+        if (!file) {
+          resolve(null)
+          return
+        }
+        const text = await file.text()
+        resolve({ name: file.name, text })
+      }
+      input.click()
+    })
+
+    if (isElectron() && window.electronAPI?.selectFile && window.electronAPI?.readFile) {
+      const filePath = await window.electronAPI.selectFile({
+        title,
+        filters: [
+          { name: 'ComfyUI Workflow JSON', extensions: ['json'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      })
+      if (!filePath) return null
+      const readResult = await window.electronAPI.readFile(filePath, { encoding: 'utf8' })
+      if (!readResult?.success) throw new Error(readResult?.error || 'Could not read workflow JSON')
+      return {
+        name: String(filePath).split(/[\\/]/).pop() || 'Custom workflow',
+        text: readResult.data,
+      }
+    }
+
+    return readBrowserFile()
+  }, [])
+
+  const createGenerateCustomImageStarter = useCallback(async () => {
+    const starter = {
+      '1': {
+        class_type: 'SaveImage',
+        inputs: {
+          filename_prefix: 'image/custom_generate_starter',
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_OUTPUT_IMAGE',
+        },
+      },
+    }
+    const validation = validateCustomKeyframeWorkflow(starter, {
+      requireInputImage: false,
+      requirePrompt: false,
+      validateOptionalEndpoints: false,
+    })
+    return {
+      name: 'ComfyStudio custom image starter',
+      workflow: starter,
+      jsonText: JSON.stringify(starter, null, 2),
+      validation,
+    }
+  }, [])
+
+  const createGenerateCustomVideoStarter = useCallback(async () => {
+    const starter = {
+      '1': {
+        class_type: 'LoadImage',
+        inputs: {
+          image: '',
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_INPUT_IMAGE',
+        },
+      },
+      '2': {
+        class_type: 'PrimitiveStringMultiline',
+        inputs: {
+          value: 'ComfyStudio will inject the video prompt here.',
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_PROMPT',
+        },
+      },
+      '3': {
+        class_type: 'PrimitiveInt',
+        inputs: {
+          value: 0,
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_SEED',
+        },
+      },
+      '4': {
+        class_type: 'PrimitiveInt',
+        inputs: {
+          value: 1280,
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_WIDTH',
+        },
+      },
+      '5': {
+        class_type: 'PrimitiveInt',
+        inputs: {
+          value: 720,
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_HEIGHT',
+        },
+      },
+      '6': {
+        class_type: 'PrimitiveInt',
+        inputs: {
+          value: 24,
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_FPS',
+        },
+      },
+      '7': {
+        class_type: 'PrimitiveFloat',
+        inputs: {
+          value: 5,
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_DURATION',
+        },
+      },
+      '8': {
+        class_type: 'LoadAudio',
+        inputs: {
+          audio: '',
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_AUDIO',
+        },
+      },
+      '9': {
+        class_type: 'ImageScale',
+        inputs: {
+          image: ['1', 0],
+          upscale_method: 'lanczos',
+          width: ['4', 0],
+          height: ['5', 0],
+          crop: 'center',
+        },
+        _meta: {
+          title: 'ComfyStudio Output Resize',
+        },
+      },
+      '10': {
+        class_type: 'SaveVideo',
+        inputs: {
+          images: ['9', 0],
+          filename_prefix: 'video/custom_generate_starter',
+        },
+        _meta: {
+          title: 'COMFYSTUDIO_OUTPUT_VIDEO',
+        },
+      },
+    }
+    const validation = validateCustomVideoWorkflow(starter, { requireInputImage: false })
+    return {
+      name: 'ComfyStudio custom video starter',
+      workflow: starter,
+      jsonText: JSON.stringify(starter, null, 2),
+      validation,
+    }
+  }, [])
+
+  const handleImportCustomGenerateWorkflow = useCallback(async (kind = 'image') => {
+    const isVideo = kind === 'video'
+    setCustomWorkflowBridgeTarget(isVideo ? 'generate-video' : 'generate-image')
+    try {
+      const selected = await readCustomWorkflowJsonFromUser(`Select custom ComfyUI ${isVideo ? 'video' : 'image'} workflow JSON`)
+      if (!selected) return
+
+      const workflow = JSON.parse(selected.text)
+      const validation = isVideo
+        ? validateCustomVideoWorkflow(workflow, { requireInputImage: false })
+        : validateCustomKeyframeWorkflow(workflow, { requireInputImage: false })
+      const nextState = {
+        name: selected.name || 'Custom workflow',
+        jsonText: JSON.stringify(workflow, null, 2),
+        updatedAt: Date.now(),
+      }
+      if (isVideo) {
+        setCustomGenerateVideoWorkflow(nextState)
+      } else {
+        setCustomGenerateImageWorkflow(nextState)
+      }
+      selectGenerateCustomWorkflow(kind)
+      setFormError(validation.ok ? null : validation.message)
+      addComfyLog(validation.ok ? 'ok' : 'warning', validation.ok
+        ? `Loaded custom ${isVideo ? 'video' : 'image'} workflow: ${selected.name || 'Custom workflow'}`
+        : `Custom ${isVideo ? 'video' : 'image'} workflow loaded but is not ready: ${validation.message}`)
+    } catch (error) {
+      const message = error?.message || `Could not import custom ${isVideo ? 'video' : 'image'} workflow`
+      setFormError(message)
+      addComfyLog('error', message)
+    }
+  }, [addComfyLog, readCustomWorkflowJsonFromUser, selectGenerateCustomWorkflow])
+
+  const handleOpenCustomGenerateWorkflowInComfyUi = useCallback(async (kind = 'image') => {
+    const isVideo = kind === 'video'
+    try {
+      setCustomWorkflowBridgeTarget(isVideo ? 'generate-video' : 'generate-image')
+      selectGenerateCustomWorkflow(kind)
+      const loaded = isVideo ? customGenerateVideoWorkflow : customGenerateImageWorkflow
+      const hasLoadedWorkflow = Boolean(String(loaded?.jsonText || '').trim())
+      let workflow = null
+      let label = ''
+      let starterLoaded = false
+
+      if (hasLoadedWorkflow) {
+        workflow = JSON.parse(loaded.jsonText || '')
+        label = loaded.name || `Custom ${isVideo ? 'video' : 'image'} workflow`
+      } else {
+        const starter = isVideo
+          ? await createGenerateCustomVideoStarter()
+          : await createGenerateCustomImageStarter()
+        workflow = starter.workflow
+        label = starter.name
+        starterLoaded = true
+        const nextState = {
+          name: starter.name,
+          jsonText: starter.jsonText,
+          updatedAt: Date.now(),
+        }
+        if (isVideo) {
+          setCustomGenerateVideoWorkflow(nextState)
+        } else {
+          setCustomGenerateImageWorkflow(nextState)
+        }
+      }
+
+      const validation = isVideo
+        ? validateCustomVideoWorkflow(workflow, { requireInputImage: false })
+        : validateCustomKeyframeWorkflow(workflow, { requireInputImage: false })
+      if (!validation.ok) {
+        setFormError(validation.message)
+        addComfyLog('warning', `Custom ${isVideo ? 'video' : 'image'} workflow is not ready: ${validation.message}`)
+        return
+      }
+
+      const result = await openApiWorkflowInComfyUi(workflow, { label })
+      if (result.success) {
+        setFormError(null)
+        addComfyLog('info', result.hint || `${starterLoaded ? 'Loaded the starter and opened' : 'Opened'} ${label} in the embedded ComfyUI tab.`)
+        return
+      }
+
+      setFormError(result.error || `Could not open custom ${isVideo ? 'video' : 'image'} workflow in ComfyUI.`)
+      addComfyLog('error', result.error || `Could not open custom ${isVideo ? 'video' : 'image'} workflow in ComfyUI.`)
+    } catch (error) {
+      const message = error?.message || `Could not open custom ${isVideo ? 'video' : 'image'} workflow in ComfyUI.`
+      setFormError(message)
+      addComfyLog('error', message)
+    }
+  }, [
+    addComfyLog,
+    createGenerateCustomImageStarter,
+    createGenerateCustomVideoStarter,
+    customGenerateImageWorkflow,
+    customGenerateVideoWorkflow,
+    selectGenerateCustomWorkflow,
+  ])
+
+  const handleClearCustomGenerateWorkflow = useCallback((kind = 'image') => {
+    if (kind === 'video') {
+      setCustomGenerateVideoWorkflow({ ...EMPTY_CUSTOM_KEYFRAME_WORKFLOW })
+    } else {
+      setCustomGenerateImageWorkflow({ ...EMPTY_CUSTOM_KEYFRAME_WORKFLOW })
+    }
+    setFormError(null)
+    addComfyLog('status', `Cleared custom ${kind === 'video' ? 'video' : 'image'} workflow.`)
+  }, [addComfyLog])
+
+  const handleImportYoloMusicCustomKeyframeWorkflow = useCallback(async () => {
+    setCustomWorkflowBridgeTarget('music-keyframe')
+    const readBrowserFile = () => new Promise((resolve) => {
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = 'application/json,.json'
+      input.onchange = async () => {
+        const file = input.files?.[0] || null
+        if (!file) {
+          resolve(null)
+          return
+        }
+        const text = await file.text()
+        resolve({ name: file.name, text })
+      }
+      input.click()
+    })
+
+    try {
+      let selected = null
+      if (isElectron() && window.electronAPI?.selectFile && window.electronAPI?.readFile) {
+        const filePath = await window.electronAPI.selectFile({
+          title: 'Select custom ComfyUI keyframe workflow JSON',
+          filters: [
+            { name: 'ComfyUI Workflow JSON', extensions: ['json'] },
+            { name: 'All Files', extensions: ['*'] },
+          ],
+        })
+        if (!filePath) return
+        const readResult = await window.electronAPI.readFile(filePath, { encoding: 'utf8' })
+        if (!readResult?.success) throw new Error(readResult?.error || 'Could not read workflow JSON')
+        selected = {
+          name: String(filePath).split(/[\\/]/).pop() || 'Custom workflow',
+          text: readResult.data,
+        }
+      } else {
+        selected = await readBrowserFile()
+        if (!selected) return
+      }
+
+      const workflow = JSON.parse(selected.text)
+      const validation = validateCustomKeyframeWorkflow(workflow)
+      setYoloMusicCustomKeyframeWorkflow({
+        name: selected.name || 'Custom workflow',
+        jsonText: JSON.stringify(workflow, null, 2),
+        updatedAt: Date.now(),
+      })
+      setYoloMusicKeyframeWorkflowId(CUSTOM_MUSIC_KEYFRAME_WORKFLOW_ID)
+      setFormError(validation.ok ? null : validation.message)
+      addComfyLog(validation.ok ? 'ok' : 'warning', validation.ok
+        ? `Loaded custom keyframe workflow: ${selected.name || 'Custom workflow'}`
+        : `Custom keyframe workflow loaded but is not ready: ${validation.message}`)
+    } catch (error) {
+      const message = error?.message || 'Could not import custom workflow'
+      setFormError(message)
+      addComfyLog('error', message)
+    }
+  }, [addComfyLog, setYoloMusicKeyframeWorkflowId])
+
+  const handleOpenYoloMusicCustomKeyframeWorkflowInComfyUi = useCallback(async () => {
+    try {
+      setCustomWorkflowBridgeTarget('music-keyframe')
+      const hasLoadedWorkflow = Boolean(String(yoloMusicCustomKeyframeWorkflow?.jsonText || '').trim())
+      let workflow = null
+      let label = ''
+      let starterLoaded = false
+
+      if (hasLoadedWorkflow) {
+        workflow = JSON.parse(yoloMusicCustomKeyframeWorkflow.jsonText || '')
+        label = yoloMusicCustomKeyframeWorkflow.name || 'Custom keyframe workflow'
+      } else {
+        const starter = await createYoloMusicCustomKeyframeStarter()
+        workflow = starter.workflow
+        label = starter.name
+        starterLoaded = true
+        setYoloMusicCustomKeyframeWorkflow({
+          name: starter.name,
+          jsonText: starter.jsonText,
+          updatedAt: Date.now(),
+        })
+        setYoloMusicKeyframeWorkflowId(CUSTOM_MUSIC_KEYFRAME_WORKFLOW_ID)
+      }
+
+      const validation = validateCustomKeyframeWorkflow(workflow)
+      if (!validation.ok) {
+        setFormError(validation.message)
+        addComfyLog('warning', `Custom keyframe workflow is not ready: ${validation.message}`)
+        return
+      }
+
+      const result = await openApiWorkflowInComfyUi(workflow, { label })
+      if (result.success) {
+        setFormError(null)
+        addComfyLog('info', result.hint || `${starterLoaded ? 'Loaded the starter and opened' : 'Opened'} ${label} in the embedded ComfyUI tab.`)
+        return
+      }
+
+      setFormError(result.error || 'Could not open custom workflow in ComfyUI.')
+      addComfyLog('error', result.error || 'Could not open custom workflow in ComfyUI.')
+    } catch (error) {
+      const message = error?.message || 'Could not open custom workflow in ComfyUI.'
+      setFormError(message)
+      addComfyLog('error', message)
+    }
+  }, [
+    addComfyLog,
+    createYoloMusicCustomKeyframeStarter,
+    setYoloMusicKeyframeWorkflowId,
+    yoloMusicCustomKeyframeWorkflow,
+  ])
+
+  const handleClearYoloMusicCustomKeyframeWorkflow = useCallback(() => {
+    setYoloMusicCustomKeyframeWorkflow({ ...EMPTY_CUSTOM_KEYFRAME_WORKFLOW })
+    setFormError(null)
+    addComfyLog('status', 'Cleared custom keyframe workflow.')
+  }, [addComfyLog])
+
+  const handleImportYoloMusicCustomVideoWorkflow = useCallback(async () => {
+    setCustomWorkflowBridgeTarget('music-video')
+    const readBrowserFile = () => new Promise((resolve) => {
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = 'application/json,.json'
+      input.onchange = async () => {
+        const file = input.files?.[0] || null
+        if (!file) {
+          resolve(null)
+          return
+        }
+        const text = await file.text()
+        resolve({ name: file.name, text })
+      }
+      input.click()
+    })
+
+    try {
+      let selected = null
+      if (isElectron() && window.electronAPI?.selectFile && window.electronAPI?.readFile) {
+        const filePath = await window.electronAPI.selectFile({
+          title: 'Select custom ComfyUI video workflow JSON',
+          filters: [
+            { name: 'ComfyUI Workflow JSON', extensions: ['json'] },
+            { name: 'All Files', extensions: ['*'] },
+          ],
+        })
+        if (!filePath) return
+        const readResult = await window.electronAPI.readFile(filePath, { encoding: 'utf8' })
+        if (!readResult?.success) throw new Error(readResult?.error || 'Could not read workflow JSON')
+        selected = {
+          name: String(filePath).split(/[\\/]/).pop() || 'Custom workflow',
+          text: readResult.data,
+        }
+      } else {
+        selected = await readBrowserFile()
+        if (!selected) return
+      }
+
+      const workflow = JSON.parse(selected.text)
+      const validation = validateCustomVideoWorkflow(workflow)
+      setYoloMusicCustomVideoWorkflow({
+        name: selected.name || 'Custom workflow',
+        jsonText: JSON.stringify(workflow, null, 2),
+        updatedAt: Date.now(),
+      })
+      setYoloMusicVideoWorkflowId(CUSTOM_MUSIC_VIDEO_WORKFLOW_ID)
+      setFormError(validation.ok ? null : validation.message)
+      addComfyLog(validation.ok ? 'ok' : 'warning', validation.ok
+        ? `Loaded custom video workflow: ${selected.name || 'Custom workflow'}`
+        : `Custom video workflow loaded but is not ready: ${validation.message}`)
+    } catch (error) {
+      const message = error?.message || 'Could not import custom video workflow'
+      setFormError(message)
+      addComfyLog('error', message)
+    }
+  }, [addComfyLog, setYoloMusicVideoWorkflowId])
+
+  const handleOpenYoloMusicCustomVideoWorkflowInComfyUi = useCallback(async () => {
+    try {
+      setCustomWorkflowBridgeTarget('music-video')
+      const hasLoadedWorkflow = Boolean(String(yoloMusicCustomVideoWorkflow?.jsonText || '').trim())
+      let workflow = null
+      let label = ''
+      let starterLoaded = false
+
+      if (hasLoadedWorkflow) {
+        workflow = JSON.parse(yoloMusicCustomVideoWorkflow.jsonText || '')
+        label = yoloMusicCustomVideoWorkflow.name || 'Custom video workflow'
+      } else {
+        const starter = await createYoloMusicCustomVideoStarter()
+        workflow = starter.workflow
+        label = starter.name
+        starterLoaded = true
+        setYoloMusicCustomVideoWorkflow({
+          name: starter.name,
+          jsonText: starter.jsonText,
+          updatedAt: Date.now(),
+        })
+        setYoloMusicVideoWorkflowId(CUSTOM_MUSIC_VIDEO_WORKFLOW_ID)
+      }
+
+      const validation = validateCustomVideoWorkflow(workflow)
+      if (!validation.ok) {
+        setFormError(validation.message)
+        addComfyLog('warning', `Custom video workflow is not ready: ${validation.message}`)
+        return
+      }
+
+      const result = await openApiWorkflowInComfyUi(workflow, { label })
+      if (result.success) {
+        setFormError(null)
+        addComfyLog('info', result.hint || `${starterLoaded ? 'Loaded the starter and opened' : 'Opened'} ${label} in the embedded ComfyUI tab.`)
+        return
+      }
+
+      setFormError(result.error || 'Could not open custom video workflow in ComfyUI.')
+      addComfyLog('error', result.error || 'Could not open custom video workflow in ComfyUI.')
+    } catch (error) {
+      const message = error?.message || 'Could not open custom video workflow in ComfyUI.'
+      setFormError(message)
+      addComfyLog('error', message)
+    }
+  }, [
+    addComfyLog,
+    createYoloMusicCustomVideoStarter,
+    setYoloMusicVideoWorkflowId,
+    yoloMusicCustomVideoWorkflow,
+  ])
+
+  const handleClearYoloMusicCustomVideoWorkflow = useCallback(() => {
+    setYoloMusicCustomVideoWorkflow({ ...EMPTY_CUSTOM_KEYFRAME_WORKFLOW })
+    setFormError(null)
+    addComfyLog('status', 'Cleared custom video workflow.')
+  }, [addComfyLog])
+
+  const handleCheckYoloMusicCustomKeyframeBridge = useCallback(async ({ silent = false } = {}) => {
+    const bridge = typeof window !== 'undefined' ? window.electronAPI?.comfyBridge : null
+    if (!bridge?.getStatus) {
+      const unavailable = normalizeComfyStudioBridgeStatus({
+        state: 'unavailable',
+        installed: false,
+        message: 'ComfyStudio Bridge is only available in the desktop app.',
+      })
+      setYoloMusicCustomKeyframeBridgeStatus(unavailable)
+      if (!silent) addComfyLog('warning', unavailable.message)
+      return unavailable
+    }
+
+    setYoloMusicCustomKeyframeBridgeBusy(true)
+    try {
+      const result = await bridge.getStatus()
+      const next = normalizeComfyStudioBridgeStatus(result)
+      setYoloMusicCustomKeyframeBridgeStatus(next)
+      if (!silent) {
+        addComfyLog(next.installed ? 'ok' : 'status', next.message)
+      }
+      return next
+    } catch (error) {
+      const next = normalizeComfyStudioBridgeStatus({
+        state: 'unavailable',
+        installed: false,
+        error: error?.message || 'Could not check the ComfyStudio Bridge.',
+      })
+      setYoloMusicCustomKeyframeBridgeStatus(next)
+      if (!silent) addComfyLog('error', next.message)
+      return next
+    } finally {
+      setYoloMusicCustomKeyframeBridgeBusy(false)
+    }
+  }, [addComfyLog])
+
+  useEffect(() => {
+    const keyframeCustom = String(yoloMusicKeyframeWorkflowId || '').trim() === CUSTOM_MUSIC_KEYFRAME_WORKFLOW_ID
+    const videoCustom = String(yoloMusicVideoWorkflowId || '').trim() === CUSTOM_MUSIC_VIDEO_WORKFLOW_ID
+    const generateCustom = (
+      String(workflowId || '').trim() === CUSTOM_GENERATE_IMAGE_WORKFLOW_ID
+      || String(workflowId || '').trim() === CUSTOM_GENERATE_VIDEO_WORKFLOW_ID
+    )
+    if (!keyframeCustom && !videoCustom && !generateCustom) return
+    void handleCheckYoloMusicCustomKeyframeBridge({ silent: true })
+  }, [handleCheckYoloMusicCustomKeyframeBridge, workflowId, yoloMusicKeyframeWorkflowId, yoloMusicVideoWorkflowId])
+
+  useEffect(() => {
+    const handleBridgeMessage = (event) => {
+      const data = event?.data
+      if (!data || data.source !== COMFYSTUDIO_BRIDGE_SOURCE || data.type !== 'api-workflow') return
+      const workflow = data.workflow
+      if (!workflow || typeof workflow !== 'object' || Array.isArray(workflow)) {
+        addComfyLog('warning', 'ComfyUI sent an empty workflow. Export as API JSON is still available as a fallback.')
+        return
+      }
+
+      try {
+        const name = String(data.name || '').trim() || 'ComfyUI current graph'
+        const target = ['music-video', 'generate-image', 'generate-video'].includes(customWorkflowBridgeTarget)
+          ? customWorkflowBridgeTarget
+          : 'music-keyframe'
+        const isVideoTarget = target === 'music-video' || target === 'generate-video'
+        const validation = isVideoTarget
+          ? validateCustomVideoWorkflow(workflow, { requireInputImage: target === 'music-video' })
+          : validateCustomKeyframeWorkflow(workflow, { requireInputImage: target === 'music-keyframe' })
+        if (target === 'music-video') {
+          setYoloMusicCustomVideoWorkflow({
+            name,
+            jsonText: JSON.stringify(workflow, null, 2),
+            updatedAt: Date.now(),
+          })
+          setYoloMusicVideoWorkflowId(CUSTOM_MUSIC_VIDEO_WORKFLOW_ID)
+        } else if (target === 'generate-video') {
+          setCustomGenerateVideoWorkflow({
+            name,
+            jsonText: JSON.stringify(workflow, null, 2),
+            updatedAt: Date.now(),
+          })
+          selectGenerateCustomWorkflow('video')
+        } else if (target === 'generate-image') {
+          setCustomGenerateImageWorkflow({
+            name,
+            jsonText: JSON.stringify(workflow, null, 2),
+            updatedAt: Date.now(),
+          })
+          selectGenerateCustomWorkflow('image')
+        } else {
+          setYoloMusicCustomKeyframeWorkflow({
+            name,
+            jsonText: JSON.stringify(workflow, null, 2),
+            updatedAt: Date.now(),
+          })
+          setYoloMusicKeyframeWorkflowId(CUSTOM_MUSIC_KEYFRAME_WORKFLOW_ID)
+        }
+        setFormError(validation.ok ? null : validation.message)
+        const targetLabel = target === 'music-video'
+          ? 'video'
+          : target === 'music-keyframe'
+            ? 'keyframe'
+            : target === 'generate-video'
+              ? 'Generate video'
+              : 'Generate image'
+        addComfyLog(validation.ok ? 'ok' : 'warning', validation.ok
+          ? `Received custom ${targetLabel} workflow from ComfyUI: ${name}`
+          : `Received workflow from ComfyUI but it needs attention: ${validation.message}`)
+        window.dispatchEvent(new CustomEvent('comfystudio-open-generate-tab', {
+          detail: { source: COMFYSTUDIO_BRIDGE_SOURCE },
+        }))
+      } catch (error) {
+        const message = error?.message || 'Could not import the workflow sent from ComfyUI.'
+        setFormError(message)
+        addComfyLog('error', message)
+      }
+    }
+
+    window.addEventListener('message', handleBridgeMessage)
+    return () => window.removeEventListener('message', handleBridgeMessage)
+  }, [
+    addComfyLog,
+    customWorkflowBridgeTarget,
+    selectGenerateCustomWorkflow,
+    setYoloMusicKeyframeWorkflowId,
+    setYoloMusicVideoWorkflowId,
+  ])
+
   const handleYoloMusicTranscribeSrt = useCallback(async () => {
     if (!yoloMusicAudioAsset) {
       setFormError('Select the song audio asset first')
@@ -4290,6 +5309,112 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       ? yoloMusicKeyframeWorkflowId || yoloMusicProfile?.storyboardWorkflowId
       : yoloAdStoryboardProfile?.storyboardWorkflowId
   ).trim()
+  const yoloMusicCustomKeyframeValidation = useMemo(() => {
+    const text = String(yoloMusicCustomKeyframeWorkflow?.jsonText || '').trim()
+    if (!text) {
+      return {
+        ok: false,
+        missing: [],
+        warnings: [],
+        endpoints: {},
+        message: 'No custom workflow loaded yet.',
+      }
+    }
+    try {
+      return validateCustomKeyframeWorkflow(JSON.parse(text))
+    } catch (error) {
+      return {
+        ok: false,
+        missing: ['workflow_json'],
+        warnings: [],
+        endpoints: {},
+        message: error?.message || 'Workflow JSON could not be parsed.',
+      }
+    }
+  }, [yoloMusicCustomKeyframeWorkflow])
+  const yoloMusicCustomVideoValidation = useMemo(() => {
+    const text = String(yoloMusicCustomVideoWorkflow?.jsonText || '').trim()
+    if (!text) {
+      return {
+        ok: false,
+        missing: [],
+        warnings: [],
+        endpoints: {},
+        message: 'No custom video workflow loaded yet.',
+      }
+    }
+    try {
+      return validateCustomVideoWorkflow(JSON.parse(text))
+    } catch (error) {
+      return {
+        ok: false,
+        missing: ['workflow_json'],
+        warnings: [],
+        endpoints: {},
+        message: error?.message || 'Workflow JSON could not be parsed.',
+      }
+    }
+  }, [yoloMusicCustomVideoWorkflow])
+  const customGenerateImageValidation = useMemo(() => {
+    const text = String(customGenerateImageWorkflow?.jsonText || '').trim()
+    if (!text) {
+      return {
+        ok: false,
+        missing: [],
+        warnings: [],
+        endpoints: {},
+        message: 'No custom image workflow loaded yet.',
+      }
+    }
+    try {
+      return validateCustomKeyframeWorkflow(JSON.parse(text), {
+        requireInputImage: false,
+        requirePrompt: false,
+        validateOptionalEndpoints: false,
+      })
+    } catch (error) {
+      return {
+        ok: false,
+        missing: ['workflow_json'],
+        warnings: [],
+        endpoints: {},
+        message: error?.message || 'Workflow JSON could not be parsed.',
+      }
+    }
+  }, [customGenerateImageWorkflow])
+  const customGenerateVideoValidation = useMemo(() => {
+    const text = String(customGenerateVideoWorkflow?.jsonText || '').trim()
+    if (!text) {
+      return {
+        ok: false,
+        missing: [],
+        warnings: [],
+        endpoints: {},
+        message: 'No custom video workflow loaded yet.',
+      }
+    }
+    try {
+      return validateCustomVideoWorkflow(JSON.parse(text), { requireInputImage: false })
+    } catch (error) {
+      return {
+        ok: false,
+        missing: ['workflow_json'],
+        warnings: [],
+        endpoints: {},
+        message: error?.message || 'Workflow JSON could not be parsed.',
+      }
+    }
+  }, [customGenerateVideoWorkflow])
+  const customGenerateNeedsSetup = generationMode === 'single' && (
+    (workflowId === CUSTOM_GENERATE_IMAGE_WORKFLOW_ID && !customGenerateImageValidation.ok)
+    || (workflowId === CUSTOM_GENERATE_VIDEO_WORKFLOW_ID && !customGenerateVideoValidation.ok)
+  )
+  const customGenerateDisabledReason = workflowId === CUSTOM_GENERATE_IMAGE_WORKFLOW_ID
+    ? customGenerateImageValidation.message
+    : workflowId === CUSTOM_GENERATE_VIDEO_WORKFLOW_ID
+      ? customGenerateVideoValidation.message
+      : ''
+  const isGenerateDisabled = baseGenerateDisabled || customGenerateNeedsSetup
   const yoloDefaultVideoWorkflowId = String(
     isYoloMusicMode
       ? yoloMusicSelectedVideoWorkflow?.id
@@ -4359,7 +5484,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     // Local workflows that honor a user-supplied FPS in their
     // modify*Workflow() helpers. Cloud partner-node workflows ignore
     // it (the provider returns its own FPS) so they stay excluded.
-    const customFpsWorkflowIds = new Set(['wan22-i2v', 'ltx23-i2v', MUSIC_VIDEO_SHOT_WORKFLOW_ID])
+    const customFpsWorkflowIds = new Set(['wan22-i2v', 'ltx23-i2v', MUSIC_VIDEO_SHOT_WORKFLOW_ID, CUSTOM_MUSIC_VIDEO_WORKFLOW_ID])
     return yoloSelectedVideoWorkflowIds.some((id) => customFpsWorkflowIds.has(String(id || '').trim()))
   }, [yoloSelectedVideoWorkflowIds])
   const yoloSelectedVideoWorkflowLabel = useMemo(
@@ -4426,7 +5551,9 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
   const yoloDependencyWorkflowIds = useMemo(() => Array.from(new Set([
     yoloStoryboardWorkflowId,
     ...yoloSelectedVideoWorkflowIds,
-  ].map((workflow) => String(workflow || '').trim()).filter(Boolean))), [
+  ].map((workflow) => String(workflow || '').trim()).filter((workflow) => (
+    workflow && workflow !== CUSTOM_MUSIC_KEYFRAME_WORKFLOW_ID && workflow !== CUSTOM_MUSIC_VIDEO_WORKFLOW_ID
+  )))), [
     yoloStoryboardWorkflowId,
     yoloSelectedVideoWorkflowIds,
   ])
@@ -5056,6 +6183,106 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     setGenerationQueue(prev => [...prev, job])
   }, [])
 
+  const queuePeopleWizardJob = useCallback((overrides = {}) => {
+    const workflowId = String(overrides.workflowId || 'z-image-turbo').trim()
+    const peopleWizard = overrides.peopleWizard || null
+    const inputAssetId = overrides.inputAssetId || null
+    const referenceAssetId1 = overrides.referenceAssetId1 || null
+    const referenceAssetId2 = overrides.referenceAssetId2 || null
+    const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    const seedValue = Number.isFinite(Number(overrides.seed)) ? Number(overrides.seed) : Number(seed) || Math.floor(Math.random() * 1000000000)
+    const resolutionValue = overrides.resolution || imageResolution
+    const assetPrefix = String(peopleWizard?.assetPrefix || overrides.assetPrefix || '').trim()
+    const imageAssetLookup = (assetId) => (assetId ? snapshotGenerationAsset(assets.find((asset) => asset?.id === assetId) || null) : null)
+    const job = {
+      id: jobId,
+      createdAt: Date.now(),
+      category: 'image',
+      workflowId,
+      workflowLabel: String(overrides.workflowLabel || getWorkflowDisplayLabel(workflowId) || workflowId || 'People Wizard').trim(),
+      needsImage: Boolean(overrides.needsImage ?? workflowId !== 'z-image-turbo'),
+      inputAssetType: workflowId === 'z-image-turbo' ? null : 'image',
+      prompt: String(overrides.prompt || '').trim(),
+      negativePrompt: String(overrides.negativePrompt || '').trim(),
+      tags: [],
+      seed: seedValue,
+      duration: 0,
+      fps: 0,
+      interpolationMultiplier: 4,
+      enableFpsMultiplier: false,
+      resolution: resolutionValue,
+      wanQualityPreset: 'balanced',
+      editSteps: editSteps,
+      editCfg: editCfg,
+      musicTags: '',
+      lyrics: '',
+      musicDuration: 0,
+      bpm: 0,
+      keyscale: '',
+      inputAssetId,
+      inputAssetName: inputAssetId ? (assets.find((asset) => asset?.id === inputAssetId)?.name || '') : '',
+      audioAssetId: null,
+      audioAssetName: '',
+      assetFieldIds: {},
+      inputFromTimelineFrame: false,
+      referenceAssetId1,
+      referenceAssetId2,
+      peopleWizard: {
+        ...(peopleWizard || {}),
+        assetPrefix,
+      },
+      frameTime: 0,
+      status: 'queued',
+      progress: 0,
+      promptId: null,
+      node: null,
+      error: null,
+      originProject: currentProjectHandle ? {
+        handle: currentProjectHandle,
+        name: currentProject?.name || '',
+        path: typeof currentProjectHandle === 'string' ? currentProjectHandle : null,
+        created: currentProject?.created || null,
+      } : null,
+      sourceAssets: {
+        input: imageAssetLookup(inputAssetId),
+        reference1: imageAssetLookup(referenceAssetId1),
+        reference2: imageAssetLookup(referenceAssetId2),
+        audio: null,
+        assetFields: {},
+      },
+    }
+    enqueueJob(job)
+    return job
+  }, [
+    assets,
+    currentProject,
+    currentProjectHandle,
+    editCfg,
+    editSteps,
+    enqueueJob,
+    imageResolution,
+    seed,
+  ])
+
+  const buildPeopleWizardAssetName = useCallback((prefix, suffix, fallbackName) => {
+    const base = slugifyNameToken(prefix || '', { fallback: '', maxLength: 48 })
+    if (!base) return fallbackName || ''
+    const safeSuffix = String(suffix || '').trim()
+    return safeSuffix ? `${base}_${safeSuffix}` : base
+  }, [])
+
+  const inferPeopleWizardAssetPrefix = useCallback((asset, fallbackValue = '') => {
+    const metadataPrefix = slugifyNameToken(asset?.peopleWizard?.assetPrefix || '', { fallback: '', maxLength: 48 })
+    if (metadataPrefix) return metadataPrefix
+    const rawName = String(asset?.name || '').trim()
+    if (!rawName) return slugifyNameToken(fallbackValue || '', { fallback: '', maxLength: 48 })
+    const baseName = rawName
+      .replace(/\.[a-z0-9]{1,8}$/i, '')
+      .replace(/_I\d+$/i, '')
+      .replace(/_(image|sheet)$/i, '')
+    return slugifyNameToken(baseName || fallbackValue || '', { fallback: '', maxLength: 48 })
+  }, [])
+
   const requestConfirm = useCallback(({
     title = 'Confirm action',
     message = '',
@@ -5097,6 +6324,88 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       tone: 'primary',
     })
   }, [requestConfirm])
+
+  const handleInstallYoloMusicCustomKeyframeBridge = useCallback(async () => {
+    const bridge = typeof window !== 'undefined' ? window.electronAPI?.comfyBridge : null
+    if (!bridge?.install) {
+      const unavailable = normalizeComfyStudioBridgeStatus({
+        state: 'unavailable',
+        installed: false,
+        message: 'ComfyStudio Bridge is only available in the desktop app.',
+      })
+      setYoloMusicCustomKeyframeBridgeStatus(unavailable)
+      addComfyLog('warning', unavailable.message)
+      return unavailable
+    }
+
+    setYoloMusicCustomKeyframeBridgeBusy(true)
+    try {
+      const result = await bridge.install()
+      const status = normalizeComfyStudioBridgeStatus(result)
+      setYoloMusicCustomKeyframeBridgeStatus(status)
+
+      if (!result?.success) {
+        addComfyLog('error', status.message || status.error || 'Could not install the ComfyStudio Bridge.')
+        return status
+      }
+
+      addComfyLog('ok', status.message)
+      if (!result?.restartRequired) return status
+
+      const restartNow = await requestConfirm({
+        title: 'Restart ComfyUI now?',
+        message: 'The ComfyStudio Bridge is installed. Restart ComfyUI now to load the Send to ComfyStudio button.\n\nIf this ComfyUI session was started outside ComfyStudio, restart it manually and then re-check the bridge.',
+        confirmLabel: 'Restart ComfyUI',
+        cancelLabel: 'Later',
+        tone: 'primary',
+      })
+      if (!restartNow) return status
+
+      const snapshot = isComfyLauncherAvailable() ? getComfyLauncherSnapshot() : null
+      const ownsRunning = Boolean(snapshot
+        && snapshot.ownership === 'ours'
+        && (snapshot.state === 'running' || snapshot.state === 'starting'))
+      const canStart = Boolean(snapshot
+        && (snapshot.state === 'idle' || snapshot.state === 'stopped' || snapshot.state === 'crashed')
+        && snapshot.launcherScript)
+
+      if (!ownsRunning && !canStart) {
+        addComfyLog('warning', 'Bridge installed. Restart ComfyUI manually, then click Re-check in the custom workflow panel.')
+        return status
+      }
+
+      addComfyLog('status', ownsRunning ? 'Restarting ComfyUI for the bridge...' : 'Starting ComfyUI for the bridge...')
+      const actionResult = ownsRunning ? await restartComfyLauncher() : await startComfyLauncher()
+      if (actionResult?.success === false) {
+        addComfyLog('error', `Could not ${ownsRunning ? 'restart' : 'start'} ComfyUI: ${actionResult?.error || 'unknown error.'}`)
+        return status
+      }
+
+      const wait = await waitForComfyLauncherState(['running', 'external'], { timeoutMs: 180_000 })
+      if (wait.timedOut) {
+        addComfyLog('warning', 'Bridge installed, but ComfyUI did not report ready within 3 minutes. Check the launcher log, then Re-check.')
+        return status
+      }
+
+      addComfyLog('ok', wait.state?.state === 'running'
+        ? 'ComfyUI restarted. The bridge button should appear after the embedded tab reloads.'
+        : 'ComfyUI is running externally. Reload or restart it manually if the bridge button is not visible.')
+      await recheckConnection?.()
+      await handleCheckYoloMusicCustomKeyframeBridge({ silent: true })
+      return status
+    } catch (error) {
+      const next = normalizeComfyStudioBridgeStatus({
+        state: 'unavailable',
+        installed: false,
+        error: error?.message || 'Could not install the ComfyStudio Bridge.',
+      })
+      setYoloMusicCustomKeyframeBridgeStatus(next)
+      addComfyLog('error', next.message)
+      return next
+    } finally {
+      setYoloMusicCustomKeyframeBridgeBusy(false)
+    }
+  }, [addComfyLog, handleCheckYoloMusicCustomKeyframeBridge, recheckConnection, requestConfirm])
 
   const getExistingYoloStageKeys = useCallback((stage) => (
     new Set(
@@ -5187,8 +6496,23 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
   const createQueuedJob = useCallback((overrides = {}) => {
     const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
     const assetFieldIds = {}
+    const customGenerateEndpoints = workflowId === CUSTOM_GENERATE_IMAGE_WORKFLOW_ID
+      ? customGenerateImageValidation.endpoints
+      : workflowId === CUSTOM_GENERATE_VIDEO_WORKFLOW_ID
+        ? customGenerateVideoValidation.endpoints
+        : null
+    const customGenerateAssetEndpointMap = {
+      customInputImage: ['inputImage'],
+      customAudioAsset: ['inputAudio'],
+    }
     for (const field of selectedWorkflowManifest?.fields || []) {
       if (field?.type !== 'assetSelect' || field.id === 'audioAsset') continue
+      if (customGenerateEndpoints) {
+        const endpointKeys = customGenerateAssetEndpointMap[field.id] || []
+        if (endpointKeys.length > 0 && !endpointKeys.some((key) => Boolean(customGenerateEndpoints[key]))) {
+          continue
+        }
+      }
       const assetId = selectedAssetFields[field.id]?.id || selectedAssetFieldIds[field.id] || null
       if (assetId) assetFieldIds[field.id] = assetId
     }
@@ -5269,6 +6593,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     currentProjectHandle,
     currentWorkflow?.label,
     currentWorkflow?.needsImage,
+    customGenerateImageValidation,
+    customGenerateVideoValidation,
     duration,
     editCfg,
     editSteps,
@@ -7076,6 +8402,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     }
     const usesModelProductStoryboardWorkflow = yoloStoryboardWorkflowId === 'image-edit-model-product'
     const usesQwenMusicStoryboardWorkflow = isYoloMusicMode && yoloStoryboardWorkflowId === 'image-edit'
+    const usesCustomMusicStoryboardWorkflow = isYoloMusicMode && yoloStoryboardWorkflowId === CUSTOM_MUSIC_KEYFRAME_WORKFLOW_ID
+    const usesReferenceMusicStoryboardWorkflow = usesQwenMusicStoryboardWorkflow || usesCustomMusicStoryboardWorkflow
     const musicImageAssetById = new Map(
       (assets || [])
         .filter((asset) => asset?.type === 'image')
@@ -7104,12 +8432,12 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       )
       return { primaryAssetId, secondaryAssetId }
     }
-    if (usesQwenMusicStoryboardWorkflow) {
+    if (usesReferenceMusicStoryboardWorkflow) {
       const missingReference = variantsToQueue.some((variant) => (
         !resolveQwenMusicStoryboardReferences(variant).primaryAssetId
       ))
       if (missingReference) {
-        setFormError('Qwen Image Edit keyframes need a cast/reference image. Add at least one person in the Music Video People step, or switch keyframes to Nano Banana 2.')
+        setFormError(`${usesCustomMusicStoryboardWorkflow ? 'Custom keyframe workflows' : 'Qwen Image Edit'} need a cast/reference image. Add at least one person in the Music Video People step, or switch keyframes to Nano Banana 2.`)
         return 0
       }
     }
@@ -7142,40 +8470,43 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
             ? mediumSeed
             : softSeed
       )
-      const qwenMusicReferences = usesQwenMusicStoryboardWorkflow
+      const qwenMusicReferences = usesReferenceMusicStoryboardWorkflow
         ? resolveQwenMusicStoryboardReferences(variant)
         : { primaryAssetId: null, secondaryAssetId: null }
       const musicReferenceAssetId1 = isYoloMusicMode
         ? (
-          usesQwenMusicStoryboardWorkflow
+          usesReferenceMusicStoryboardWorkflow
             ? qwenMusicReferences.primaryAssetId
             : (variant.resolvedArtistAssetIds?.[0] || yoloMusicArtistAsset?.id || null)
         )
         : null
       const musicReferenceAssetId2 = isYoloMusicMode
         ? (
-          usesQwenMusicStoryboardWorkflow
+          usesReferenceMusicStoryboardWorkflow
             ? qwenMusicReferences.secondaryAssetId
             : (variant.resolvedArtistAssetIds?.[1] || null)
         )
         : null
-      const qwenMusicInputAsset = usesQwenMusicStoryboardWorkflow && musicReferenceAssetId1
+      const musicInputAsset = usesReferenceMusicStoryboardWorkflow && musicReferenceAssetId1
         ? (musicImageAssetById.get(musicReferenceAssetId1) || null)
         : null
       const storyboardInputAsset = usesModelProductStoryboardWorkflow
         ? adStoryboardInputAsset
-        : qwenMusicInputAsset
+        : musicInputAsset
       const storyboardReferenceAssetId1 = isYoloMusicMode
-        ? (usesQwenMusicStoryboardWorkflow ? musicReferenceAssetId2 : musicReferenceAssetId1)
+        ? (usesReferenceMusicStoryboardWorkflow ? musicReferenceAssetId2 : musicReferenceAssetId1)
         : (effectiveAdProductAsset?.id || null)
       const storyboardReferenceAssetId2 = isYoloMusicMode
-        ? (usesQwenMusicStoryboardWorkflow ? null : musicReferenceAssetId2)
+        ? (usesReferenceMusicStoryboardWorkflow ? null : musicReferenceAssetId2)
         : (effectiveAdModelAsset?.id || null)
       return createQueuedJob({
         category: 'image',
         workflowId: yoloStoryboardWorkflowId,
-        workflowLabel: `${DIRECTOR_MODE_BETA_LABEL} ${yoloModeLabel} Keyframe (${yoloStoryboardWorkflowId})`,
-        needsImage: usesModelProductStoryboardWorkflow || Boolean(qwenMusicInputAsset),
+        workflowLabel: usesCustomMusicStoryboardWorkflow
+          ? `${DIRECTOR_MODE_BETA_LABEL} ${yoloModeLabel} Keyframe (${yoloMusicCustomKeyframeWorkflow?.name || 'Custom Workflow'})`
+          : `${DIRECTOR_MODE_BETA_LABEL} ${yoloModeLabel} Keyframe (${yoloStoryboardWorkflowId})`,
+        needsImage: usesModelProductStoryboardWorkflow || Boolean(musicInputAsset),
+        inputAssetType: usesModelProductStoryboardWorkflow || Boolean(musicInputAsset) ? 'image' : null,
         prompt: variant.storyboardPrompt || variant.prompt,
         seed: storyboardSeed,
         resolution: storyboardResolution,
@@ -7188,6 +8519,12 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         referenceAssetId1: storyboardReferenceAssetId1,
         referenceAssetId2: storyboardReferenceAssetId2,
         directorLabel: yoloQueueNameLabel,
+        customWorkflow: usesCustomMusicStoryboardWorkflow
+          ? {
+              name: yoloMusicCustomKeyframeWorkflow?.name || 'Custom Workflow',
+              jsonText: yoloMusicCustomKeyframeWorkflow?.jsonText || '',
+            }
+          : null,
         yolo: {
           mode: yoloModeKey,
           stage: 'storyboard',
@@ -7236,6 +8573,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     effectiveImageResolution.width,
     yoloMusicArtistAsset,
     yoloMusicArtistAsset?.id,
+    yoloMusicCustomKeyframeWorkflow,
     yoloMusicResolvedCast,
     yoloMusicQualityProfile,
     yoloNormalizedAdStoryboardTier,
@@ -7291,11 +8629,18 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       setFormError(`Product/model references are not supported by ${getWorkflowDisplayLabel(yoloStoryboardWorkflowId)} keyframes.`)
       return 0
     }
-    const depsOk = await validateDependenciesForQueue(
-      [yoloStoryboardWorkflowId],
-      sourceLabel
-    )
-    if (!depsOk) return 0
+    const usesCustomMusicKeyframes = isYoloMusicMode && yoloStoryboardWorkflowId === CUSTOM_MUSIC_KEYFRAME_WORKFLOW_ID
+    if (usesCustomMusicKeyframes && !yoloMusicCustomKeyframeValidation.ok) {
+      setFormError(yoloMusicCustomKeyframeValidation.message || 'Load and validate a custom keyframe workflow before queueing.')
+      return 0
+    }
+    if (!usesCustomMusicKeyframes) {
+      const depsOk = await validateDependenciesForQueue(
+        [yoloStoryboardWorkflowId],
+        sourceLabel
+      )
+      if (!depsOk) return 0
+    }
 
     const planToUse = Array.isArray(planOverride) && planOverride.length > 0
       ? planOverride
@@ -7319,6 +8664,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     queueYoloStoryboardVariants,
     yoloActivePlanIsStale,
     validateDependenciesForQueue,
+    yoloMusicCustomKeyframeValidation,
     yoloActivePlan,
     yoloAdModelAsset,
     yoloAdHasReferenceAnchors,
@@ -7355,11 +8701,18 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       setFormError('Selected keyframe workflow needs at least a model or product reference image.')
       return
     }
-    const depsOk = await validateDependenciesForQueue(
-      [yoloStoryboardWorkflowId],
-      `keyframe re-render for ${sceneId} ${shotId}`
-    )
-    if (!depsOk) return
+    const usesCustomMusicKeyframes = isYoloMusicMode && yoloStoryboardWorkflowId === CUSTOM_MUSIC_KEYFRAME_WORKFLOW_ID
+    if (usesCustomMusicKeyframes && !yoloMusicCustomKeyframeValidation.ok) {
+      setFormError(yoloMusicCustomKeyframeValidation.message || 'Load and validate a custom keyframe workflow before queueing.')
+      return
+    }
+    if (!usesCustomMusicKeyframes) {
+      const depsOk = await validateDependenciesForQueue(
+        [yoloStoryboardWorkflowId],
+        `keyframe re-render for ${sceneId} ${shotId}`
+      )
+      if (!depsOk) return
+    }
 
     const planToUse = yoloActivePlan.length > 0 ? yoloActivePlan : buildActiveYoloPlan()
     if (!planToUse) return
@@ -7384,6 +8737,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     queueYoloStoryboardVariants,
     yoloActivePlanIsStale,
     validateDependenciesForQueue,
+    yoloMusicCustomKeyframeValidation,
     yoloActivePlan,
     yoloAdHasReferenceAnchors,
     yoloAdModelAsset,
@@ -7471,12 +8825,14 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       const videoDuration = videoDurationOptions.reduce((closest, candidate) => (
         Math.abs(candidate - variant.durationSeconds) < Math.abs(closest - variant.durationSeconds) ? candidate : closest
       ), videoDurationOptions[0])
+      const usesCustomMusicVideoWorkflow = isYoloMusicMode && effectiveWorkflowId === CUSTOM_MUSIC_VIDEO_WORKFLOW_ID
+      const customVideoWorkflowName = yoloMusicCustomVideoWorkflow?.name || 'Custom Workflow'
       const isAdLipSyncShot = !isYoloMusicMode && effectiveWorkflowId === MUSIC_VIDEO_SHOT_WORKFLOW_ID
       const variantScopedKey = buildVideoVariantKey(variant.key, effectiveWorkflowId)
       // Same set as yoloSelectedVideoWorkflowSupportsCustomFps — only
       // workflows whose modify*Workflow helper accepts an fps input
       // get the user's YOLO FPS setting; cloud providers ignore it.
-      const customFpsWorkflowIds = new Set(['wan22-i2v', 'ltx23-i2v', MUSIC_VIDEO_SHOT_WORKFLOW_ID])
+      const customFpsWorkflowIds = new Set(['wan22-i2v', 'ltx23-i2v', MUSIC_VIDEO_SHOT_WORKFLOW_ID, CUSTOM_MUSIC_VIDEO_WORKFLOW_ID])
       const requestedFps = customFpsWorkflowIds.has(String(effectiveWorkflowId || '').trim())
         ? (Number(yoloVideoFps) || 24)
         : null
@@ -7512,7 +8868,9 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       jobs.push(createQueuedJob({
         category: 'video',
         workflowId: effectiveWorkflowId,
-        workflowLabel: `${DIRECTOR_MODE_BETA_LABEL} ${yoloModeLabel} Video (${getWorkflowDisplayLabel(effectiveWorkflowId)})`,
+        workflowLabel: usesCustomMusicVideoWorkflow
+          ? `${DIRECTOR_MODE_BETA_LABEL} ${yoloModeLabel} Video (${customVideoWorkflowName})`
+          : `${DIRECTOR_MODE_BETA_LABEL} ${yoloModeLabel} Video (${getWorkflowDisplayLabel(effectiveWorkflowId)})`,
         needsImage: true,
         inputAssetId: storyboardAsset.id,
         inputAssetName: storyboardAsset.name || variant.key,
@@ -7534,6 +8892,12 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         musicAudioAssetId: isYoloMusicMode ? yoloMusicAudioAssetId : (isAdLipSyncShot ? yoloAdVoiceoverAssetId : null),
         musicAudioKind: isYoloMusicMode ? yoloMusicAudioKind : (isAdLipSyncShot ? 'vocal_stem' : null),
         musicShot: musicShotPayload,
+        customWorkflow: usesCustomMusicVideoWorkflow
+          ? {
+            name: customVideoWorkflowName,
+            jsonText: yoloMusicCustomVideoWorkflow?.jsonText || '',
+          }
+          : null,
         yolo: {
           mode: yoloModeKey,
           stage: 'video',
@@ -7606,6 +8970,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     yoloDefaultVideoWorkflowId,
     yoloMusicAudioAssetId,
     yoloMusicAudioKind,
+    yoloMusicCustomVideoWorkflow,
     yoloMusicQualityProfile,
     yoloNormalizedAdVideoTier,
     yoloVideoProfileRuntime,
@@ -7657,11 +9022,19 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       setFormError('Choose a video workflow before queueing videos.')
       return 0
     }
-    const depsOk = await validateDependenciesForQueue(
-      targets,
-      sourceLabel
-    )
-    if (!depsOk) return 0
+    const usesCustomMusicVideoWorkflow = isYoloMusicMode && targets.includes(CUSTOM_MUSIC_VIDEO_WORKFLOW_ID)
+    if (usesCustomMusicVideoWorkflow && !yoloMusicCustomVideoValidation.ok) {
+      setFormError(yoloMusicCustomVideoValidation.message || 'Load and validate a custom video workflow before queueing.')
+      return 0
+    }
+    const dependencyTargets = targets.filter((id) => id !== CUSTOM_MUSIC_VIDEO_WORKFLOW_ID)
+    if (dependencyTargets.length > 0) {
+      const depsOk = await validateDependenciesForQueue(
+        dependencyTargets,
+        sourceLabel
+      )
+      if (!depsOk) return 0
+    }
 
     if (targets.length > 1 && !skipConfirm) {
       const estimatedJobs = variants.length * targets.length
@@ -7693,9 +9066,11 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     buildActiveYoloPlan,
     confirmLargeQueueBatch,
     isConnected,
+    isYoloMusicMode,
     queueYoloVideoVariants,
     yoloActivePlanIsStale,
     validateDependenciesForQueue,
+    yoloMusicCustomVideoValidation,
     yoloActivePlan,
     yoloSelectedVideoWorkflowIds,
     yoloModeLabel,
@@ -7836,11 +9211,19 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       setFormError('Choose a video workflow before creating shot video.')
       return
     }
-    const depsOk = await validateDependenciesForQueue(
-      targets,
-      `video re-render for ${sceneId} ${shotId}`
-    )
-    if (!depsOk) return
+    const usesCustomMusicVideoWorkflow = isYoloMusicMode && targets.includes(CUSTOM_MUSIC_VIDEO_WORKFLOW_ID)
+    if (usesCustomMusicVideoWorkflow && !yoloMusicCustomVideoValidation.ok) {
+      setFormError(yoloMusicCustomVideoValidation.message || 'Load and validate a custom video workflow before queueing.')
+      return
+    }
+    const dependencyTargets = targets.filter((id) => id !== CUSTOM_MUSIC_VIDEO_WORKFLOW_ID)
+    if (dependencyTargets.length > 0) {
+      const depsOk = await validateDependenciesForQueue(
+        dependencyTargets,
+        `video re-render for ${sceneId} ${shotId}`
+      )
+      if (!depsOk) return
+    }
 
     const planToUse = Array.isArray(planOverride) && planOverride.length > 0
       ? planOverride
@@ -7871,10 +9254,12 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
   }, [
     buildActiveYoloPlan,
     isConnected,
+    isYoloMusicMode,
     queueYoloVideoVariants,
     yoloActivePlanIsStale,
     validateDependenciesForQueue,
     yoloActivePlan,
+    yoloMusicCustomVideoValidation,
     yoloSelectedVideoWorkflowIds,
   ])
 
@@ -7921,9 +9306,22 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       setFormError(`Please select ${String(missingRequiredAssetField.label || missingRequiredAssetField.id).toLowerCase()} for this workflow first`)
       return
     }
+    if (workflowId === CUSTOM_GENERATE_IMAGE_WORKFLOW_ID && !customGenerateImageValidation.ok) {
+      setFormError(customGenerateImageValidation.message || 'Load and validate a custom image workflow before queueing.')
+      return
+    }
+    if (workflowId === CUSTOM_GENERATE_VIDEO_WORKFLOW_ID && !customGenerateVideoValidation.ok) {
+      setFormError(customGenerateVideoValidation.message || 'Load and validate a custom video workflow before queueing.')
+      return
+    }
 
     setFormError(null)
 
+    const customGenerateWorkflow = workflowId === CUSTOM_GENERATE_IMAGE_WORKFLOW_ID
+      ? customGenerateImageWorkflow
+      : workflowId === CUSTOM_GENERATE_VIDEO_WORKFLOW_ID
+        ? customGenerateVideoWorkflow
+        : null
     const job = createQueuedJob({
       inputAssetId: usingTimelineFrame ? null : (selectedAsset?.id || null),
       inputAssetName: usingTimelineFrame ? 'Timeline frame' : (selectedAsset?.name || ''),
@@ -7932,6 +9330,12 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       inputFromTimelineFrame: usingTimelineFrame,
       referenceAssetId1: workflowId === 'image-edit' ? referenceAssetId1 : null,
       referenceAssetId2: workflowId === 'image-edit' ? referenceAssetId2 : null,
+      customWorkflow: customGenerateWorkflow
+        ? {
+          name: customGenerateWorkflow.name || 'Custom workflow',
+          jsonText: customGenerateWorkflow.jsonText || '',
+        }
+        : undefined,
     })
 
     enqueueJob(job)
@@ -8442,13 +9846,16 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         .trim()
       return cleaned || fallback
     }
-    const workflowFolderName = sanitizeFolderSegment(
-      job?.workflowLabel || getWorkflowDisplayLabel(job?.workflowId || wfId) || wfId,
+    const getWorkflowFolderName = (kind) => sanitizeFolderSegment(
+      buildDirectorGeneratedFolderName(directorMeta, job?.workflowId || wfId, kind)
+        || job?.workflowLabel
+        || getWorkflowDisplayLabel(job?.workflowId || wfId)
+        || wfId,
       'Workflow'
     )
     const generatedFolderPath = (kind) => [
       ...(GENERATED_ASSET_FOLDERS[kind] || ['Generated']),
-      workflowFolderName,
+      getWorkflowFolderName(kind),
     ]
     const saveImportedAssetRecord = async (assetRecord, folderPathSegments) => {
       if (importsIntoActiveProject) {
@@ -8494,7 +9901,9 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
             duration: jobDuration,
             fps: jobFps,
             resolution: jobResolution ? `${jobResolution.width}x${jobResolution.height}` : undefined,
-            seed: jobSeed
+            seed: jobSeed,
+            inputAssetId: job?.inputAssetId || undefined,
+            keyframeAssetId: job?.inputAssetId || shortFilmMeta?.keyframeAssetId || undefined,
           }
         }, generatedVideoFolderPath)
         if (newAsset) importedAssets.push(newAsset)
@@ -8518,7 +9927,13 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
           yolo: directorMeta || undefined,
           shortFilm: shortFilmMeta || undefined,
           folderId: generatedVideoFolderId,
-          settings: { duration: jobDuration, fps: jobFps, seed: jobSeed }
+          settings: {
+            duration: jobDuration,
+            fps: jobFps,
+            seed: jobSeed,
+            inputAssetId: job?.inputAssetId || undefined,
+            keyframeAssetId: job?.inputAssetId || shortFilmMeta?.keyframeAssetId || undefined,
+          }
         })
         if (fallbackAsset) importedAssets.push(fallbackAsset)
         didImportAny = true
@@ -8548,6 +9963,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       const shortFilmKeyframeName = shortFilmMeta?.kind === 'shot-keyframe'
         ? `KF ${String((Number(shortFilmMeta.shotIndex) || 0) + 1).padStart(2, '0')} - ${shortFilmMeta.shotTitle || 'Shot'}`
         : ''
+      const peopleWizardAssetPrefix = String(job?.peopleWizard?.assetPrefix || '').trim()
       for (let imageIndex = 0; imageIndex < imageItems.length; imageIndex += 1) {
         const img = imageItems[imageIndex]
         if (markImportedSignature('image', img.filename, img.subfolder, img.outputType)) continue
@@ -8558,7 +9974,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
           const imageFile = await comfyui.downloadImage(img.filename, img.subfolder, img.outputType)
           const assetInfo = await importAsset(targetProjectHandle, imageFile, 'images')
           const blobUrl = importsIntoActiveProject ? URL.createObjectURL(imageFile) : null
-          const baseImageName = shortFilmKeyframeName || resolvedName
+          const wizardImageName = peopleWizardAssetPrefix ? buildPeopleWizardAssetName(peopleWizardAssetPrefix, 'image', resolvedName) : ''
+          const baseImageName = wizardImageName || shortFilmKeyframeName || resolvedName
           const imageName = imageItems.length > 1 ? `${baseImageName}_I${imageIndex + 1}` : baseImageName
           const newAsset = await saveImportedAssetRecord({
             ...assetInfo,
@@ -8569,6 +9986,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
             isImported: true,
             yolo: directorMeta || undefined,
             shortFilm: shortFilmMeta || undefined,
+            peopleWizard: job?.peopleWizard || undefined,
             folderId: generatedImageFolderId,
           }, generatedImageFolderPath)
           if (newAsset) importedAssets.push(newAsset)
@@ -8577,7 +9995,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
           console.warn('Failed to save image:', err)
           if (!importsIntoActiveProject) throw err
           const url = comfyui.getMediaUrl(img.filename, img.subfolder, img.outputType)
-          const baseImageName = shortFilmKeyframeName || resolvedName
+          const wizardImageName = peopleWizardAssetPrefix ? buildPeopleWizardAssetName(peopleWizardAssetPrefix, 'image', resolvedName) : ''
+          const baseImageName = wizardImageName || shortFilmKeyframeName || resolvedName
           const imageName = imageItems.length > 1 ? `${baseImageName}_I${imageIndex + 1}` : baseImageName
           const fallbackAsset = addAsset({
             name: imageName,
@@ -8586,6 +10005,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
             prompt: jobPrompt,
             yolo: directorMeta || undefined,
             shortFilm: shortFilmMeta || undefined,
+            peopleWizard: job?.peopleWizard || undefined,
             folderId: generatedImageFolderId,
           })
           if (fallbackAsset) importedAssets.push(fallbackAsset)
@@ -8664,9 +10084,14 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       addComfyLog('error', 'Open or create a project before creating an angle sheet.')
       return
     }
-    const imageAssets = job.resultAssetIds
-      .map((id) => assets.find((asset) => asset?.id === id) || null)
-      .filter((asset) => asset?.type === 'image')
+    const directResultAssets = Array.isArray(job?.resultAssets)
+      ? job.resultAssets.filter((asset) => asset?.type === 'image')
+      : []
+    const imageAssets = directResultAssets.length > 0
+      ? directResultAssets
+      : job.resultAssetIds
+        .map((id) => assets.find((asset) => asset?.id === id) || null)
+        .filter((asset) => asset?.type === 'image')
     if (imageAssets.length === 0) {
       addComfyLog('error', 'No generated image angles found for this job.')
       return
@@ -8713,24 +10138,40 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Failed to export angle sheet'))), 'image/png')
       })
       const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-      const file = new File([sheetBlob], `angle_sheet_${stamp}.png`, { type: 'image/png' })
+      const sourceAsset = imageAssets[0] || null
+      const peopleWizardAssetPrefix = slugifyNameToken(
+        job?.peopleWizard?.assetPrefix
+          || inferPeopleWizardAssetPrefix(sourceAsset, '')
+          || '',
+        { fallback: '', maxLength: 48 }
+      )
+      const sheetBaseName = peopleWizardAssetPrefix
+        ? buildPeopleWizardAssetName(peopleWizardAssetPrefix, 'sheet', 'angle_sheet')
+        : `angle_sheet_${stamp}`
+      const file = new File([sheetBlob], `${sheetBaseName}.png`, { type: 'image/png' })
       const assetInfo = await importAsset(targetProjectHandle, file, 'images')
       const newAsset = addAsset({
-        name: assetInfo.fileName,
+        name: `${sheetBaseName}.png`,
         type: 'image',
         path: assetInfo.path,
         url: areProjectHandlesSame(targetProjectHandle, currentProjectHandle) ? URL.createObjectURL(file) : null,
+        peopleWizard: job?.peopleWizard ? {
+          ...job.peopleWizard,
+          assetPrefix: peopleWizardAssetPrefix || job.peopleWizard.assetPrefix || '',
+        } : undefined,
       })
       if (!newAsset) throw new Error('Failed to register angle sheet in assets')
       await saveProject?.()
       updateJob(job.id, { angleSheetAssetId: newAsset.id, isCombiningAngles: false, combineError: null })
       addComfyLog('ok', `Angle sheet created: ${assetInfo.fileName}`)
+      return newAsset
     } catch (error) {
       const message = error?.message || 'Failed to create angle sheet'
       updateJob(job.id, { isCombiningAngles: false, combineError: message })
       addComfyLog('error', message)
+      return null
     }
-  }, [addAsset, addComfyLog, assets, currentProjectHandle, saveProject, updateJob])
+  }, [addAsset, addComfyLog, assets, buildPeopleWizardAssetName, currentProjectHandle, inferPeopleWizardAssetPrefix, saveProject, updateJob])
 
   const runJob = useCallback(async (job) => {
     updateJob(job.id, { status: 'uploading', progress: 5, error: null })
@@ -8765,6 +10206,18 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
           }
         }
         return asset.url || null
+      }
+      const getJobAssetPath = async (asset) => {
+        if (!asset) return null
+        if (asset.absolutePath) return asset.absolutePath
+        if (asset.path && typeof originProjectHandle === 'string' && window.electronAPI?.pathJoin) {
+          try {
+            return await window.electronAPI.pathJoin(originProjectHandle, asset.path)
+          } catch (_) {
+            return null
+          }
+        }
+        return null
       }
       const getUploadExtension = (asset, blob, fallbackName) => {
         const candidates = [fallbackName, asset?.path, asset?.name].filter(Boolean)
@@ -8804,6 +10257,22 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
           type: blob.type || asset.mimeType || 'application/octet-stream',
         })
       }
+      const createFileFromPath = async (filePath, fallbackName, mimeType = 'application/octet-stream') => {
+        if (!filePath || !window.electronAPI?.readFileAsBuffer) return null
+        const result = await window.electronAPI.readFileAsBuffer(filePath)
+        if (!result?.success || !result.data) {
+          throw new Error(result?.error || `Could not read file ${fallbackName || filePath}`)
+        }
+        let filename = fallbackName || 'asset'
+        if (!fallbackName && window.electronAPI?.pathBasename) {
+          try {
+            filename = await window.electronAPI.pathBasename(filePath)
+          } catch (_) {
+            filename = 'asset'
+          }
+        }
+        return new File([result.data], filename, { type: mimeType })
+      }
       const outputPrefix = (
         isSingleVideoWorkflowId(job.workflowId) ||
         job.workflowId === 'ltx23-t2v' ||
@@ -8826,15 +10295,33 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
             job.workflowId === 'gpt-image-2-t2i' ||
             job.workflowId === 'gpt-image-2-edit' ||
             job.workflowId === 'grok-text-to-image' ||
-            job.workflowId === 'nano-banana-pro'
+            job.workflowId === 'nano-banana-pro' ||
+            job.workflowId === CUSTOM_GENERATE_IMAGE_WORKFLOW_ID ||
+            job.workflowId === CUSTOM_MUSIC_KEYFRAME_WORKFLOW_ID
           )
             ? `image/comfystudio_${outputToken}`
             : (
               job.workflowId === 'sonilo-v2m' || job.workflowId === ELEVENLABS_TTS_WORKFLOW_ID
-                ? `audio/comfystudio_${outputToken}`
+              ? `audio/comfystudio_${outputToken}`
                 : ''
             )
       )
+      const peopleWizardPrefix = slugifyNameToken(job?.peopleWizard?.assetPrefix || '', { fallback: '', maxLength: 48 })
+    const peopleWizardImagePrefix = peopleWizardPrefix ? `image/${peopleWizardPrefix}_${outputToken}` : ''
+      const maybeFinalizePeopleWizardJob = async (jobRecord, currentImportedAssets) => {
+        if (!jobRecord?.peopleWizard?.autoCreateAngleSheet) return currentImportedAssets
+        if (!['multi-angles', 'multi-angles-scene'].includes(String(jobRecord.workflowId || '').trim())) return currentImportedAssets
+        const resultAssetIds = (currentImportedAssets || []).map((asset) => asset?.id).filter(Boolean)
+        if (resultAssetIds.length === 0) return currentImportedAssets
+        const sheetAsset = await handleCreateAngleSheetForJob({
+          ...jobRecord,
+          resultAssetIds,
+          resultAssets: currentImportedAssets,
+        })
+        if (!sheetAsset) return currentImportedAssets
+        updateJob(jobRecord.id, { resultAssetIds: [sheetAsset.id] })
+        return [sheetAsset]
+      }
 
       if (job.promptId) {
         markPromptHandledByApp(job.promptId)
@@ -8858,6 +10345,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
           if (!saveResult?.didImportAny) {
             throw new Error('Generation returned a stale/duplicate output; job was not imported. Queue paused for safety.')
           }
+          importedAssets = await maybeFinalizePeopleWizardJob(job, importedAssets)
           rememberLatestWorkflowPreview(job, importedAssets)
           updateJob(job.id, {
             status: 'done',
@@ -8916,23 +10404,54 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       // upload it to Comfy's input folder, and keep the returned filename so
       // the modifier can reference it on the LoadAudio node.
       let uploadedAudioFilename = null
-      const audioUploadAssetId = job.workflowId === MUSIC_VIDEO_SHOT_WORKFLOW_ID
+      const audioUploadAssetId = job.workflowId === MUSIC_VIDEO_SHOT_WORKFLOW_ID || job.workflowId === CUSTOM_MUSIC_VIDEO_WORKFLOW_ID
         ? job.musicAudioAssetId
         : (job.workflowId === 'ltx23-ia2v' || job.workflowId === SHORT_FILM_DIALOGUE_VIDEO_WORKFLOW_ID ? job.audioAssetId : null)
       if (audioUploadAssetId) {
         const audioAsset = findJobAsset(audioUploadAssetId, 'audio')
         if (!audioAsset) {
-          throw new Error(job.workflowId === MUSIC_VIDEO_SHOT_WORKFLOW_ID
+          throw new Error(job.workflowId === MUSIC_VIDEO_SHOT_WORKFLOW_ID || job.workflowId === CUSTOM_MUSIC_VIDEO_WORKFLOW_ID
             ? 'Audio asset not found — re-select the song/voiceover in Director setup and rebuild the plan.'
             : 'Audio asset not found — re-select conditioning audio and queue again.')
         }
+        const shouldTrimMusicAudio = job.workflowId === CUSTOM_MUSIC_VIDEO_WORKFLOW_ID
+        let cleanupPath = null
         try {
-          const file = await createFileFromJobAsset(audioAsset, `audio_${Date.now()}.mp3`)
+          let file = null
+          if (shouldTrimMusicAudio) {
+            if (!isElectron() || !window.electronAPI?.trimAudioSegment) {
+              throw new Error('Shot audio trimming requires the Electron app.')
+            }
+            const sourcePath = await getJobAssetPath(audioAsset)
+            if (!sourcePath) {
+              throw new Error('Could not find the local song audio file to trim.')
+            }
+            const shotStart = Math.max(0, Number(job?.musicShot?.audioStart) || 0)
+            const shotDuration = Math.max(0.25, Number(job.duration || job?.musicShot?.length || 0) || 0)
+            const trimResult = await window.electronAPI.trimAudioSegment({
+              inputPath: sourcePath,
+              startSeconds: shotStart,
+              durationSeconds: shotDuration,
+              outputName: `custom_music_${outputToken}_audio.wav`,
+              timeoutMs: 90000,
+            })
+            if (!trimResult?.success || !trimResult.outputPath) {
+              throw new Error(trimResult?.error || 'Could not trim shot audio.')
+            }
+            cleanupPath = trimResult.outputPath
+            file = await createFileFromPath(trimResult.outputPath, `custom_music_${outputToken}_audio.wav`, 'audio/wav')
+          } else {
+            file = await createFileFromJobAsset(audioAsset, `audio_${Date.now()}.mp3`)
+          }
           if (!file) throw new Error('Audio asset is not accessible')
           const uploadResult = await comfyui.uploadFile(file)
           uploadedAudioFilename = uploadResult?.name || file.name
         } catch (audioError) {
           throw new Error(`Failed to upload audio: ${audioError?.message || audioError}`)
+        } finally {
+          if (cleanupPath && window.electronAPI?.deleteFile) {
+            window.electronAPI.deleteFile(cleanupPath).catch(() => {})
+          }
         }
       }
 
@@ -8958,7 +10477,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         job.workflowId === 'image-edit-model-product' ||
         job.workflowId === 'seedream-5-lite-image-edit' ||
         job.workflowId === 'nano-banana-2' ||
-        job.workflowId === 'nano-banana-pro'
+        job.workflowId === 'nano-banana-pro' ||
+        job.workflowId === CUSTOM_MUSIC_KEYFRAME_WORKFLOW_ID
       )
       if (supportsReferenceImages && (job.referenceAssetId1 || job.referenceAssetId2)) {
         for (const [index, refId] of [job.referenceAssetId1, job.referenceAssetId2].entries()) {
@@ -8988,19 +10508,32 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
       // Load workflow JSON
       updateJob(job.id, { status: 'configuring', progress: 20 })
       let workflowJson = null
-      const workflowPath = BUILTIN_WORKFLOW_PATHS[job.workflowId]
-      if (!workflowPath) throw new Error('Unknown workflow: ' + job.workflowId)
+      if (
+        job.workflowId === CUSTOM_MUSIC_KEYFRAME_WORKFLOW_ID
+        || job.workflowId === CUSTOM_MUSIC_VIDEO_WORKFLOW_ID
+        || job.workflowId === CUSTOM_GENERATE_IMAGE_WORKFLOW_ID
+        || job.workflowId === CUSTOM_GENERATE_VIDEO_WORKFLOW_ID
+      ) {
+        try {
+          workflowJson = JSON.parse(String(job?.customWorkflow?.jsonText || ''))
+        } catch (error) {
+          throw new Error(`Custom workflow JSON is invalid: ${error?.message || error}`)
+        }
+      } else {
+        const workflowPath = BUILTIN_WORKFLOW_PATHS[job.workflowId]
+        if (!workflowPath) throw new Error('Unknown workflow: ' + job.workflowId)
 
-      const resp = await fetch(workflowPath)
-      if (!resp.ok) throw new Error(`Failed to load workflow file: ${workflowPath} (${resp.status})`)
-      const workflowText = await resp.text()
-      try {
-        workflowJson = JSON.parse(workflowText)
-      } catch {
-        const snippet = workflowText.trim().slice(0, 120)
-        throw new Error(
-          `Workflow file is not valid JSON: ${workflowPath}. Response starts with: ${snippet || '(empty response)'}`
-        )
+        const resp = await fetch(workflowPath)
+        if (!resp.ok) throw new Error(`Failed to load workflow file: ${workflowPath} (${resp.status})`)
+        const workflowText = await resp.text()
+        try {
+          workflowJson = JSON.parse(workflowText)
+        } catch {
+          const snippet = workflowText.trim().slice(0, 120)
+          throw new Error(
+            `Workflow file is not valid JSON: ${workflowPath}. Response starts with: ${snippet || '(empty response)'}`
+          )
+        }
       }
 
       // Modify workflow based on type
@@ -9011,6 +10544,8 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         modifyLTX23IA2VWorkflow,
         modifyMultipleAnglesWorkflow,
         modifyQwenImageEdit2509Workflow,
+        modifyCustomKeyframeWorkflow,
+        modifyCustomVideoWorkflow,
         modifyZImageTurboWorkflow,
         modifyNanoBanana2Workflow,
         modifyOpenAIGPTImage2Workflow,
@@ -9116,6 +10651,33 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
           })
           break
         }
+        case CUSTOM_MUSIC_VIDEO_WORKFLOW_ID:
+          modifiedWorkflow = modifyCustomVideoWorkflow(workflowJson, {
+            prompt: job.prompt,
+            inputImage: uploadedFilename,
+            inputAudio: uploadedAudioFilename,
+            seed: job.seed,
+            width: job.resolution?.width,
+            height: job.resolution?.height,
+            fps: job.fps,
+            duration: job.duration,
+            filenamePrefix: outputPrefix || 'video/custom_music',
+          })
+          break
+        case CUSTOM_GENERATE_VIDEO_WORKFLOW_ID:
+          modifiedWorkflow = modifyCustomVideoWorkflow(workflowJson, {
+            requireInputImage: false,
+            prompt: job.prompt,
+            inputImage: assetFieldFilenames.customInputImage || uploadedFilename || '',
+            inputAudio: assetFieldFilenames.customAudioAsset || uploadedAudioFilename || '',
+            seed: job.seed,
+            width: job.resolution?.width,
+            height: job.resolution?.height,
+            fps: job.fps,
+            duration: job.duration,
+            filenamePrefix: outputPrefix || 'video/custom_generate',
+          })
+          break
         case 'kling-o3-i2v':
           modifiedWorkflow = modifyKlingO3I2VWorkflow(workflowJson, {
             prompt: job.prompt,
@@ -9178,8 +10740,34 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
             prompt: job.prompt,
             inputImage: uploadedFilename,
             seed: job.seed,
+            width: job.resolution?.width,
+            height: job.resolution?.height,
             referenceImages: referenceFilenames,
             filenamePrefix: outputPrefix || 'image/ComfyStudio_edit',
+          })
+          break
+        case CUSTOM_MUSIC_KEYFRAME_WORKFLOW_ID:
+          modifiedWorkflow = modifyCustomKeyframeWorkflow(workflowJson, {
+            prompt: job.prompt,
+            inputImage: uploadedFilename,
+            seed: job.seed,
+            width: job.resolution?.width,
+            height: job.resolution?.height,
+            referenceImages: referenceFilenames,
+            filenamePrefix: outputPrefix || 'image/custom_keyframe',
+          })
+          break
+        case CUSTOM_GENERATE_IMAGE_WORKFLOW_ID:
+          modifiedWorkflow = modifyCustomKeyframeWorkflow(workflowJson, {
+            requireInputImage: false,
+            requirePrompt: false,
+            validateOptionalEndpoints: false,
+            prompt: '',
+            inputImage: assetFieldFilenames.customInputImage || uploadedFilename || '',
+            seed: null,
+            width: null,
+            height: null,
+            filenamePrefix: outputPrefix || 'image/custom_generate',
           })
           break
         case 'z-image-turbo':
@@ -9188,7 +10776,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
             seed: job.seed,
             width: job.resolution?.width,
             height: job.resolution?.height,
-            filenamePrefix: outputPrefix || 'image/z_image_turbo',
+            filenamePrefix: peopleWizardImagePrefix || outputPrefix || 'image/z_image_turbo',
           })
           break
         case 'longcat-text-to-image':
@@ -9226,7 +10814,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
             width: job.resolution?.width,
             height: job.resolution?.height,
             referenceImages: referenceFilenames,
-            filenamePrefix: outputPrefix || 'image/nano_banana_2',
+            filenamePrefix: peopleWizardImagePrefix || outputPrefix || 'image/nano_banana_2',
           })
           break
         case 'gpt-image-2-t2i':
@@ -9235,7 +10823,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
             seed: job.seed,
             width: job.resolution?.width,
             height: job.resolution?.height,
-            filenamePrefix: outputPrefix || 'image/gpt_image_2',
+            filenamePrefix: peopleWizardImagePrefix || outputPrefix || 'image/gpt_image_2',
           })
           break
         case 'gpt-image-2-edit':
@@ -9245,7 +10833,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
             seed: job.seed,
             width: job.resolution?.width,
             height: job.resolution?.height,
-            filenamePrefix: outputPrefix || 'image/gpt_image_2_edit',
+            filenamePrefix: peopleWizardImagePrefix || outputPrefix || 'image/gpt_image_2_edit',
           })
           break
         case 'grok-text-to-image':
@@ -9254,7 +10842,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
             seed: job.seed,
             width: job.resolution?.width,
             height: job.resolution?.height,
-            filenamePrefix: outputPrefix || 'image/grok_text_to_image',
+            filenamePrefix: peopleWizardImagePrefix || outputPrefix || 'image/grok_text_to_image',
           })
           break
         case 'seedream-5-lite-image-edit':
@@ -9265,7 +10853,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
             width: job.resolution?.width,
             height: job.resolution?.height,
             referenceImages: referenceFilenames,
-            filenamePrefix: outputPrefix || 'image/seedream_5_lite',
+            filenamePrefix: peopleWizardImagePrefix || outputPrefix || 'image/seedream_5_lite',
           })
           break
         case 'sonilo-v2m':
@@ -9327,6 +10915,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         if (!saveResult?.didImportAny) {
           throw new Error('Generation returned a stale/duplicate output; job was not imported. Queue paused for safety.')
         }
+        importedAssets = await maybeFinalizePeopleWizardJob(job, importedAssets)
         rememberLatestWorkflowPreview(job, importedAssets)
         updateJob(job.id, {
           status: 'done',
@@ -9455,6 +11044,24 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
     interpolationMultiplier,
     enableFpsMultiplier,
     seed,
+    customWorkflows: {
+      image: {
+        ...customGenerateImageWorkflow,
+        validation: customGenerateImageValidation,
+        bridge: {
+          ...yoloMusicCustomKeyframeBridgeStatus,
+          busy: yoloMusicCustomKeyframeBridgeBusy,
+        },
+      },
+      video: {
+        ...customGenerateVideoWorkflow,
+        validation: customGenerateVideoValidation,
+        bridge: {
+          ...yoloMusicCustomKeyframeBridgeStatus,
+          busy: yoloMusicCustomKeyframeBridgeBusy,
+        },
+      },
+    },
   }
 
   const workflowDetailActions = {
@@ -9493,6 +11100,11 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
         return next
       })
     },
+    onOpenCustomWorkflow: handleOpenCustomGenerateWorkflowInComfyUi,
+    onImportCustomWorkflow: handleImportCustomGenerateWorkflow,
+    onClearCustomWorkflow: handleClearCustomGenerateWorkflow,
+    onInstallCustomBridge: handleInstallYoloMusicCustomKeyframeBridge,
+    onCheckCustomBridge: handleCheckYoloMusicCustomKeyframeBridge,
     randomizeSeed,
     setValue: (key, value) => {
       switch (key) {
@@ -9700,7 +11312,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                     values={workflowDetailValues}
                     actions={workflowDetailActions}
                     disabled={isGenerateDisabled}
-                    disabledReason={formError || ''}
+                    disabledReason={formError || (customGenerateNeedsSetup ? customGenerateDisabledReason : '')}
                     onBack={() => setWorkflowDetailOpen(false)}
                   />
                 )}
@@ -10164,6 +11776,7 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                   />
                 ) : isYoloMusicMode ? (
                   <MusicVideoEasyMode
+                    draftStorageScope={generateWorkspaceProjectScope}
                     assets={assets}
                     yoloMusicAudioAssets={yoloMusicAudioAssets}
                     yoloMusicAudioAssetId={yoloMusicAudioAssetId}
@@ -10181,18 +11794,35 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                     setYoloMusicScript={setYoloMusicScript}
                     yoloMusicCast={yoloMusicCast}
                     yoloMusicResolvedCast={yoloMusicResolvedCast}
+                    setYoloMusicCast={setYoloMusicCast}
                     yoloMusicKeyframeWorkflowId={yoloStoryboardWorkflowId}
                     setYoloMusicKeyframeWorkflowId={setYoloMusicKeyframeWorkflowId}
                     yoloMusicKeyframeWorkflowOptions={YOLO_MUSIC_KEYFRAME_WORKFLOW_OPTIONS}
+                    yoloMusicCustomKeyframeWorkflow={yoloMusicCustomKeyframeWorkflow}
+                    yoloMusicCustomKeyframeValidation={yoloMusicCustomKeyframeValidation}
+                    handleImportYoloMusicCustomKeyframeWorkflow={handleImportYoloMusicCustomKeyframeWorkflow}
+                    handleOpenYoloMusicCustomKeyframeWorkflowInComfyUi={handleOpenYoloMusicCustomKeyframeWorkflowInComfyUi}
+                    handleClearYoloMusicCustomKeyframeWorkflow={handleClearYoloMusicCustomKeyframeWorkflow}
+                    customKeyframeBridgeStatus={yoloMusicCustomKeyframeBridgeStatus}
+                    customKeyframeBridgeBusy={yoloMusicCustomKeyframeBridgeBusy}
+                    handleInstallYoloMusicCustomKeyframeBridge={handleInstallYoloMusicCustomKeyframeBridge}
+                    handleCheckYoloMusicCustomKeyframeBridge={handleCheckYoloMusicCustomKeyframeBridge}
                     yoloMusicVideoWorkflowId={yoloDefaultVideoWorkflowId}
                     setYoloMusicVideoWorkflowId={setYoloMusicVideoWorkflowId}
                     yoloMusicVideoWorkflowOptions={YOLO_MUSIC_VIDEO_WORKFLOW_OPTIONS}
+                    yoloMusicCustomVideoWorkflow={yoloMusicCustomVideoWorkflow}
+                    yoloMusicCustomVideoValidation={yoloMusicCustomVideoValidation}
+                    handleImportYoloMusicCustomVideoWorkflow={handleImportYoloMusicCustomVideoWorkflow}
+                    handleOpenYoloMusicCustomVideoWorkflowInComfyUi={handleOpenYoloMusicCustomVideoWorkflowInComfyUi}
+                    handleClearYoloMusicCustomVideoWorkflow={handleClearYoloMusicCustomVideoWorkflow}
                     handleYoloMusicCastAdd={handleYoloMusicCastAdd}
                     handleYoloMusicCastRemove={handleYoloMusicCastRemove}
                     handleYoloMusicCastAssetChange={handleYoloMusicCastAssetChange}
                     handleYoloMusicCastSlugChange={handleYoloMusicCastSlugChange}
                     handleYoloMusicCastLabelChange={handleYoloMusicCastLabelChange}
                     handleYoloMusicCastRoleChange={handleYoloMusicCastRoleChange}
+                    queuePeopleWizardJob={queuePeopleWizardJob}
+                    canUsePeopleWizardGeneration={Boolean(BUILTIN_WORKFLOW_PATHS['z-image-turbo'] && BUILTIN_WORKFLOW_PATHS['multi-angles'])}
                     generationQueue={generationQueue}
                     yoloActivePlan={yoloActivePlan}
                     yoloQueueVariants={yoloQueueVariants}
@@ -10467,7 +12097,11 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                           </div>
                           {yoloMusicCast.length === 0 ? (
                             <div className="mt-1 rounded-lg border border-dashed border-sf-dark-600 bg-sf-dark-800/40 px-3 py-3 text-[11px] text-sf-text-muted">
-                              No cast yet. Click <span className="text-sf-text-secondary">+ Add cast member</span> to pick an image asset (a still of the singer / band member) and give them a short handle like <span className="font-mono text-sf-text-secondary">rose</span>. You can then reference them in your script with <span className="font-mono text-sf-text-secondary">Artist: rose</span> or in lyrics with <span className="font-mono text-sf-text-secondary">[Rose]</span> tag lines. Leave it empty for reference-free shots (the model will improvise the singer's look).
+                              No cast yet. Click <span className="text-sf-text-secondary">+ Add cast member</span> to pick
+                              an image asset (a still of the singer / band member) and give them a short handle like
+                              <span className="font-mono text-sf-text-secondary">rose</span>. You can then reference them in
+                              your script with <span className="font-mono text-sf-text-secondary">Artist: rose</span> or in
+                              lyrics with <span className="font-mono text-sf-text-secondary">[Rose]</span> tag lines.
                             </div>
                           ) : (
                             <div className="mt-1 space-y-1.5">
@@ -10540,7 +12174,14 @@ function GenerateWorkspace({ onOpenWorkflowSetup = null }) {
                           )}
                           <div className="mt-2 text-[10px] text-sf-text-muted">
                             <div>
-                              Reference cast in your script with <span className="font-mono text-sf-text-secondary">Artist: rose</span>, <span className="font-mono text-sf-text-secondary">Artist: jake</span>, or <span className="font-mono text-sf-text-secondary">Artist: both</span> (also <span className="font-mono">all</span> / <span className="font-mono">band</span>). In lyrics, drop a tag line above the verse: <span className="font-mono text-sf-text-secondary">[Rose]</span>, <span className="font-mono text-sf-text-secondary">[Jake]</span>, <span className="font-mono text-sf-text-secondary">[Rose, Jake]</span>. Section markers like <span className="font-mono">[Chorus]</span> and <span className="font-mono">[Verse 1]</span> are ignored.
+                              Reference cast in your script with <span className="font-mono text-sf-text-secondary">Artist: rose</span>,
+                              <span className="font-mono text-sf-text-secondary">Artist: jake</span>, or
+                              <span className="font-mono text-sf-text-secondary">Artist: both</span> (also
+                              <span className="font-mono">all</span> / <span className="font-mono">band</span>). In lyrics, drop a tag line above the verse:
+                              <span className="font-mono text-sf-text-secondary">[Rose]</span>,
+                              <span className="font-mono text-sf-text-secondary">[Jake]</span>, or
+                              <span className="font-mono text-sf-text-secondary">[Rose, Jake]</span>.
+                              Section markers like <span className="font-mono">[Chorus]</span> and <span className="font-mono">[Verse 1]</span> are ignored.
                             </div>
                           </div>
                         </div>

@@ -287,6 +287,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAudioWaveform: (mediaInput, options = {}) => ipcRenderer.invoke('media:getAudioWaveform', mediaInput, options),
 
   /**
+   * Trim a short audio segment with FFmpeg and return a temporary WAV path.
+   * @param {object} options - { inputPath, startSeconds, durationSeconds, outputName?, timeoutMs? }
+   * @returns {Promise<{success: boolean, outputPath?: string, duration?: number, error?: string}>}
+   */
+  trimAudioSegment: (options = {}) => ipcRenderer.invoke('media:trimAudioSegment', options),
+
+  /**
+   * Extract a poster image from the first frames of a video via ffmpeg.
+   * @param {string} inputPath - Absolute source file path
+   * @param {string} outputPath - Absolute poster destination path
+   * @param {object} options - { seekSeconds?: number, width?: number, quality?: number }
+   * @returns {Promise<{success: boolean, width?: number, height?: number, error?: string}>}
+   */
+  extractVideoPoster: (inputPath, outputPath, options = {}) => ipcRenderer.invoke('media:extractVideoPoster', inputPath, outputPath, options),
+
+  /**
    * Mix the full timeline's program audio into a single mono 16 kHz WAV file
    * via FFmpeg in the main process. Required for timeline-scope transcription
    * (decoding long videos in the renderer via Web Audio causes renderer OOMs).
@@ -341,6 +357,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_, data) => cb(data)
     ipcRenderer.on('workflowSetup:progress', handler)
     return () => ipcRenderer.removeListener('workflowSetup:progress', handler)
+  },
+  onDownloadProgress: (cb) => {
+    const handler = (_, data) => cb(data)
+    ipcRenderer.on('download:progress', handler)
+    return () => ipcRenderer.removeListener('download:progress', handler)
+  },
+
+  // ============================================
+  // ComfyStudio Bridge
+  // ============================================
+
+  comfyBridge: {
+    getStatus: () => ipcRenderer.invoke('comfyBridge:getStatus'),
+    install: () => ipcRenderer.invoke('comfyBridge:install'),
   },
 
   // ============================================

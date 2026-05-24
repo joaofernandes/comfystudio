@@ -18,6 +18,7 @@ import useViewportClampedPosition from '../hooks/useViewportClampedPosition'
 import { getAllKeyframeTimes } from '../utils/keyframes'
 import { TRANSITION_TYPES, TRANSITION_DURATIONS, FRAME_RATE } from '../constants/transitions'
 import { getAudioClipFadeValues } from '../utils/audioClipFades'
+import { getSpriteFramePosition } from '../services/thumbnailSprites'
 import { getEffectTypeDefinition } from '../utils/effects'
 import { isTextEditingElement } from '../utils/keyboardFocus'
 import {
@@ -39,18 +40,20 @@ import {
 import MasterAudioMeter from './AudioMeter'
 
 const TRANSITION_DEFAULT_DURATION_KEY = 'comfystudio-transition-default-duration-frames'
-const DEFAULT_WAVEFORM_SAMPLES = 4096
+const DEFAULT_WAVEFORM_SAMPLES = 8192
 const MARQUEE_DRAG_THRESHOLD_PX = 6
 const MARQUEE_AUTO_SCROLL_EDGE_PX = 32
 const MARQUEE_AUTO_SCROLL_STEP_PX = 24
 const PLAYHEAD_SCRUB_AUTO_SCROLL_EDGE_PX = 40
 const PLAYHEAD_SCRUB_AUTO_SCROLL_MAX_STEP_PX = 28
 const MIN_INTERACTIVE_CLIP_WIDTH_PX = 24
+const TIMELINE_VIDEO_THUMB_WIDTH_PX = 90
+const MAX_TIMELINE_VIDEO_THUMBNAILS = 12
 
 // Resolve-style audio track/waveform colors
 const AUDIO_TRACK_BG = '#2d4038'
-const AUDIO_WAVEFORM_FILL = '#7eb8a8'
-const AUDIO_WAVEFORM_CENTER_LINE = 'rgba(255,255,255,0.35)'
+const AUDIO_WAVEFORM_FILL = 'rgba(238, 255, 249, 0.94)'
+const AUDIO_WAVEFORM_CENTER_LINE = 'rgba(255,255,255,0.32)'
 const AUDIO_CLIP_ACCENT = '#4a6b5c'
 const ADJACENT_CLIP_UI_GAP_SECONDS = 0.5
 const ROLL_EDIT_MAX_GAP_SECONDS = 1 / FRAME_RATE
@@ -289,7 +292,16 @@ const getAudioWaveformData = async (url, sampleCount = DEFAULT_WAVEFORM_SAMPLES)
 
 // Pixel count for canvas waveform: one sample per pixel up to 2x display width (Resolve-like resolution)
 function getWaveformPixelCount(clipWidthPx) {
-  return Math.min(2048, Math.max(64, Math.round(clipWidthPx)))
+  return Math.min(8192, Math.max(96, Math.round(clipWidthPx * 2)))
+}
+
+function getWaveformSampleCount(pixelCount) {
+  const target = Math.max(DEFAULT_WAVEFORM_SAMPLES, Math.round(Number(pixelCount) || 0) * 2)
+  let sampleCount = DEFAULT_WAVEFORM_SAMPLES
+  while (sampleCount < target && sampleCount < 32768) {
+    sampleCount *= 2
+  }
+  return Math.min(32768, sampleCount)
 }
 
 function AudioWaveformBars({ clip, clipWidth, clipUrl, waveformInput = null }) {
@@ -297,6 +309,8 @@ function AudioWaveformBars({ clip, clipWidth, clipUrl, waveformInput = null }) {
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
   const containerRef = useRef(null)
   const canvasRef = useRef(null)
+  const pixelCount = getWaveformPixelCount(clipWidth)
+  const waveformSampleCount = getWaveformSampleCount(pixelCount)
 
   useEffect(() => {
     let cancelled = false
@@ -307,7 +321,7 @@ function AudioWaveformBars({ clip, clipWidth, clipUrl, waveformInput = null }) {
       return () => { cancelled = true }
     }
 
-    getAudioWaveformData(mediaInput)
+    getAudioWaveformData(mediaInput, waveformSampleCount)
       .then((data) => {
         if (!cancelled) setWaveform(data)
       })
@@ -318,7 +332,7 @@ function AudioWaveformBars({ clip, clipWidth, clipUrl, waveformInput = null }) {
     return () => {
       cancelled = true
     }
-  }, [clipUrl, waveformInput])
+  }, [clipUrl, waveformInput, waveformSampleCount])
 
   useEffect(() => {
     const el = containerRef.current
@@ -330,7 +344,6 @@ function AudioWaveformBars({ clip, clipWidth, clipUrl, waveformInput = null }) {
     return () => ro.disconnect()
   }, [clipWidth])
 
-  const pixelCount = getWaveformPixelCount(clipWidth)
   const amplitudePixels = useMemo(() => {
     if (!waveform?.peaks?.length) return null
 
@@ -349,20 +362,24 @@ function AudioWaveformBars({ clip, clipWidth, clipUrl, waveformInput = null }) {
 
     const out = new Array(pixelCount)
     for (let i = 0; i < pixelCount; i++) {
-      const progress = pixelCount <= 1 ? 0.5 : i / (pixelCount - 1)
-      const sourceTime = isReverse
-        ? trimEnd - (progress * sourceSpan)
-        : trimStart + (progress * sourceSpan)
-      const normalized = Math.max(0, Math.min(0.999999, sourceTime / sourceDuration))
-      const exact = normalized * (peaks.length - 1)
-      const leftIndex = Math.floor(exact)
-      const rightIndex = Math.min(peaks.length - 1, leftIndex + 1)
-      const mix = exact - leftIndex
-      const left = peaks[leftIndex] || 0
-      const right = peaks[rightIndex] || 0
-      const sample = left * (1 - mix) + right * mix
-      const smoothed = (sample + (peaks[leftIndex - 1] ?? left) + (peaks[rightIndex + 1] ?? right)) / 3
-      out[i] = Math.max(0.04, Math.min(1, smoothed))
+      const startProgress = i / pixelCount
+      const endProgress = (i + 1) / pixelCount
+      const startTime = isReverse
+        ? trimEnd - (endProgress * sourceSpan)
+        : trimStart + (startProgress * sourceSpan)
+      const endTime = isReverse
+        ? trimEnd - (startProgress * sourceSpan)
+        : trimStart + (endProgress * sourceSpan)
+      const normalizedStart = Math.max(0, Math.min(0.999999, startTime / sourceDuration))
+      const normalizedEnd = Math.max(0, Math.min(0.999999, endTime / sourceDuration))
+      const leftIndex = Math.max(0, Math.floor(normalizedStart * (peaks.length - 1)))
+      const rightIndex = Math.min(peaks.length - 1, Math.ceil(normalizedEnd * (peaks.length - 1)))
+      let peak = 0
+      for (let peakIndex = leftIndex; peakIndex <= rightIndex; peakIndex += 1) {
+        const value = Number(peaks[peakIndex] || 0)
+        if (value > peak) peak = value
+      }
+      out[i] = Math.max(0.015, Math.min(1, peak))
     }
     return out
   }, [waveform, clip.sourceDuration, clip.trimStart, clip.trimEnd, clip.reverse, pixelCount])
@@ -391,24 +408,19 @@ function AudioWaveformBars({ clip, clipWidth, clipUrl, waveformInput = null }) {
     const n = amplitudePixels ? amplitudePixels.length : 0
 
     if (n > 0) {
-      ctx.fillStyle = AUDIO_WAVEFORM_FILL
+      ctx.strokeStyle = AUDIO_WAVEFORM_FILL
+      ctx.lineWidth = 1
+      ctx.lineCap = 'butt'
       ctx.beginPath()
-      ctx.moveTo(0, centerY)
       for (let i = 0; i < n; i++) {
-        const x = (i / (n - 1 || 1)) * w
+        const x = ((i + 0.5) / n) * w
         const amp = amplitudePixels[i] ?? 0.1
-        const y = centerY - amp * halfH
-        ctx.lineTo(x, y)
+        const y1 = centerY - amp * halfH
+        const y2 = centerY + amp * halfH
+        ctx.moveTo(x, y1)
+        ctx.lineTo(x, y2)
       }
-      ctx.lineTo(w, centerY)
-      for (let i = n - 1; i >= 0; i--) {
-        const x = (i / (n - 1 || 1)) * w
-        const amp = amplitudePixels[i] ?? 0.1
-        const y = centerY + amp * halfH
-        ctx.lineTo(x, y)
-      }
-      ctx.closePath()
-      ctx.fill()
+      ctx.stroke()
     }
 
     ctx.strokeStyle = AUDIO_WAVEFORM_CENTER_LINE
@@ -875,8 +887,7 @@ function Timeline({ onOpenAudioGenerate, onActiveToolChange }) {
     e.preventDefault()
     e.stopPropagation()
     selectGap(gap)
-    setPlayheadPosition(time, { snap: true })
-  }, [getTimeFromMouseEvent, getTrackGapAtTime, selectGap, setPlayheadPosition])
+  }, [getTimeFromMouseEvent, getTrackGapAtTime, selectGap])
   const clipContextSelectionIds = useMemo(() => (
     clipContextMenu ? selectedClipIds : []
   ), [clipContextMenu, selectedClipIds])
@@ -1158,6 +1169,128 @@ function Timeline({ onOpenAudioGenerate, onActiveToolChange }) {
     }
     // Fallback to clip's stored URL
     return clip.url
+  }
+
+  const getTimelineClipPosterUrl = (clip, asset) => {
+    const directPoster = asset?.posterUrl
+      || asset?.thumbnailUrl
+      || asset?.coverUrl
+      || asset?.settings?.posterUrl
+      || asset?.settings?.thumbnailUrl
+      || asset?.settings?.keyframeUrl
+    if (directPoster) return directPoster
+
+    const keyframeAssetId = asset?.settings?.keyframeAssetId
+      || asset?.settings?.inputAssetId
+      || asset?.yolo?.keyframeAssetId
+      || asset?.shortFilm?.keyframeAssetId
+      || clip?.metadata?.keyframeAssetId
+    if (keyframeAssetId) {
+      const posterAsset = assetsById.get(keyframeAssetId)
+      if (posterAsset?.type === 'image' && posterAsset?.url) return posterAsset.url
+    }
+
+    const variantKeys = new Set([
+      asset?.yolo?.variantKey,
+      asset?.yolo?.key,
+      clip?.metadata?.musicVideoAssembly?.variantKey,
+    ].filter(Boolean).map(String))
+    if (variantKeys.size > 0) {
+      const posterAsset = assets.find((candidate) => {
+        if (candidate?.type !== 'image' || !candidate?.url) return false
+        if (candidate?.yolo?.stage !== 'storyboard') return false
+        return [candidate?.yolo?.variantKey, candidate?.yolo?.key]
+          .filter(Boolean)
+          .some((key) => variantKeys.has(String(key)))
+      })
+      if (posterAsset?.url) return posterAsset.url
+    }
+
+    const shotId = asset?.shortFilm?.shotId || clip?.metadata?.shortFilm?.shotId
+    if (shotId) {
+      const posterAsset = assets.find((candidate) => (
+        candidate?.type === 'image'
+        && candidate?.url
+        && candidate?.shortFilm?.kind === 'shot-keyframe'
+        && String(candidate.shortFilm.shotId || '') === String(shotId)
+      ))
+      if (posterAsset?.url) return posterAsset.url
+    }
+
+    return null
+  }
+
+  const renderTimelineVideoFilmstrip = (clip, renderedClipWidth, thumbCount, contentHeight) => {
+    const asset = clip?.assetId ? assetsById.get(clip.assetId) : null
+    const sprite = asset?.sprite
+    const posterUrl = getTimelineClipPosterUrl(clip, asset)
+    const tileWidth = renderedClipWidth / Math.max(1, thumbCount)
+    const tileHeight = Math.max(1, contentHeight - 3)
+
+    if (sprite?.url && Array.isArray(sprite.frames) && sprite.frames.length > 0) {
+      const duration = Math.max(0, Number(clip?.duration) || 0)
+      const trimStart = Number(clip?.trimStart) || 0
+      const timeScale = clip?.sourceTimeScale || (clip?.timelineFps && clip?.sourceFps
+        ? clip.timelineFps / clip.sourceFps
+        : 1)
+      const spriteDuration = Math.max(0, Number(sprite.duration) || 0)
+
+      return Array.from({ length: thumbCount }).map((_, i) => {
+        const sampleRatio = thumbCount <= 1 ? 0.5 : i / Math.max(1, thumbCount - 1)
+        const clipTime = duration * sampleRatio
+        const sourceTime = Math.max(0, Math.min(spriteDuration || Infinity, trimStart + clipTime * timeScale))
+        const frame = getSpriteFramePosition(sprite, sourceTime) || sprite.frames[0]
+        if (!frame) return null
+
+        const scale = Math.max(tileWidth / Math.max(1, frame.width), tileHeight / Math.max(1, frame.height))
+        const scaledFrameWidth = frame.width * scale
+        const scaledFrameHeight = frame.height * scale
+        const x = -frame.x * scale + (tileWidth - scaledFrameWidth) / 2
+        const y = -frame.y * scale + (tileHeight - scaledFrameHeight) / 2
+
+        return (
+          <div
+            key={i}
+            className="flex-shrink-0 h-full relative overflow-hidden"
+            style={{ width: `${tileWidth}px` }}
+          >
+            <div
+              className="absolute inset-0 opacity-80 pointer-events-none"
+              style={{
+                backgroundImage: `url(${sprite.url})`,
+                backgroundRepeat: 'no-repeat',
+                backgroundSize: `${sprite.width * scale}px ${sprite.height * scale}px`,
+                backgroundPosition: `${x}px ${y}px`,
+              }}
+            />
+          </div>
+        )
+      })
+    }
+
+    if (posterUrl) {
+      return (
+        <div className="absolute inset-0 top-[3px] overflow-hidden bg-[#162226]">
+          <img
+            src={posterUrl}
+            alt={asset?.name || clip?.name || 'Video keyframe'}
+            className="absolute inset-0 h-full w-full object-cover opacity-80 pointer-events-none"
+            draggable={false}
+            loading="lazy"
+            onContextMenu={(e) => e.preventDefault()}
+          />
+        </div>
+      )
+    }
+
+    return (
+      <div className="absolute inset-0 top-[3px] flex items-center overflow-hidden bg-[#162226]">
+        <div className="flex h-full w-full items-center gap-2 px-2 text-[9px] uppercase tracking-[0.16em] text-white/35">
+          <Video className="h-3 w-3 flex-shrink-0" />
+          <span className="truncate">Video</span>
+        </div>
+      </div>
+    )
   }
 
   const handleAddAdjustmentLayer = () => {
@@ -1521,38 +1654,43 @@ function Timeline({ onOpenAudioGenerate, onActiveToolChange }) {
     }
   }
 
-  // Handle playhead scrubbing - start on mousedown
-  const handleTimelineMouseDown = (e) => {
-    // Don't start scrubbing if clicking on a clip or trim handle
-    if (e.target.closest('[data-clip]') || e.target.closest('[data-trim-handle]') || e.target.closest('[data-marker-handle]')) {
-      return
-    }
-    
+  const startTimelinePanning = (e) => {
     e.preventDefault()
-    
-    // Check for spacebar held - start panning
-    if (spacePanningKeyDownRef.current) {
-      setIsPanning(true)
-      setPanStart({
-        x: e.clientX,
-        y: e.clientY,
-        scrollLeft: timelineRef.current?.scrollLeft || 0,
-        scrollTop: trackContentRef.current?.scrollTop || 0
-      })
-      return
-    }
-    
-    // Switch to timeline preview mode when clicking on timeline
-    // Also pause asset playback if it's playing
+    setIsPanning(true)
+    setPanStart({
+      x: e.clientX,
+      y: e.clientY,
+      scrollLeft: timelineRef.current?.scrollLeft || 0,
+      scrollTop: trackContentRef.current?.scrollTop || 0
+    })
+  }
+
+  const startTimelinePreview = () => {
     if (clips.length > 0) {
       setPreviewMode('timeline')
       if (assetIsPlaying) {
         setAssetIsPlaying(false)
       }
     }
-    
+  }
+
+  // Container clicks should only pan/marquee. Playhead scrubbing starts from the ruler or playhead handle.
+  const handleTimelineMouseDown = (e) => {
+    // Don't start scrubbing if clicking on a clip or trim handle
+    if (e.target.closest('[data-clip]') || e.target.closest('[data-trim-handle]') || e.target.closest('[data-marker-handle]')) {
+      return
+    }
+
+    // Check for spacebar held - start panning
+    if (spacePanningKeyDownRef.current) {
+      startTimelinePanning(e)
+      return
+    }
+
     // Check for Alt+Click to start marquee selection
     if (e.altKey) {
+      e.preventDefault()
+      startTimelinePreview()
       const pointer = getTimelinePointerPosition(e.clientX, e.clientY)
       if (!pointer) return
       const addToSelection = e.shiftKey || e.ctrlKey || e.metaKey
@@ -1573,16 +1711,23 @@ function Timeline({ onOpenAudioGenerate, onActiveToolChange }) {
       }
       return
     }
-    
-    // Regular click - start scrubbing
+
+    // Normal timeline clicks are selection/scrolling only; playhead movement belongs to the ruler/handle.
+  }
+
+  const handleTimelineRulerMouseDown = (e) => {
+    if (e.button !== 0 || e.target.closest('[data-marker-handle]')) return
+    e.stopPropagation()
+
+    if (spacePanningKeyDownRef.current) {
+      startTimelinePanning(e)
+      return
+    }
+
+    e.preventDefault()
+    startTimelinePreview()
     setIsScrubbing(true)
-    
-    // Don't clear selection when clicking on empty space - keep showing last selected clip in inspector
-    // User can press Escape to explicitly clear selection if needed
-    
-    // Immediately move playhead to click position
-    const time = getTimeFromMouseEvent(e)
-    setPlayheadPosition(time, { snap: true })
+    setPlayheadPosition(getTimeFromMouseEvent(e), { snap: true })
   }
 
   // Handle scrubbing mouse move and mouse up
@@ -1683,7 +1828,6 @@ function Timeline({ onOpenAudioGenerate, onActiveToolChange }) {
 
     const handleMouseUp = () => {
       selectGap(pendingLanePointerState.gap)
-          setPlayheadPosition(pendingLanePointerState.time, { snap: true })
       setPendingLanePointerState(null)
     }
 
@@ -1694,7 +1838,7 @@ function Timeline({ onOpenAudioGenerate, onActiveToolChange }) {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [pendingLanePointerState, clearSelection, getTimelinePointerPosition, selectGap, setPlayheadPosition])
+  }, [pendingLanePointerState, clearSelection, getTimelinePointerPosition, selectGap])
 
   // Handle track headers resize
   useEffect(() => {
@@ -3777,84 +3921,89 @@ function Timeline({ onOpenAudioGenerate, onActiveToolChange }) {
     }
     
     const handleMouseUp = () => {
-      // On mouse up, resolve overlaps for the final position (NLE overwrite behavior)
-      if (clipDragState && clipDragState.hasMoved) {
-        const movingClipIds = clipDragState.movingClipIds || clipDragState.originalPositions.map(({ id }) => id)
-        const isDraggingMultiple = movingClipIds.length > 1
-        if (clipDragState.pendingAutoCreateVideoTrack) {
-          const newTrack = addTrack('video')
-          if (newTrack) {
-            if (isDraggingMultiple) {
-              const latestState = useTimelineStore.getState()
-              const latestClipsById = new Map(latestState.clips.map((entry) => [entry.id, entry]))
-              const selectedVideoTrackIndices = clipDragState.originalPositions
-                .filter((entry) => entry.family === 'video')
-                .map((entry) => {
-                  const latestClip = latestClipsById.get(entry.id)
-                  const currentTrackId = latestClip?.trackId || entry.trackId
-                  return videoTracks.findIndex((track) => track.id === currentTrackId)
+      const resolveOverlapsOnDrop = true
+
+      try {
+        // On mouse up, commit the move with normal overwrite behavior: the dropped clip cuts whatever it covers.
+        if (clipDragState && clipDragState.hasMoved) {
+          const movingClipIds = clipDragState.movingClipIds || clipDragState.originalPositions.map(({ id }) => id)
+          const isDraggingMultiple = movingClipIds.length > 1
+          if (clipDragState.pendingAutoCreateVideoTrack) {
+            const newTrack = addTrack('video')
+            if (newTrack) {
+              if (isDraggingMultiple) {
+                const latestState = useTimelineStore.getState()
+                const latestClipsById = new Map(latestState.clips.map((entry) => [entry.id, entry]))
+                const selectedVideoTrackIndices = clipDragState.originalPositions
+                  .filter((entry) => entry.family === 'video')
+                  .map((entry) => {
+                    const latestClip = latestClipsById.get(entry.id)
+                    const currentTrackId = latestClip?.trackId || entry.trackId
+                    return videoTracks.findIndex((track) => track.id === currentTrackId)
+                  })
+                  .filter((index) => index >= 0)
+                const topSelectedVideoTrackIndex = selectedVideoTrackIndices.length > 0
+                  ? Math.min(...selectedVideoTrackIndices)
+                  : -1
+                const updates = clipDragState.originalPositions.map(({ id, startTime, trackId, family }) => {
+                  const latestClip = latestClipsById.get(id)
+                  let nextTrackId = latestClip?.trackId || trackId
+
+                  if (family === 'video') {
+                    const currentTrackId = latestClip?.trackId || trackId
+                    const currentIndex = videoTracks.findIndex((track) => track.id === currentTrackId)
+                    nextTrackId = currentIndex <= topSelectedVideoTrackIndex
+                      ? newTrack.id
+                      : (videoTracks[currentIndex - 1]?.id || newTrack.id)
+                  }
+
+                  return {
+                    id,
+                    startTime: latestClip?.startTime ?? startTime,
+                    trackId: nextTrackId,
+                  }
                 })
-                .filter((index) => index >= 0)
-              const topSelectedVideoTrackIndex = selectedVideoTrackIndices.length > 0
-                ? Math.min(...selectedVideoTrackIndices)
-                : -1
-              const updates = clipDragState.originalPositions.map(({ id, startTime, trackId, family }) => {
-                const latestClip = latestClipsById.get(id)
-                let nextTrackId = latestClip?.trackId || trackId
-
-                if (family === 'video') {
-                  const currentTrackId = latestClip?.trackId || trackId
-                  const currentIndex = videoTracks.findIndex((track) => track.id === currentTrackId)
-                  nextTrackId = currentIndex <= topSelectedVideoTrackIndex
-                    ? newTrack.id
-                    : (videoTracks[currentIndex - 1]?.id || newTrack.id)
-                }
-
-                return {
-                  id,
-                  startTime: latestClip?.startTime ?? startTime,
-                  trackId: nextTrackId,
-                }
-              })
-              const resolveOverlapsOnDrop = Boolean(e.ctrlKey || e.metaKey)
-              setSelectedClipPositions(updates, movingClipIds)
+                setSelectedClipPositions(updates, movingClipIds)
+                moveSelectedClips(0, null, resolveOverlapsOnDrop, movingClipIds)
+              } else {
+                const latestClip = useTimelineStore.getState().clips.find((entry) => entry.id === clipDragState.clipId)
+                const finalStartTime = latestClip?.startTime ?? clipDragState.currentStartTime ?? clipDragState.originalStartTime
+                moveClip(clipDragState.clipId, newTrack.id, finalStartTime, resolveOverlapsOnDrop)
+              }
+            } else if (isDraggingMultiple) {
               moveSelectedClips(0, null, resolveOverlapsOnDrop, movingClipIds)
             } else {
-              const latestClip = useTimelineStore.getState().clips.find((entry) => entry.id === clipDragState.clipId)
-              const finalStartTime = latestClip?.startTime ?? clipDragState.currentStartTime ?? clipDragState.originalStartTime
-              moveClip(clipDragState.clipId, newTrack.id, finalStartTime, Boolean(e.ctrlKey || e.metaKey))
+              const clip = clips.find(c => c.id === clipDragState.clipId)
+              if (clip) {
+                moveClip(clipDragState.clipId, clip.trackId, clip.startTime, resolveOverlapsOnDrop)
+              }
             }
           } else if (isDraggingMultiple) {
-            moveSelectedClips(0, null, Boolean(e.ctrlKey || e.metaKey), movingClipIds)
+            // For multi-clip drag, resolve overlaps with delta of 0 (clips already in position)
+            moveSelectedClips(0, null, resolveOverlapsOnDrop, movingClipIds)
           } else {
+            // For single clip drag, commit the current position and overwrite anything underneath.
             const clip = clips.find(c => c.id === clipDragState.clipId)
             if (clip) {
-              moveClip(clipDragState.clipId, clip.trackId, clip.startTime, Boolean(e.ctrlKey || e.metaKey))
+              moveClip(clipDragState.clipId, clip.trackId, clip.startTime, resolveOverlapsOnDrop)
             }
           }
-        } else if (isDraggingMultiple) {
-          // For multi-clip drag, resolve overlaps with delta of 0 (clips already in position)
-          moveSelectedClips(0, null, Boolean(e.ctrlKey || e.metaKey), movingClipIds)
-        } else {
-          // For single clip drag, resolve overlaps at the current position
-          const clip = clips.find(c => c.id === clipDragState.clipId)
-          if (clip) {
-            moveClip(clipDragState.clipId, clip.trackId, clip.startTime, Boolean(e.ctrlKey || e.metaKey))
-          }
         }
+      } finally {
+        setClipDragState(null)
+        clipDragHistorySavedRef.current = false
+        clearActiveSnap()
       }
-      
-      setClipDragState(null)
-      clipDragHistorySavedRef.current = false
-      clearActiveSnap()
     }
     
     window.addEventListener('mousemove', handleMouseMove)
     window.addEventListener('mouseup', handleMouseUp)
+    window.addEventListener('blur', handleMouseUp)
     
     return () => {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
+      window.removeEventListener('blur', handleMouseUp)
     }
   }, [clipDragState, trimState, slipState, clips, pixelsPerSecond, moveClip, moveSelectedClips, setSelectedClipPositions, selectedClipIds, snapClipPosition, setActiveSnapTime, clearActiveSnap, saveToHistory, addTrack, getClipTrackFamily, getHoveredTrackIdForFamily, getResolvedGroupTrackDelta, getTracksForFamily, videoTracks])
 
@@ -4912,6 +5061,7 @@ function Timeline({ onOpenAudioGenerate, onActiveToolChange }) {
             {/* Time Ruler - professional timecode style */}
             <div
               className="h-5 flex-shrink-0 bg-gradient-to-b from-sf-dark-800 to-sf-dark-900 border-b border-sf-dark-700 relative select-none"
+              onMouseDown={handleTimelineRulerMouseDown}
               onDoubleClick={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
@@ -5019,7 +5169,7 @@ function Timeline({ onOpenAudioGenerate, onActiveToolChange }) {
                   const interactiveClipWidth = Math.max(MIN_INTERACTIVE_CLIP_WIDTH_PX, renderedClipWidth)
                   const interactiveClipOffset = Math.max(0, (interactiveClipWidth - renderedClipWidth) / 2)
                   // Calculate how many thumbnail frames to show (roughly one per 60px)
-                  const thumbCount = Math.max(1, Math.floor(renderedClipWidth / 60))
+                  const thumbCount = Math.max(1, Math.min(MAX_TIMELINE_VIDEO_THUMBNAILS, Math.ceil(renderedClipWidth / TIMELINE_VIDEO_THUMB_WIDTH_PX)))
                   const isTextClip = clip.type === 'text'
                   const isAdjustmentClip = clip.type === 'adjustment'
                   const clipEnabled = isClipEnabled(clip)
@@ -5302,27 +5452,10 @@ function Timeline({ onOpenAudioGenerate, onActiveToolChange }) {
                           }}
                         />
                         
-                        {/* Filmstrip thumbnails */}
-                        {clipMediaUrl && (
+                        {/* Filmstrip thumbnails: render cached sprite frames, never live video elements. */}
+                        {shouldRenderClipThumbnails && (
                           <div className="absolute inset-0 top-[3px] flex overflow-hidden">
-                            {Array.from({ length: thumbCount }).map((_, i) => (
-                              <div 
-                                key={i} 
-                                className="flex-shrink-0 h-full relative overflow-hidden"
-                                style={{ width: `${renderedClipWidth / thumbCount}px` }}
-                              >
-                                <video
-                                  src={clipMediaUrl}
-                                  className="absolute inset-0 w-full h-full object-cover opacity-80 pointer-events-none"
-                                  muted
-                                  style={{
-                                    // Offset each thumbnail to show different part of video
-                                    objectPosition: `${(i / Math.max(1, thumbCount - 1)) * 100}% center`
-                                  }}
-                                  onContextMenu={(e) => e.preventDefault()}
-                                />
-                              </div>
-                            ))}
+                            {renderTimelineVideoFilmstrip(clip, renderedClipWidth, thumbCount, contentHeight)}
                           </div>
                         )}
                         
@@ -6073,7 +6206,6 @@ function Timeline({ onOpenAudioGenerate, onActiveToolChange }) {
                   }}
                   onClick={(e) => {
                     e.stopPropagation()
-                    setPlayheadPosition(marker.time, { snap: true })
                     selectMarker(marker.id)
                   }}
                   onContextMenu={(e) => {
@@ -6139,18 +6271,13 @@ function Timeline({ onOpenAudioGenerate, onActiveToolChange }) {
           {/* Snap Guide Lines */}
           {activeSnapTime !== null && snappingEnabled && (
             <div
-              className="absolute top-0 bottom-0 w-0.5 bg-yellow-400 z-20 pointer-events-none"
+              className="absolute top-0 bottom-0 w-px bg-white/75 z-20 pointer-events-none"
               style={{ 
                 left: `${activeSnapTime * pixelsPerSecond}px`,
-                boxShadow: '0 0 8px 2px rgba(250, 204, 21, 0.4)'
+                boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.28)'
               }}
             >
-              {/* Snap indicator at top */}
-              <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-yellow-400 rotate-45" />
-              {/* Snap time tooltip */}
-              <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-yellow-400 text-black text-[9px] font-mono px-1 py-0.5 rounded whitespace-nowrap">
-                {activeSnapTime.toFixed(2)}s
-              </div>
+              <div className="absolute -top-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rotate-45 bg-white/80 border border-black/25" />
             </div>
           )}
           
@@ -6162,15 +6289,19 @@ function Timeline({ onOpenAudioGenerate, onActiveToolChange }) {
             <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-[2px] bg-orange-400 shadow-[0_0_12px_rgba(251,146,60,0.45)]" />
             {/* Playhead handle (draggable) */}
             <div 
-              className="absolute -top-1 left-1/2 -translate-x-1/2 w-5 h-4 bg-orange-400 border border-orange-200/70 cursor-ew-resize hover:bg-orange-300 transition-colors shadow-[0_4px_12px_rgba(0,0,0,0.4)]"
-              style={{ clipPath: 'polygon(12% 0, 88% 0, 100% 55%, 50% 100%, 0 55%)' }}
+              className="absolute -top-1 left-1/2 -translate-x-1/2 w-5 h-4 cursor-ew-resize flex items-start justify-center"
               onMouseDown={(e) => {
                 e.stopPropagation()
                 e.preventDefault()
                 setIsScrubbing(true)
               }}
               title="Drag to scrub"
-            />
+            >
+              <div
+                className="w-3 h-3 bg-orange-400 border border-orange-200/70 hover:bg-orange-300 transition-colors shadow-[0_3px_8px_rgba(0,0,0,0.38)]"
+                style={{ clipPath: 'polygon(12% 0, 88% 0, 100% 55%, 50% 100%, 0 55%)' }}
+              />
+            </div>
             {/* Notch at active track (Flame-style) — aligns with primary track */}
             {activeTrackId && (() => {
               const audioSectionHeight = 20

@@ -1,17 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CheckCircle2,
   Clipboard,
+  ExternalLink,
+  Edit3,
   FileText,
   Film,
+  Image as ImageIcon,
   Loader2,
   Maximize2,
   Music,
   Play,
+  RefreshCw,
   UserPlus,
   Wand2,
   X,
 } from 'lucide-react'
+import {
+  CUSTOM_MUSIC_KEYFRAME_WORKFLOW_ID,
+  CUSTOM_MUSIC_VIDEO_WORKFLOW_ID,
+} from '../../config/generateWorkspaceConfig'
 import {
   MUSIC_VIDEO_AUDIO_KIND_OPTIONS,
   MUSIC_VIDEO_CAST_ROLE_OPTIONS,
@@ -19,9 +27,15 @@ import {
   MUSIC_VIDEO_SHOT_WORKFLOW_ID,
   getMusicVideoAudioKindOption,
   getMusicVideoShotTypeOption,
+  normalizeCastSlug,
 } from '../../config/musicVideoShotConfig'
+import {
+  getWorkflowDisplayLabel,
+} from '../../config/generateWorkspaceConfig'
+import { BUILTIN_WORKFLOW_PATHS } from '../../config/workflowRegistry'
 
 const DRAFT_STORAGE_KEY = 'comfystudio-music-video-easy-mode-draft-v1'
+const DRAFT_PROJECT_STORAGE_PREFIX = `${DRAFT_STORAGE_KEY}:project:`
 
 const STEPS = [
   { id: 'song', label: 'Song', number: '1' },
@@ -40,6 +54,16 @@ const ASPECT_RATIO_OPTIONS = [
 const RESOLUTION_OPTIONS = [
   { id: '720p', label: '720p' },
   { id: '1080p', label: '1080p' },
+]
+
+const PEOPLE_WIZARD_IMAGE_SIZE_OPTIONS = [
+  { id: 'hd', label: 'HD', resolution: { width: 720, height: 1280 }, landscapeResolution: { width: 1280, height: 720 } },
+  { id: 'fhd', label: 'FHD', resolution: { width: 1080, height: 1920 }, landscapeResolution: { width: 1920, height: 1080 } },
+]
+
+const PEOPLE_WIZARD_IMAGE_ORIENTATION_OPTIONS = [
+  { id: 'portrait', label: 'Portrait' },
+  { id: 'landscape', label: 'Landscape' },
 ]
 
 const FPS_OPTIONS = [24, 25, 30]
@@ -91,6 +115,12 @@ const DEFAULT_VIDEO_WORKFLOW_OPTIONS = Object.freeze([
     label: 'WAN 2.2',
     description: 'Alternate animation pass. Strong physical motion, no song-audio lip-sync conditioning.',
   },
+  {
+    id: CUSTOM_MUSIC_VIDEO_WORKFLOW_ID,
+    label: 'Custom Workflow',
+    runtimeLabel: 'Advanced',
+    description: 'Use your own ComfyUI video workflow as long as it keeps the ComfyStudio input/output endpoints.',
+  },
 ])
 const DEFAULT_KEYFRAME_WORKFLOW_OPTIONS = Object.freeze([
   {
@@ -104,6 +134,12 @@ const DEFAULT_KEYFRAME_WORKFLOW_OPTIONS = Object.freeze([
     label: 'Nano Banana 2',
     runtimeLabel: 'Cloud',
     description: 'Cloud keyframes with stronger reference-image and identity consistency.',
+  },
+  {
+    id: CUSTOM_MUSIC_KEYFRAME_WORKFLOW_ID,
+    label: 'Custom Workflow',
+    runtimeLabel: 'Advanced',
+    description: 'Use your own ComfyUI keyframe workflow as long as it keeps the ComfyStudio input/output endpoints.',
   },
 ])
 const JOB_BUSY_STATUSES = new Set(['queued', 'paused', 'uploading', 'configuring', 'queuing', 'running', 'saving'])
@@ -156,10 +192,14 @@ function normalizeDraftBoolean(value, fallback) {
   return fallback
 }
 
-function loadDraft() {
-  if (typeof localStorage === 'undefined') return DEFAULT_DRAFT
+function getDraftStorageKey(projectScope = '') {
+  return projectScope ? `${DRAFT_PROJECT_STORAGE_PREFIX}${projectScope}` : ''
+}
+
+function loadDraft(storageKey = '') {
+  if (!storageKey || typeof localStorage === 'undefined') return DEFAULT_DRAFT
   try {
-    const parsed = JSON.parse(localStorage.getItem(DRAFT_STORAGE_KEY) || '{}')
+    const parsed = JSON.parse(localStorage.getItem(storageKey) || '{}')
     return {
       step: normalizeDraftStep(parsed.step),
       aspectRatio: normalizeDraftOption(parsed.aspectRatio, ASPECT_RATIO_OPTIONS, DEFAULT_DRAFT.aspectRatio),
@@ -229,8 +269,15 @@ function resolveOutputResolution(aspectRatio, resolutionPreset) {
   return is1080 ? { width: 1920, height: 1080 } : { width: 1280, height: 720 }
 }
 
+function resolvePeopleWizardImageResolution(sizeId, orientationId) {
+  const size = PEOPLE_WIZARD_IMAGE_SIZE_OPTIONS.find((option) => option.id === String(sizeId || '').trim())
+    || PEOPLE_WIZARD_IMAGE_SIZE_OPTIONS[0]
+  const isLandscape = String(orientationId || '').trim() === 'landscape'
+  return isLandscape ? size.landscapeResolution : size.resolution
+}
+
 function workflowSupports1080Resolution(workflowId) {
-  return String(workflowId || '').trim() === MUSIC_VIDEO_SHOT_WORKFLOW_ID
+  return [MUSIC_VIDEO_SHOT_WORKFLOW_ID, CUSTOM_MUSIC_VIDEO_WORKFLOW_ID].includes(String(workflowId || '').trim())
 }
 
 function getResolutionFallbackForWorkflow(workflowId, resolutionPreset) {
@@ -246,8 +293,58 @@ function formatResolutionLabel(resolution) {
   return `${resolution.width}x${resolution.height}`
 }
 
+function normalizeDimension(value) {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) && numeric > 0 ? Math.round(numeric) : null
+}
+
+function formatAssetDimensionLabel(asset, runtimeImageDimensions = {}) {
+  if (!asset) return ''
+  const runtime = asset?.id ? runtimeImageDimensions[asset.id] : null
+  const width = normalizeDimension(runtime?.width ?? asset?.width ?? asset?.settings?.width)
+  const height = normalizeDimension(runtime?.height ?? asset?.height ?? asset?.settings?.height)
+  return width && height ? `${width}x${height}` : ''
+}
+
+function buildActualImageResolutionParts(asset, runtimeImageDimensions, requestedResolutionLabel) {
+  const actualLabel = formatAssetDimensionLabel(asset, runtimeImageDimensions)
+  if (!actualLabel) return requestedResolutionLabel ? [requestedResolutionLabel] : []
+  if (requestedResolutionLabel && actualLabel !== requestedResolutionLabel) {
+    return [`${actualLabel} image`, `requested ${requestedResolutionLabel}`]
+  }
+  return [`${actualLabel} image`]
+}
+
 function getAssetUrl(asset) {
   return asset?.url || asset?.thumbnailUrl || asset?.proxyUrl || asset?.path || ''
+}
+
+function ShotVideoPreview({ hasVideo, keyframeUrl, placeholderLabel = "Needs keyframe" }) {
+  if (keyframeUrl) {
+    return <img src={keyframeUrl} alt="" className="h-full w-full object-cover opacity-70" loading="lazy" decoding="async" />
+  }
+
+  if (hasVideo) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-sf-dark-800 text-sf-text-muted">
+        <Play className="h-5 w-5 opacity-70" />
+      </div>
+    )
+  }
+
+  return <span className="flex h-full w-full items-center justify-center text-[10px] text-sf-text-muted">{placeholderLabel}</span>
+}
+
+function inferPeopleWizardAssetPrefix(asset, fallbackValue = '') {
+  const metadataPrefix = normalizeCastSlug(asset?.peopleWizard?.assetPrefix || '')
+  if (metadataPrefix) return metadataPrefix
+  const rawName = String(asset?.name || '').trim()
+  if (!rawName) return normalizeCastSlug(fallbackValue || '')
+  const baseName = rawName
+    .replace(/\.[a-z0-9]{1,8}$/i, '')
+    .replace(/_I\d+$/i, '')
+    .replace(/_(image|sheet)$/i, '')
+  return normalizeCastSlug(baseName || fallbackValue || '')
 }
 
 function getVideoWorkflowScopedKey(variantKey, workflowId) {
@@ -348,6 +445,7 @@ function Stat({ label, value }) {
 }
 
 export default function MusicVideoEasyMode({
+  draftStorageScope = '',
   assets,
   generationQueue,
   yoloMusicAudioAssets,
@@ -366,18 +464,35 @@ export default function MusicVideoEasyMode({
   setYoloMusicScript,
   yoloMusicCast,
   yoloMusicResolvedCast,
+  setYoloMusicCast,
   handleYoloMusicCastAdd,
   handleYoloMusicCastRemove,
   handleYoloMusicCastAssetChange,
   handleYoloMusicCastSlugChange,
   handleYoloMusicCastLabelChange,
   handleYoloMusicCastRoleChange,
+  queuePeopleWizardJob,
+  canUsePeopleWizardGeneration = false,
   yoloMusicKeyframeWorkflowId = 'nano-banana-2',
   setYoloMusicKeyframeWorkflowId,
   yoloMusicKeyframeWorkflowOptions = DEFAULT_KEYFRAME_WORKFLOW_OPTIONS,
+  yoloMusicCustomKeyframeWorkflow,
+  yoloMusicCustomKeyframeValidation,
+  handleImportYoloMusicCustomKeyframeWorkflow,
+  handleOpenYoloMusicCustomKeyframeWorkflowInComfyUi,
+  handleClearYoloMusicCustomKeyframeWorkflow,
+  customKeyframeBridgeStatus,
+  customKeyframeBridgeBusy = false,
+  handleInstallYoloMusicCustomKeyframeBridge,
+  handleCheckYoloMusicCustomKeyframeBridge,
   yoloMusicVideoWorkflowId,
   setYoloMusicVideoWorkflowId,
   yoloMusicVideoWorkflowOptions = DEFAULT_VIDEO_WORKFLOW_OPTIONS,
+  yoloMusicCustomVideoWorkflow,
+  yoloMusicCustomVideoValidation,
+  handleImportYoloMusicCustomVideoWorkflow,
+  handleOpenYoloMusicCustomVideoWorkflowInComfyUi,
+  handleClearYoloMusicCustomVideoWorkflow,
   yoloActivePlan,
   yoloQueueVariants,
   yoloStoryboardAssetMap,
@@ -397,7 +512,8 @@ export default function MusicVideoEasyMode({
   setResolution,
   setImageResolution,
 }) {
-  const initialDraft = useMemo(() => loadDraft(), [])
+  const draftStorageKey = useMemo(() => getDraftStorageKey(draftStorageScope), [draftStorageScope])
+  const initialDraft = useMemo(() => loadDraft(draftStorageKey), [draftStorageKey])
   const audioDefaultMigratedRef = useRef(false)
   const [step, setStep] = useState(initialDraft.step)
   const [aspectRatio, setAspectRatio] = useState(initialDraft.aspectRatio)
@@ -409,6 +525,7 @@ export default function MusicVideoEasyMode({
   const [includeEnvironmentalBroll, setIncludeEnvironmentalBroll] = useState(initialDraft.includeEnvironmentalBroll)
   const [includeDetailBroll, setIncludeDetailBroll] = useState(initialDraft.includeDetailBroll)
   const [selectedShotIndex, setSelectedShotIndex] = useState(0)
+  const [runtimeImageDimensions, setRuntimeImageDimensions] = useState({})
   const [advancedAudioOpen, setAdvancedAudioOpen] = useState(false)
   const [briefStatus, setBriefStatus] = useState('')
   const [parseStatus, setParseStatus] = useState('')
@@ -419,10 +536,13 @@ export default function MusicVideoEasyMode({
   const [isQueuingVideos, setIsQueuingVideos] = useState(false)
   const [isAssemblingTimeline, setIsAssemblingTimeline] = useState(false)
   const [mediaPreview, setMediaPreview] = useState(null)
+  const [peopleWizard, setPeopleWizard] = useState(null)
+
+  const peopleWizardGenerationEnabled = Boolean(canUsePeopleWizardGeneration && BUILTIN_WORKFLOW_PATHS['z-image-turbo'] && BUILTIN_WORKFLOW_PATHS['multi-angles'])
 
   useEffect(() => {
-    if (typeof localStorage === 'undefined') return
-    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({
+    if (!draftStorageKey || typeof localStorage === 'undefined') return
+    localStorage.setItem(draftStorageKey, JSON.stringify({
       step,
       aspectRatio,
       resolutionPreset,
@@ -443,6 +563,7 @@ export default function MusicVideoEasyMode({
     resolutionPreset,
     step,
     videoFps,
+    draftStorageKey,
   ])
 
   useEffect(() => {
@@ -453,6 +574,38 @@ export default function MusicVideoEasyMode({
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [mediaPreview])
+
+  const closePeopleWizard = () => setPeopleWizard(null)
+  const handlePeopleWizardBackdropClick = (event) => {
+    if (event.target !== event.currentTarget) return
+    if (!peopleWizard) return
+    const confirmed = window.confirm('Discard this wizard draft and close the people dialog?')
+    if (confirmed) closePeopleWizard()
+  }
+  const openPeopleWizard = (entry = null) => {
+    const sessionId = `people-wizard-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    const entryAsset = entry?.assetId ? assets.find((asset) => asset?.id === entry.assetId) || null : null
+    setPeopleWizard({
+      sessionId,
+      mode: entry ? 'edit' : 'create',
+      step: 'person',
+      entryId: entry?.id || null,
+      name: String(entry?.label || ''),
+      slug: String(entry?.slug || ''),
+      role: String(entry?.role || 'lead'),
+      assetPrefix: normalizeCastSlug(entry?.slug || entry?.label || entry?.assetId || 'person') || 'person',
+      assetId: entry?.assetId || '',
+      imagePrompt: String(entryAsset?.name || entry?.label || 'Portrait of a character').trim() || 'Portrait of a character',
+      imageSize: 'hd',
+      imageOrientation: 'portrait',
+      imageSeed: Math.floor(Math.random() * 1000000000),
+      imageJobId: null,
+      sheetJobId: null,
+      sheetSeed: Math.floor(Math.random() * 1000000000),
+      imageWorkflow: 'z-image-turbo',
+      sheetWorkflow: 'multi-angles',
+    })
+  }
 
   useEffect(() => {
     if (audioDefaultMigratedRef.current) return
@@ -466,6 +619,32 @@ export default function MusicVideoEasyMode({
     () => assets.filter((asset) => asset?.type === 'image'),
     [assets]
   )
+  const peopleWizardSelectedAsset = useMemo(() => {
+    if (!peopleWizard?.assetId) return null
+    return imageAssets.find((asset) => asset?.id === peopleWizard.assetId) || null
+  }, [imageAssets, peopleWizard?.assetId])
+  const peopleWizardGeneratedImageAsset = useMemo(() => {
+    if (!peopleWizard?.sessionId) return null
+    const matches = imageAssets.filter((asset) => asset?.peopleWizard?.wizardId === peopleWizard.sessionId && asset?.peopleWizard?.stage === 'image')
+    return matches[0] || null
+  }, [imageAssets, peopleWizard?.sessionId])
+  const peopleWizardSheetAsset = useMemo(() => {
+    if (!peopleWizard?.sessionId) return null
+    const matches = imageAssets.filter((asset) => asset?.peopleWizard?.wizardId === peopleWizard.sessionId && asset?.peopleWizard?.stage === 'sheet')
+    return matches[0] || null
+  }, [imageAssets, peopleWizard?.sessionId])
+  const peopleWizardActiveJob = useMemo(() => {
+    if (!peopleWizard?.sessionId) return null
+    const busyJobs = generationQueue.filter((job) => (
+      job?.peopleWizard?.wizardId === peopleWizard.sessionId
+      && job.status !== 'done'
+      && job.status !== 'error'
+      && job.status !== 'failed'
+      && job.status !== 'cancelled'
+      && job.status !== 'canceled'
+    ))
+    return busyJobs[busyJobs.length - 1] || null
+  }, [generationQueue, peopleWizard?.sessionId])
   const flatShots = useMemo(() => flattenPlanShots(yoloActivePlan), [yoloActivePlan])
   const variantByShotKey = useMemo(() => {
     const map = new Map()
@@ -516,6 +695,45 @@ export default function MusicVideoEasyMode({
   const selectedVideoWorkflowLabel = selectedVideoWorkflow?.label || selectedVideoWorkflowId || 'Video model'
   const selectedKeyframeWorkflowId = String(selectedKeyframeWorkflow?.id || '').trim()
   const selectedKeyframeWorkflowLabel = selectedKeyframeWorkflow?.label || selectedKeyframeWorkflowId || 'Keyframe model'
+  const customKeyframeWorkflowSelected = selectedKeyframeWorkflowId === CUSTOM_MUSIC_KEYFRAME_WORKFLOW_ID
+  const customVideoWorkflowSelected = selectedVideoWorkflowId === CUSTOM_MUSIC_VIDEO_WORKFLOW_ID
+  const customKeyframeWorkflowLoaded = Boolean(String(yoloMusicCustomKeyframeWorkflow?.jsonText || '').trim())
+  const openCustomKeyframeWorkflowLabel = customKeyframeWorkflowLoaded ? 'Open in ComfyUI' : 'Open Starter in ComfyUI'
+  const customKeyframeWorkflowName = String(yoloMusicCustomKeyframeWorkflow?.name || '').trim()
+  const customVideoWorkflowLoaded = Boolean(String(yoloMusicCustomVideoWorkflow?.jsonText || '').trim())
+  const openCustomVideoWorkflowLabel = customVideoWorkflowLoaded ? 'Open in ComfyUI' : 'Open Starter in ComfyUI'
+  const customVideoWorkflowName = String(yoloMusicCustomVideoWorkflow?.name || '').trim()
+  const customKeyframeValidation = yoloMusicCustomKeyframeValidation || {
+    ok: false,
+    message: 'No custom workflow loaded yet.',
+    missing: [],
+    warnings: [],
+    endpoints: {},
+  }
+  const customVideoValidation = yoloMusicCustomVideoValidation || {
+    ok: false,
+    message: 'No custom video workflow loaded yet.',
+    missing: [],
+    warnings: [],
+    endpoints: {},
+  }
+  const bridgeState = String(customKeyframeBridgeStatus?.state || 'unknown').trim()
+  const bridgeInstalled = Boolean(customKeyframeBridgeStatus?.installed)
+  const bridgeMessage = String(
+    customKeyframeBridgeStatus?.message
+    || customKeyframeBridgeStatus?.error
+    || 'Optional bridge lets ComfyUI send the current graph back to ComfyStudio.'
+  ).trim()
+  const bridgeBadge = bridgeInstalled
+    ? { label: 'Installed', className: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' }
+    : bridgeState === 'unavailable'
+      ? { label: 'Needs setup', className: 'border-amber-500/40 bg-amber-500/10 text-amber-200' }
+      : bridgeState === 'not_installed'
+        ? { label: 'Optional', className: 'border-sf-accent/40 bg-sf-accent/10 text-sf-accent' }
+        : { label: 'Checking', className: 'border-sf-dark-500 bg-sf-dark-800 text-sf-text-secondary' }
+  const canInstallBridge = typeof handleInstallYoloMusicCustomKeyframeBridge === 'function'
+    && !bridgeInstalled
+    && bridgeState !== 'unavailable'
   const defaultVideoWorkflowId = videoWorkflowOptions[0]?.id || MUSIC_VIDEO_SHOT_WORKFLOW_ID
   const selectedVideoWorkflowSupports1080 = workflowSupports1080Resolution(selectedVideoWorkflowId)
   const storyboardJobMap = useMemo(() => {
@@ -584,6 +802,17 @@ export default function MusicVideoEasyMode({
     [aspectRatio, resolutionPreset]
   )
   const outputResolutionLabel = formatResolutionLabel(outputResolution)
+  const rememberImageDimensions = useCallback((asset, imageElement) => {
+    if (!asset?.id || !imageElement) return
+    const width = normalizeDimension(imageElement.naturalWidth || imageElement.width)
+    const height = normalizeDimension(imageElement.naturalHeight || imageElement.height)
+    if (!width || !height) return
+    setRuntimeImageDimensions((prev) => {
+      const current = prev[asset.id]
+      if (current?.width === width && current?.height === height) return prev
+      return { ...prev, [asset.id]: { width, height } }
+    })
+  }, [])
   const coveragePlan = useMemo(() => buildCoveragePlan({
     performancePassCount,
     includeStoryBroll,
@@ -592,10 +821,15 @@ export default function MusicVideoEasyMode({
   }), [includeDetailBroll, includeEnvironmentalBroll, includeStoryBroll, performancePassCount])
   const coverageSummary = getCoverageSummary(coveragePlan)
   const canBuildPlan = Boolean(String(yoloMusicScript || '').trim())
-  const canQueueKeyframes = plannedShotCount > 0 && !yoloActivePlanIsStale
-  const canQueueVideos = canQueueKeyframes && yoloStoryboardReadyCount > 0
-  const selectedShotRow = flatShots[selectedShotIndex] || flatShots[0] || null
+  const customKeyframeReady = !customKeyframeWorkflowSelected || Boolean(customKeyframeValidation.ok)
+  const customVideoReady = !customVideoWorkflowSelected || Boolean(customVideoValidation.ok)
+  const canQueueKeyframes = plannedShotCount > 0 && !yoloActivePlanIsStale && customKeyframeReady
+  const canQueueVideos = canQueueKeyframes && yoloStoryboardReadyCount > 0 && customVideoReady
   const keyframeStatusIsWarning = keyframeStatus.startsWith('All your keyframes')
+  const singleKeyframeActionDisabled = isQueuingKeyframes || yoloDependencyCheckInProgress || !customKeyframeReady || yoloActivePlanIsStale
+  const singleVideoActionDisabled = isQueuingVideos || yoloDependencyCheckInProgress || !customVideoReady
+  const canOpenCustomKeyframeWorkflow = !customKeyframeWorkflowLoaded || Boolean(customKeyframeValidation.ok)
+  const canOpenCustomVideoWorkflow = !customVideoWorkflowLoaded || Boolean(customVideoValidation.ok)
 
   useEffect(() => {
     if (selectedShotIndex >= flatShots.length) {
@@ -755,6 +989,38 @@ export default function MusicVideoEasyMode({
     </button>
   )
 
+  const renderKeyframeRunButton = (row, index) => (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation()
+        void handleGenerateShotKeyframe(row, index)
+      }}
+      disabled={singleKeyframeActionDisabled}
+      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-sf-accent/50 bg-sf-accent/10 px-2 py-1 text-[10px] font-semibold text-sf-accent transition-colors hover:bg-sf-accent/20 disabled:cursor-not-allowed disabled:border-sf-dark-600 disabled:bg-sf-dark-900/60 disabled:text-sf-text-muted"
+      title={singleKeyframeActionDisabled ? 'Keyframes cannot be queued right now.' : 'Generate this keyframe'}
+    >
+      {isQueuingKeyframes && selectedShotIndex === index ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
+      Run
+    </button>
+  )
+
+  const renderVideoRunButton = (row, index) => (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation()
+        void handleGenerateShotVideo(row, index)
+      }}
+      disabled={singleVideoActionDisabled}
+      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-sf-accent/50 bg-sf-accent/10 px-2 py-1 text-[10px] font-semibold text-sf-accent transition-colors hover:bg-sf-accent/20 disabled:cursor-not-allowed disabled:border-sf-dark-600 disabled:bg-sf-dark-900/60 disabled:text-sf-text-muted"
+      title={singleVideoActionDisabled ? 'Videos cannot be queued right now.' : `Generate this video with ${selectedVideoWorkflowLabel}`}
+    >
+      {isQueuingVideos && selectedShotIndex === index ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+      Run
+    </button>
+  )
+
   const handleCopyShotPrompt = async (prompt, successMessage, statusSetter) => {
     const text = String(prompt || '').trim()
     if (!text) {
@@ -813,7 +1079,7 @@ export default function MusicVideoEasyMode({
     setKeyframeStatus('')
     try {
       if (queueVariantCount > 0 && yoloStoryboardReadyCount >= queueVariantCount) {
-        setKeyframeStatus('All your keyframes are already created. To rerun a particular frame, select a shot below and regenerate it, or delete its keyframe asset first.')
+        setKeyframeStatus('All your keyframes are already created. To rerun a particular frame, use Run on a shot card or open its preview, or delete its keyframe asset first.')
         return
       }
       const queued = await handleQueueYoloStoryboards({
@@ -826,14 +1092,16 @@ export default function MusicVideoEasyMode({
     }
   }
 
-  const handleRegenerateSelectedKeyframe = async () => {
-    if (!selectedShotRow) return
+  const handleGenerateShotKeyframe = async (row, index) => {
+    if (!row || singleKeyframeActionDisabled) return
+    setSelectedShotIndex(index)
     setIsQueuingKeyframes(true)
-    setKeyframeStatus(`Queued ${selectedKeyframeWorkflowLabel} keyframe regeneration for Shot ${selectedShotIndex + 1}.`)
+    setKeyframeStatus(`Queueing ${selectedKeyframeWorkflowLabel} keyframe for Shot ${index + 1}...`)
     try {
-      await handleQueueYoloShotStoryboard(selectedShotRow.scene.id, selectedShotRow.shot.id, {
+      await handleQueueYoloShotStoryboard(row.scene.id, row.shot.id, {
         resolutionOverride: outputResolution,
       })
+      setKeyframeStatus(`Queued ${selectedKeyframeWorkflowLabel} keyframe for Shot ${index + 1}.`)
     } finally {
       setIsQueuingKeyframes(false)
     }
@@ -860,7 +1128,7 @@ export default function MusicVideoEasyMode({
     setVideoStatus('')
     try {
       if (queueVariantCount > 0 && videoReadyCount >= queueVariantCount) {
-        setVideoStatus(`All ${selectedVideoWorkflowLabel} videos are already created. To test or rerun one shot, select it below and run that shot video again.`)
+        setVideoStatus(`All ${selectedVideoWorkflowLabel} videos are already created. To test or rerun one shot, use Run on a shot card or open its preview.`)
         return
       }
       const queued = await handleQueueYoloVideos({
@@ -874,25 +1142,26 @@ export default function MusicVideoEasyMode({
     }
   }
 
-  const handleRegenerateSelectedVideo = async () => {
-    if (!selectedShotRow) return
-    const variant = getVariantForShot(selectedShotRow.scene.id, selectedShotRow.shot.id)
+  const handleGenerateShotVideo = async (row, index) => {
+    if (!row || singleVideoActionDisabled) return
+    const variant = getVariantForShot(row.scene.id, row.shot.id)
     if (!variant) {
-      setVideoStatus(`No video variant found for Shot ${selectedShotIndex + 1}. Parse the script again first.`)
+      setVideoStatus(`No video variant found for Shot ${index + 1}. Parse the script again first.`)
       return
     }
     if (!yoloStoryboardAssetMap?.has(variant.key)) {
-      setVideoStatus(`Shot ${selectedShotIndex + 1} needs a keyframe before video can run.`)
+      setVideoStatus(`Shot ${index + 1} needs a keyframe before video can run.`)
       return
     }
+    setSelectedShotIndex(index)
     setIsQueuingVideos(true)
-    setVideoStatus(`Queueing ${selectedVideoWorkflowLabel} video rerun for Shot ${selectedShotIndex + 1}...`)
+    setVideoStatus(`Queueing ${selectedVideoWorkflowLabel} video rerun for Shot ${index + 1}...`)
     try {
-      await handleQueueYoloShotVideo?.(selectedShotRow.scene.id, selectedShotRow.shot.id, {
+      await handleQueueYoloShotVideo?.(row.scene.id, row.shot.id, {
         targetWorkflowIds: selectedVideoWorkflowId ? [selectedVideoWorkflowId] : null,
         resolutionOverride: outputResolution,
       })
-      setVideoStatus(`Queued ${selectedVideoWorkflowLabel} video rerun for Shot ${selectedShotIndex + 1}.`)
+      setVideoStatus(`Queued ${selectedVideoWorkflowLabel} video rerun for Shot ${index + 1}.`)
     } finally {
       setIsQueuingVideos(false)
     }
@@ -928,6 +1197,121 @@ export default function MusicVideoEasyMode({
     } finally {
       setIsAssemblingTimeline(false)
     }
+  }
+
+  const updatePeopleWizard = (updater) => {
+    setPeopleWizard((prev) => {
+      if (!prev) return prev
+      const next = typeof updater === 'function' ? updater(prev) : { ...prev, ...updater }
+      return next
+    })
+  }
+
+  const handleOpenPeopleWizard = (entry = null) => {
+    openPeopleWizard(entry)
+  }
+
+  const handlePeopleWizardFieldChange = (field, value) => {
+    updatePeopleWizard({ [field]: value })
+  }
+
+  const handlePeopleWizardSelectAsset = (assetId) => {
+    updatePeopleWizard({
+      assetId: assetId || '',
+      step: 'image',
+    })
+  }
+
+  const handlePeopleWizardCreateImage = () => {
+    if (!peopleWizardGenerationEnabled) return
+    if (!queuePeopleWizardJob) return
+    const prompt = String(peopleWizard?.imagePrompt || '').trim() || `${peopleWizard?.name || 'Character'} portrait`
+    const resolution = resolvePeopleWizardImageResolution(peopleWizard?.imageSize, peopleWizard?.imageOrientation)
+    const job = queuePeopleWizardJob({
+      workflowId: 'z-image-turbo',
+      workflowLabel: 'Z Image Turbo',
+      prompt,
+      seed: peopleWizard?.imageSeed,
+      resolution,
+      needsImage: false,
+      peopleWizard: {
+        wizardId: peopleWizard?.sessionId,
+        stage: 'image',
+        entryId: peopleWizard?.entryId || null,
+        mode: peopleWizard?.mode || 'create',
+        assetPrefix: normalizeCastSlug(peopleWizard?.assetPrefix || peopleWizard?.slug || peopleWizard?.name || 'person') || 'person',
+        imageSize: peopleWizard?.imageSize || 'hd',
+        imageOrientation: peopleWizard?.imageOrientation || 'portrait',
+      },
+    })
+    updatePeopleWizard({
+      step: 'image',
+      imageJobId: job.id,
+    })
+  }
+
+  const handlePeopleWizardCreateSheet = () => {
+    if (!peopleWizardGenerationEnabled) return
+    if (!queuePeopleWizardJob) return
+    const baseAsset = peopleWizardGeneratedImageAsset || peopleWizardSelectedAsset || null
+    const baseAssetId = baseAsset?.id || peopleWizard?.assetId || ''
+    if (!baseAssetId) return
+    const prompt = `${peopleWizard?.name || 'Character'} character sheet with front, side, 3/4, expressions, and wardrobe consistency.`
+    const inheritedAssetPrefix = inferPeopleWizardAssetPrefix(
+      baseAsset,
+      peopleWizard?.assetPrefix || peopleWizard?.slug || peopleWizard?.name || 'person'
+    ) || 'person'
+    const job = queuePeopleWizardJob({
+      workflowId: 'multi-angles',
+      workflowLabel: 'Multiple Angles (Characters)',
+      prompt,
+      seed: peopleWizard?.sheetSeed,
+      needsImage: true,
+      inputAssetId: baseAssetId,
+      peopleWizard: {
+        wizardId: peopleWizard?.sessionId,
+        stage: 'sheet',
+        entryId: peopleWizard?.entryId || null,
+        mode: peopleWizard?.mode || 'create',
+        baseAssetId,
+        autoCreateAngleSheet: true,
+        assetPrefix: inheritedAssetPrefix,
+      },
+    })
+    updatePeopleWizard({
+      step: 'sheet',
+      sheetJobId: job.id,
+    })
+  }
+
+  const handlePeopleWizardSave = () => {
+    if (!peopleWizard) return
+    const trimmedName = String(peopleWizard.name || '').trim()
+    const normalizedSlug = normalizeCastSlug(String(peopleWizard.slug || '').trim())
+    const finalAssetId = peopleWizard.step === 'sheet'
+      ? peopleWizardSheetAsset?.id || ''
+      : peopleWizard.step === 'image'
+        ? peopleWizardGeneratedImageAsset?.id || ''
+      : peopleWizardSelectedAsset?.id || peopleWizardSheetAsset?.id || peopleWizardGeneratedImageAsset?.id || ''
+    if (!trimmedName || !normalizedSlug || !finalAssetId) return
+    const nextEntry = {
+      id: peopleWizard.entryId || `cast-${Date.now()}`,
+      label: trimmedName,
+      slug: normalizedSlug,
+      assetId: finalAssetId,
+      role: String(peopleWizard.role || 'lead'),
+    }
+    setYoloMusicCast((prev) => {
+      const list = Array.isArray(prev) ? [...prev] : []
+      const index = list.findIndex((entry) => entry?.id === nextEntry.id)
+      if (index >= 0) {
+        list[index] = nextEntry
+      } else {
+        list.push(nextEntry)
+      }
+      return list
+    })
+    closePeopleWizard()
   }
 
   const renderStepHeader = (title, helper) => (
@@ -1141,6 +1525,454 @@ export default function MusicVideoEasyMode({
     </div>
   )
 
+  const renderPeopleWizardModal = () => {
+    if (!peopleWizard) return null
+
+    const wizardStep = peopleWizard.step || 'person'
+    const trimmedName = String(peopleWizard.name || '').trim()
+    const normalizedSlug = normalizeCastSlug(String(peopleWizard.slug || '').trim())
+    const selectedPreviewAsset = wizardStep === 'sheet'
+      ? peopleWizardSheetAsset || peopleWizardGeneratedImageAsset || peopleWizardSelectedAsset || null
+      : wizardStep === 'image'
+        ? peopleWizardGeneratedImageAsset || peopleWizardSelectedAsset || null
+        : peopleWizardSelectedAsset || null
+    const peopleWizardSaveAssetId = wizardStep === 'sheet'
+      ? peopleWizardSheetAsset?.id || ''
+      : wizardStep === 'image'
+        ? peopleWizardGeneratedImageAsset?.id || peopleWizardSelectedAsset?.id || ''
+        : ''
+    const canContinueToImageStep = Boolean(trimmedName && normalizedSlug)
+    const canEnterSheetStep = Boolean(peopleWizardGeneratedImageAsset || peopleWizardSelectedAsset)
+    const canSavePeopleWizard = Boolean(trimmedName && normalizedSlug && peopleWizardSaveAssetId && !peopleWizardActiveJob)
+    const previewTitle = selectedPreviewAsset?.name || 'Preview'
+    const wizardStages = [
+      { id: 'person', label: '1', title: 'Person data', helper: 'Name, slug, and role.' },
+      { id: 'image', label: '2', title: 'Image', helper: 'Create or pick a portrait.', disabled: !canContinueToImageStep },
+      { id: 'sheet', label: '3', title: 'Character sheet', helper: 'Generate the full sheet.', disabled: !canEnterSheetStep },
+    ]
+    const previewJob = peopleWizardActiveJob
+      && (
+        peopleWizardActiveJob.workflowId === 'z-image-turbo'
+        || peopleWizardActiveJob.workflowId === 'multi-angles'
+      )
+      ? peopleWizardActiveJob
+      : null
+    const previewJobProgress = Math.min(100, Math.max(0, Number(previewJob?.progress) || 0))
+    const statusText = previewJob
+      ? `${getWorkflowDisplayLabel(previewJob.workflowId)} is ${previewJob.status || 'running'}...`
+      : ''
+    const wizardPrimaryAction = wizardStep === 'person'
+      ? {
+          label: 'Continue to image step',
+          onClick: () => updatePeopleWizard({ step: 'image' }),
+          disabled: !canContinueToImageStep,
+        }
+      : wizardStep === 'image'
+        ? {
+            label: 'Continue to character sheet',
+            onClick: () => updatePeopleWizard({ step: 'sheet' }),
+            disabled: !canEnterSheetStep,
+          }
+        : {
+            label: peopleWizardActiveJob ? 'Generating…' : 'Save',
+            onClick: handlePeopleWizardSave,
+            disabled: !canSavePeopleWizard,
+          }
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-3">
+        <button
+          type="button"
+          aria-label="Close people wizard overlay"
+          className="absolute inset-0 bg-black/70"
+          onClick={handlePeopleWizardBackdropClick}
+        />
+        <div className="relative z-10 flex max-h-[calc(100vh-6rem)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-sf-dark-700 bg-sf-dark-950 shadow-2xl">
+          <div className="flex items-center justify-between gap-3 border-b border-sf-dark-700 px-4 py-3">
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.14em] text-sf-accent">People Wizard</div>
+              <h3 className="text-base font-semibold text-sf-text-primary">
+                {peopleWizard.mode === 'edit' ? 'Edit person' : 'Add person'}
+              </h3>
+            </div>
+            <button
+              type="button"
+              onClick={closePeopleWizard}
+              className="rounded-lg border border-sf-dark-600 px-3 py-2 text-xs text-sf-text-secondary transition-colors hover:border-sf-dark-500 hover:text-sf-text-primary"
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="grid min-h-0 flex-1 overflow-hidden lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
+            <div className="space-y-4 overflow-y-auto p-4">
+              <div className="rounded-2xl border border-sf-dark-700 bg-sf-dark-900/70 p-3">
+                <div className="grid gap-2 md:grid-cols-3">
+                  {wizardStages.map((stage, index) => {
+                    const active = wizardStep === stage.id
+                    const disabled = Boolean(stage.disabled)
+                    return (
+                      <button
+                        key={stage.id}
+                        type="button"
+                        onClick={() => {
+                          if (disabled) return
+                          updatePeopleWizard({ step: stage.id })
+                        }}
+                        disabled={disabled}
+                        className={`rounded-xl border px-3 py-3 text-left transition-all duration-300 ease-out ${
+                          active
+                            ? 'border-sf-accent bg-sf-accent/20 shadow-[0_0_0_1px_rgba(96,165,250,0.25)]'
+                            : disabled
+                              ? 'border-sf-dark-800 bg-black/70 text-sf-text-muted'
+                              : 'border-sf-accent/30 bg-sf-accent/8 text-sf-text-primary hover:-translate-y-0.5 hover:border-sf-accent/50 hover:bg-sf-accent/12'
+                        } ${disabled ? 'cursor-not-allowed' : ''}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className={`flex h-6 w-6 items-center justify-center rounded-full border text-[10px] font-semibold ${
+                            active
+                              ? 'border-sf-accent bg-sf-accent text-white'
+                              : disabled
+                                ? 'border-sf-dark-700 bg-black/80 text-sf-text-muted'
+                                : 'border-sf-accent/40 bg-sf-accent/15 text-sf-text-primary'
+                          }`}>
+                            {index + 1}
+                          </div>
+                          <div className="min-w-0">
+                            <div className={`text-xs font-semibold ${disabled ? 'text-sf-text-muted' : 'text-sf-text-primary'}`}>{stage.title}</div>
+                            <div className={`text-[10px] ${disabled ? 'text-sf-text-muted/80' : 'text-sf-text-muted'}`}>{stage.helper}</div>
+                          </div>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {wizardStep === 'person' && (
+                <div className="rounded-xl border border-sf-dark-700 bg-sf-dark-900/70 p-4 space-y-3">
+                  <div className="text-sm font-semibold text-sf-text-primary">1. Person data</div>
+                  <p className="text-xs text-sf-text-secondary">
+                    Start with the name, slug, and role. Then move to the image step to either create a portrait or select one you already have.
+                  </p>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div>
+                      <FieldLabel>Name *</FieldLabel>
+                      <input
+                        type="text"
+                        value={peopleWizard.name}
+                        required
+                        onChange={(event) => handlePeopleWizardFieldChange('name', event.target.value)}
+                        className="mt-1 w-full rounded-lg border border-sf-dark-600 bg-sf-dark-950 px-3 py-2 text-xs text-sf-text-primary outline-none focus:border-sf-accent"
+                        placeholder="Ava"
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel>Slug *</FieldLabel>
+                      <input
+                        type="text"
+                        value={peopleWizard.slug}
+                        required
+                        onChange={(event) => handlePeopleWizardFieldChange('slug', event.target.value)}
+                        className="mt-1 w-full rounded-lg border border-sf-dark-600 bg-sf-dark-950 px-3 py-2 font-mono text-xs text-sf-text-primary outline-none focus:border-sf-accent"
+                        placeholder="ava"
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel>Role</FieldLabel>
+                      <select
+                        value={peopleWizard.role}
+                        onChange={(event) => handlePeopleWizardFieldChange('role', event.target.value)}
+                        className="mt-1 w-full rounded-lg border border-sf-dark-600 bg-sf-dark-950 px-3 py-2 text-xs text-sf-text-primary outline-none focus:border-sf-accent"
+                      >
+                        {MUSIC_VIDEO_CAST_ROLE_OPTIONS.map((role) => (
+                          <option key={role.id} value={role.id}>{role.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="max-w-md">
+                    <FieldLabel>Asset Prefix</FieldLabel>
+                    <input
+                      type="text"
+                      value={peopleWizard.assetPrefix}
+                      onChange={(event) => handlePeopleWizardFieldChange('assetPrefix', normalizeCastSlug(event.target.value) || '')}
+                      className="mt-1 w-full rounded-lg border border-sf-dark-600 bg-sf-dark-950 px-3 py-2 font-mono text-xs text-sf-text-primary outline-none focus:border-sf-accent"
+                      placeholder="ava_headshot"
+                    />
+                    <p className="mt-1 text-[10px] text-sf-text-muted">
+                      Used for the generated image and sheet file names.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {wizardStep === 'image' && (
+                <div className="rounded-xl border border-sf-dark-700 bg-sf-dark-900/70 p-4 space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-sf-text-primary">2. Image selection / creation</div>
+                      <p className="mt-1 text-xs text-sf-text-secondary">
+                        Choose an existing portrait or create a new one. Once an image is selected, you can continue to the sheet step.
+                      </p>
+                    </div>
+                    <div className="text-[10px] text-sf-text-muted">
+                      {canUsePeopleWizardGeneration ? 'Portrait generation enabled' : 'Portrait generation unavailable'}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                    <div className="rounded-xl border border-sf-dark-700 bg-sf-dark-950/60 p-3 space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-sf-text-primary">
+                        <ImageIcon className="h-4 w-4 text-sf-accent" />
+                        Select existing image
+                      </div>
+                      <select
+                        value={peopleWizard.assetId || ''}
+                        onChange={(event) => handlePeopleWizardSelectAsset(event.target.value || '')}
+                        className="w-full rounded-lg border border-sf-dark-600 bg-sf-dark-950 px-3 py-2 text-xs text-sf-text-primary outline-none focus:border-sf-accent"
+                      >
+                        <option value="">Select image asset</option>
+                        {imageAssets.map((asset) => (
+                          <option key={asset.id} value={asset.id}>{asset.name || asset.id}</option>
+                        ))}
+                      </select>
+                      <div className="text-[11px] text-sf-text-muted">
+                        {peopleWizardSelectedAsset ? `Selected: ${peopleWizardSelectedAsset.name || peopleWizardSelectedAsset.id}` : 'Pick a portrait from the project.'}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-sf-dark-700 bg-sf-dark-950/60 p-3 space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-sf-text-primary">
+                        <Wand2 className="h-4 w-4 text-sf-accent" />
+                        Create new image
+                      </div>
+                      <div>
+                        <FieldLabel>Prompt</FieldLabel>
+                        <textarea
+                          value={peopleWizard.imagePrompt}
+                          onChange={(event) => handlePeopleWizardFieldChange('imagePrompt', event.target.value)}
+                          rows={4}
+                          className="mt-1 w-full resize-y rounded-lg border border-sf-dark-600 bg-sf-dark-950 px-3 py-2 text-xs text-sf-text-primary outline-none focus:border-sf-accent"
+                          placeholder="Describe the character portrait."
+                        />
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div>
+                          <FieldLabel>Image Size</FieldLabel>
+                          <div className="mt-2 inline-flex rounded-xl border border-sf-dark-700 bg-sf-dark-950/60 p-1">
+                            {PEOPLE_WIZARD_IMAGE_SIZE_OPTIONS.map((option) => (
+                              <button
+                                key={option.id}
+                                type="button"
+                                onClick={() => handlePeopleWizardFieldChange('imageSize', option.id)}
+                                title={`${option.label} image size`}
+                                aria-label={`${option.label} image size`}
+                                className={`inline-flex h-10 min-w-[3.25rem] items-center justify-center rounded-lg border px-3 text-xs font-semibold transition-colors ${buttonClass(peopleWizard.imageSize === option.id)}`}
+                              >
+                                <span>{option.label}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <FieldLabel>Orientation</FieldLabel>
+                          <div className="mt-2 inline-flex rounded-xl border border-sf-dark-700 bg-sf-dark-950/60 p-1">
+                            {PEOPLE_WIZARD_IMAGE_ORIENTATION_OPTIONS.map((option) => (
+                              <button
+                                key={option.id}
+                                type="button"
+                                onClick={() => handlePeopleWizardFieldChange('imageOrientation', option.id)}
+                                title={`${option.label} orientation`}
+                                aria-label={`${option.label} orientation`}
+                                className={`inline-flex h-10 w-10 items-center justify-center rounded-lg border text-xs font-semibold transition-all duration-300 ease-out ${buttonClass(peopleWizard.imageOrientation === option.id)}`}
+                              >
+                                <span
+                                  className={`flex items-center justify-center rounded-sm border ${
+                                    option.id === 'portrait'
+                                      ? 'h-5 w-4'
+                                      : 'h-4 w-6'
+                                  } ${
+                                    peopleWizard.imageOrientation === option.id
+                                      ? 'border-white/80 bg-white/15'
+                                      : 'border-current/60 bg-current/10'
+                                  }`}
+                                  aria-hidden="true"
+                                />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-sf-dark-700 bg-sf-dark-950/60 p-3 text-[11px] text-sf-text-secondary">
+                        <span className="text-sf-text-muted">Canvas:</span> {formatResolutionLabel(resolvePeopleWizardImageResolution(peopleWizard.imageSize, peopleWizard.imageOrientation))}
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                        <div>
+                          <FieldLabel>Seed</FieldLabel>
+                          <input
+                            type="number"
+                            value={peopleWizard.imageSeed}
+                            onChange={(event) => handlePeopleWizardFieldChange('imageSeed', Number(event.target.value))}
+                            className="mt-1 w-full rounded-lg border border-sf-dark-600 bg-sf-dark-950 px-3 py-2 text-xs text-sf-text-primary outline-none focus:border-sf-accent"
+                          />
+                        </div>
+                        <div className="flex items-end">
+                          <button
+                            type="button"
+                            onClick={() => handlePeopleWizardFieldChange('imageSeed', Math.floor(Math.random() * 1000000000))}
+                            className="rounded-lg border border-sf-dark-600 px-3 py-2 text-xs text-sf-text-secondary transition-colors hover:border-sf-dark-500 hover:text-sf-text-primary"
+                          >
+                            Randomize
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => updatePeopleWizard({ step: 'person' })}
+                          className="rounded-lg border border-sf-dark-600 px-3 py-2 text-xs text-sf-text-secondary transition-colors hover:border-sf-dark-500 hover:text-sf-text-primary"
+                        >
+                          Back
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handlePeopleWizardCreateImage}
+                          disabled={!peopleWizardGenerationEnabled || Boolean(peopleWizardActiveJob)}
+                          className="rounded-lg bg-sf-accent px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-sf-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {peopleWizardActiveJob && peopleWizardActiveJob.workflowId === 'z-image-turbo' ? 'Generating…' : 'Generate image'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              )}
+
+              {wizardStep === 'sheet' && (
+                <div className="rounded-xl border border-sf-dark-700 bg-sf-dark-900/70 p-4 space-y-3">
+                  <div>
+                    <div className="text-sm font-semibold text-sf-text-primary">3. Character sheet creation</div>
+                    <p className="mt-1 text-xs text-sf-text-secondary">
+                      Use the selected or generated image as the reference, then turn it into a multi-angle character sheet.
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-sf-dark-700 bg-sf-dark-950/60 p-3 text-xs text-sf-text-secondary">
+                    <div><span className="text-sf-text-muted">Reference:</span> {peopleWizardGeneratedImageAsset?.name || peopleWizardSelectedAsset?.name || 'No reference selected yet'}</div>
+                    <div><span className="text-sf-text-muted">Sheet workflow:</span> Multiple Angles (Characters)</div>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                    <div>
+                      <FieldLabel>Seed</FieldLabel>
+                      <input
+                        type="number"
+                        value={peopleWizard.sheetSeed}
+                        onChange={(event) => handlePeopleWizardFieldChange('sheetSeed', Number(event.target.value))}
+                        className="mt-1 w-full rounded-lg border border-sf-dark-600 bg-sf-dark-950 px-3 py-2 text-xs text-sf-text-primary outline-none focus:border-sf-accent"
+                      />
+                    </div>
+                    <div className="flex items-end">
+                      <button
+                        type="button"
+                        onClick={() => handlePeopleWizardFieldChange('sheetSeed', Math.floor(Math.random() * 1000000000))}
+                        className="rounded-lg border border-sf-dark-600 px-3 py-2 text-xs text-sf-text-secondary transition-colors hover:border-sf-dark-500 hover:text-sf-text-primary"
+                      >
+                        Randomize
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handlePeopleWizardCreateSheet}
+                      disabled={!peopleWizardGenerationEnabled || Boolean(peopleWizardActiveJob) || !canEnterSheetStep}
+                      className="rounded-lg bg-sf-accent px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-sf-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {peopleWizardActiveJob && peopleWizardActiveJob.workflowId === 'multi-angles' ? 'Generating…' : 'Generate sheet'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-sf-dark-700 bg-sf-dark-900/70 p-4 lg:border-l lg:border-t-0">
+              <div className="rounded-xl border border-sf-dark-700 bg-sf-dark-950/60 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-[0.14em] text-sf-text-muted">Preview</div>
+                    <div className="text-sm font-semibold text-sf-text-primary">
+                      {previewTitle}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-3 aspect-[4/5] overflow-hidden rounded-lg border border-sf-dark-700 bg-sf-dark-950">
+                  {selectedPreviewAsset?.url ? (
+                    <img
+                      src={selectedPreviewAsset.url}
+                      alt={selectedPreviewAsset.name || 'People wizard preview'}
+                      className="h-full w-full object-contain"
+                    />
+                  ) : null}
+                </div>
+                {statusText && (
+                  <div className="mt-3 rounded-lg border border-sf-dark-700 bg-sf-dark-900/80 p-3">
+                    <div className="flex items-center justify-between gap-3 text-[11px] text-sf-text-secondary">
+                      <span>{statusText}</span>
+                      <span className="font-mono text-sf-text-muted">{Math.round(previewJobProgress)}%</span>
+                    </div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-sf-dark-800">
+                      <div
+                        className="h-full rounded-full bg-sf-accent transition-all duration-300 ease-out"
+                        style={{ width: `${previewJobProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-3 space-y-2 rounded-xl border border-sf-dark-700 bg-sf-dark-950/60 p-3 text-xs text-sf-text-secondary">
+                <div><span className="text-sf-text-muted">Mode:</span> {peopleWizard.mode === 'edit' ? 'Edit existing person' : 'Create person'}</div>
+                <div><span className="text-sf-text-muted">Name:</span> {peopleWizard.name || 'Untitled'}</div>
+                <div><span className="text-sf-text-muted">Slug:</span> {peopleWizard.slug || 'unset'}</div>
+                <div><span className="text-sf-text-muted">Role:</span> {peopleWizard.role || 'lead'}</div>
+                <div><span className="text-sf-text-muted">Path:</span> {wizardStep}</div>
+              </div>
+            </div>
+          </div>
+          <div className="border-t border-sf-dark-700 bg-sf-dark-950 px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={closePeopleWizard}
+                  className="rounded-lg border border-sf-dark-600 px-3 py-2 text-xs text-sf-text-secondary transition-colors hover:border-sf-dark-500 hover:text-sf-text-primary"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={wizardPrimaryAction.onClick}
+                  disabled={wizardPrimaryAction.disabled}
+                  className={`rounded-lg px-3 py-2 text-xs font-semibold text-white transition-all duration-300 ease-out ${
+                    wizardStep === 'sheet'
+                      ? 'bg-sf-accent hover:bg-sf-accent/90 disabled:opacity-50'
+                      : wizardPrimaryAction.disabled
+                        ? 'cursor-not-allowed border border-sf-dark-800 bg-black/70 text-sf-text-muted'
+                        : 'bg-sf-accent/90 hover:bg-sf-accent'
+                  }`}
+                >
+                  {wizardPrimaryAction.label}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const renderPeopleStep = () => (
     <div className="space-y-4">
       {renderStepHeader(
@@ -1158,7 +1990,7 @@ export default function MusicVideoEasyMode({
           </div>
           <button
             type="button"
-            onClick={handleYoloMusicCastAdd}
+            onClick={() => handleOpenPeopleWizard(null)}
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-sf-accent px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-sf-accent/90"
           >
             <UserPlus className="h-4 w-4" />
@@ -1172,63 +2004,70 @@ export default function MusicVideoEasyMode({
               Add at least one person if the video has lip-sync performance shots.
             </div>
           )}
-          {(yoloMusicCast || []).map((entry, index) => (
-            <div key={entry.id || index} className="grid gap-2 rounded-lg border border-sf-dark-700 bg-sf-dark-950/50 p-3 lg:grid-cols-[1fr_1fr_1fr_auto]">
-              <div>
-                <FieldLabel>Name</FieldLabel>
-                <input
-                  type="text"
-                  value={entry?.label || ''}
-                  onChange={(event) => handleYoloMusicCastLabelChange(entry.id, event.target.value)}
-                  placeholder="Ava"
-                  className="mt-1 w-full rounded-lg border border-sf-dark-600 bg-sf-dark-950 px-3 py-2 text-xs text-sf-text-primary outline-none focus:border-sf-accent"
-                />
+          {(yoloMusicCast || []).map((entry, index) => {
+            const entryAsset = imageAssets.find((asset) => asset?.id === entry?.assetId) || null
+            return (
+              <div key={entry.id || index} className="grid gap-2 rounded-lg border border-sf-dark-700 bg-sf-dark-950/50 p-3 lg:grid-cols-[1fr_1fr_1fr_auto_auto]">
+                <div>
+                  <FieldLabel>Name</FieldLabel>
+                  <input
+                    type="text"
+                    value={entry?.label || ''}
+                    onChange={(event) => handleYoloMusicCastLabelChange(entry.id, event.target.value)}
+                    placeholder="Ava"
+                    className="mt-1 w-full rounded-lg border border-sf-dark-600 bg-sf-dark-950 px-3 py-2 text-xs text-sf-text-primary outline-none focus:border-sf-accent"
+                  />
+                </div>
+                <div>
+                  <FieldLabel>Script Slug</FieldLabel>
+                  <input
+                    type="text"
+                    value={entry?.slug || ''}
+                    onChange={(event) => handleYoloMusicCastSlugChange(entry.id, event.target.value)}
+                    placeholder="ava"
+                    className="mt-1 w-full rounded-lg border border-sf-dark-600 bg-sf-dark-950 px-3 py-2 font-mono text-xs text-sf-text-primary outline-none focus:border-sf-accent"
+                  />
+                </div>
+                <div>
+                  <FieldLabel>Reference</FieldLabel>
+                  <div className="mt-1 rounded-lg border border-sf-dark-600 bg-sf-dark-950 px-3 py-2 text-xs text-sf-text-primary">
+                    {entryAsset?.name || 'No reference image'}
+                  </div>
+                </div>
+                <div className="flex items-end gap-2">
+                  <select
+                    value={entry?.role || 'lead'}
+                    onChange={(event) => handleYoloMusicCastRoleChange(entry.id, event.target.value)}
+                    className="w-full rounded-lg border border-sf-dark-600 bg-sf-dark-950 px-3 py-2 text-xs text-sf-text-primary outline-none focus:border-sf-accent"
+                  >
+                    {MUSIC_VIDEO_CAST_ROLE_OPTIONS.map((role) => (
+                      <option key={role.id} value={role.id}>{role.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenPeopleWizard(entry)}
+                    className="rounded-lg border border-sf-dark-600 px-3 py-2 text-xs text-sf-text-muted transition-colors hover:border-sf-dark-500 hover:text-sf-text-primary"
+                    title="Edit person"
+                  >
+                    <Edit3 className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleYoloMusicCastRemove(entry.id)}
+                    className="rounded-lg border border-sf-dark-600 px-3 py-2 text-xs text-sf-text-muted transition-colors hover:border-red-400/60 hover:text-red-200"
+                  >
+                    Remove
+                  </button>
+                </div>
               </div>
-              <div>
-                <FieldLabel>Script Slug</FieldLabel>
-                <input
-                  type="text"
-                  value={entry?.slug || ''}
-                  onChange={(event) => handleYoloMusicCastSlugChange(entry.id, event.target.value)}
-                  placeholder="ava"
-                  className="mt-1 w-full rounded-lg border border-sf-dark-600 bg-sf-dark-950 px-3 py-2 font-mono text-xs text-sf-text-primary outline-none focus:border-sf-accent"
-                />
-              </div>
-              <div>
-                <FieldLabel>Reference</FieldLabel>
-                <select
-                  value={entry?.assetId || ''}
-                  onChange={(event) => handleYoloMusicCastAssetChange(entry.id, event.target.value || null)}
-                  className="mt-1 w-full rounded-lg border border-sf-dark-600 bg-sf-dark-950 px-3 py-2 text-xs text-sf-text-primary outline-none focus:border-sf-accent"
-                >
-                  <option value="">Select image asset</option>
-                  {imageAssets.map((asset) => (
-                    <option key={asset.id} value={asset.id}>{asset.name || asset.id}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-end gap-2">
-                <select
-                  value={entry?.role || 'lead'}
-                  onChange={(event) => handleYoloMusicCastRoleChange(entry.id, event.target.value)}
-                  className="w-full rounded-lg border border-sf-dark-600 bg-sf-dark-950 px-3 py-2 text-xs text-sf-text-primary outline-none focus:border-sf-accent"
-                >
-                  {MUSIC_VIDEO_CAST_ROLE_OPTIONS.map((role) => (
-                    <option key={role.id} value={role.id}>{role.label}</option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => handleYoloMusicCastRemove(entry.id)}
-                  className="rounded-lg border border-sf-dark-600 px-3 py-2 text-xs text-sf-text-muted transition-colors hover:border-red-400/60 hover:text-red-200"
-                >
-                  Remove
-                </button>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
+      {renderPeopleWizardModal()}
     </div>
   )
 
@@ -1456,6 +2295,110 @@ export default function MusicVideoEasyMode({
               Qwen Image Edit needs a cast/reference image. Add a person in the People step, or switch to Nano Banana 2 for reference-free keyframes.
             </span>
           )}
+          {customKeyframeWorkflowSelected && (
+            <div className="mt-3 rounded-lg border border-sf-dark-700 bg-sf-dark-900/70 p-3">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-sf-text-muted">Custom workflow contract</span>
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] ${
+                      customKeyframeValidation.ok
+                        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                        : 'border-amber-500/40 bg-amber-500/10 text-amber-200'
+                    }`}>
+                      {customKeyframeValidation.ok ? 'Ready' : 'Needs setup'}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-xs text-sf-text-primary">
+                    {customKeyframeWorkflowName || 'No custom workflow loaded'}
+                  </div>
+                  <p className="mt-1 text-[10px] leading-4 text-sf-text-muted">
+                    Keep these node titles in your ComfyUI graph: <span className="font-mono text-sf-text-secondary">COMFYSTUDIO_INPUT_IMAGE</span>, <span className="font-mono text-sf-text-secondary">COMFYSTUDIO_PROMPT</span>, and <span className="font-mono text-sf-text-secondary">COMFYSTUDIO_OUTPUT_IMAGE</span>. Optional: <span className="font-mono text-sf-text-secondary">COMFYSTUDIO_SEED</span>, <span className="font-mono text-sf-text-secondary">COMFYSTUDIO_WIDTH</span>, <span className="font-mono text-sf-text-secondary">COMFYSTUDIO_HEIGHT</span>.
+                  </p>
+                  <div className={`mt-2 text-[10px] ${customKeyframeValidation.ok ? 'text-emerald-300' : 'text-amber-200'}`}>
+                    {customKeyframeValidation.message}
+                  </div>
+                  {Array.isArray(customKeyframeValidation.warnings) && customKeyframeValidation.warnings.length > 0 && (
+                    <div className="mt-1 text-[10px] text-amber-200">
+                      {customKeyframeValidation.warnings.slice(0, 2).join(' ')}
+                    </div>
+                  )}
+                </div>
+                <div className="grid w-full shrink-0 gap-2 sm:w-auto sm:min-w-[180px]">
+                  <button
+                    type="button"
+                    onClick={handleOpenYoloMusicCustomKeyframeWorkflowInComfyUi}
+                    disabled={!canOpenCustomKeyframeWorkflow}
+                    className="inline-flex items-center justify-center gap-1.5 rounded border border-sf-accent/50 bg-sf-accent/10 px-2 py-1.5 text-[10px] font-semibold text-sf-accent transition-colors hover:bg-sf-accent/20 disabled:cursor-not-allowed disabled:border-sf-dark-600 disabled:bg-sf-dark-800 disabled:text-sf-text-muted"
+                    title={customKeyframeWorkflowLoaded ? 'Open the loaded custom workflow in the embedded ComfyUI tab.' : 'Load the starter workflow and open it in the embedded ComfyUI tab.'}
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    {openCustomKeyframeWorkflowLabel}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleImportYoloMusicCustomKeyframeWorkflow}
+                    className="inline-flex items-center justify-center gap-1.5 rounded border border-sf-dark-600 bg-sf-dark-800 px-2 py-1.5 text-[10px] font-medium text-sf-text-secondary transition-colors hover:border-sf-dark-500 hover:text-sf-text-primary"
+                    title="Import the API JSON you exported from ComfyUI."
+                  >
+                    <Clipboard className="h-3 w-3" />
+                    Import JSON
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearYoloMusicCustomKeyframeWorkflow}
+                    className="inline-flex items-center justify-center gap-1.5 rounded border border-sf-dark-600 bg-sf-dark-800 px-2 py-1.5 text-[10px] font-medium text-sf-text-muted transition-colors hover:border-red-500/60 hover:text-red-300"
+                    title="Clear the loaded custom workflow."
+                  >
+                    <X className="h-3 w-3" />
+                    Clear Custom
+                  </button>
+                </div>
+              </div>
+              <div className="mt-3 border-t border-sf-dark-700 pt-3">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-sf-text-muted">ComfyStudio bridge</span>
+                      <span className={`rounded-full border px-2 py-0.5 text-[10px] ${bridgeBadge.className}`}>
+                        {bridgeBadge.label}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[10px] leading-4 text-sf-text-muted">
+                      Adds a Send to ComfyStudio button inside ComfyUI. Import JSON stays available as the fallback.
+                    </p>
+                    {bridgeMessage && (
+                      <div className={`mt-2 text-[10px] ${bridgeInstalled ? 'text-emerald-300' : bridgeState === 'unavailable' ? 'text-amber-200' : 'text-sf-text-secondary'}`}>
+                        {bridgeMessage}
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid w-full shrink-0 gap-2 sm:w-auto sm:min-w-[160px]">
+                    <button
+                      type="button"
+                      onClick={handleInstallYoloMusicCustomKeyframeBridge}
+                      disabled={!canInstallBridge || customKeyframeBridgeBusy}
+                      className="inline-flex items-center justify-center gap-1.5 rounded border border-sf-accent/50 bg-sf-accent/10 px-2 py-1.5 text-[10px] font-semibold text-sf-accent transition-colors hover:bg-sf-accent/20 disabled:cursor-not-allowed disabled:border-sf-dark-600 disabled:bg-sf-dark-800 disabled:text-sf-text-muted"
+                      title={bridgeState === 'unavailable' ? 'Choose a ComfyUI folder or configure the launcher first.' : 'Install the bundled ComfyStudio Bridge into ComfyUI custom_nodes.'}
+                    >
+                      {customKeyframeBridgeBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                      {bridgeInstalled ? 'Installed' : 'Install Bridge'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCheckYoloMusicCustomKeyframeBridge?.({ silent: false })}
+                      disabled={customKeyframeBridgeBusy || typeof handleCheckYoloMusicCustomKeyframeBridge !== 'function'}
+                      className="inline-flex items-center justify-center gap-1.5 rounded border border-sf-dark-600 bg-sf-dark-800 px-2 py-1.5 text-[10px] font-medium text-sf-text-secondary transition-colors hover:border-sf-dark-500 hover:text-sf-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Re-check whether the bridge is installed."
+                    >
+                      <RefreshCw className={`h-3 w-3 ${customKeyframeBridgeBusy ? 'animate-spin' : ''}`} />
+                      Re-check
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
         {yoloActivePlanIsStale && (
           <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-100">
@@ -1478,13 +2421,13 @@ export default function MusicVideoEasyMode({
             <div>
               <div className="text-sm font-semibold text-sf-text-primary">Shot keyframes</div>
               <p className="mt-1 text-xs leading-5 text-sf-text-secondary">
-                Select a shot to inspect or rerun just that keyframe at the current output settings.
+                Preview a shot to inspect the image, edit its prompt, or rerun that keyframe at the current output settings.
               </p>
             </div>
             <button
               type="button"
               onClick={handleRegenerateAllKeyframes}
-              disabled={isQueuingKeyframes || yoloDependencyCheckInProgress}
+              disabled={isQueuingKeyframes || yoloDependencyCheckInProgress || !customKeyframeReady}
               className="rounded-lg border border-sf-dark-600 px-3 py-2 text-xs font-semibold text-sf-text-secondary transition-colors hover:border-sf-dark-500 hover:text-sf-text-primary disabled:cursor-not-allowed disabled:opacity-50"
             >
               Regenerate All
@@ -1498,6 +2441,7 @@ export default function MusicVideoEasyMode({
               const cardState = getKeyframeCardState(variant, asset)
               const coverageLabel = getCoverageLabel(scene, shot)
               const keyframePrompt = String(shot.imageBeat || shot.beat || shot.referenceImagePrompt || '').trim()
+              const keyframeResolutionParts = buildActualImageResolutionParts(asset, runtimeImageDimensions, outputResolutionLabel)
               return (
                 <div
                   key={`music-keyframe-${scene.id}-${shot.id}`}
@@ -1519,7 +2463,12 @@ export default function MusicVideoEasyMode({
                         : 'bg-sf-dark-800'
                   }`}>
                     {url ? (
-                      <img src={url} alt="" className="h-full w-full object-cover" />
+                      <img
+                        src={url}
+                        alt=""
+                        className="h-full w-full object-cover"
+                        onLoad={(event) => rememberImageDimensions(asset, event.currentTarget)}
+                      />
                     ) : (
                       <>
                         {cardState.state === 'generating' && (
@@ -1532,18 +2481,28 @@ export default function MusicVideoEasyMode({
                         </span>
                       </>
                     )}
-                    {url && renderPreviewButton(() => setMediaPreview({
-                      kind: 'image',
-                      url,
-                      title: `Shot ${index + 1}: ${shot.scriptShotLabel || scene.label || shot.id}`,
-                      subtitle: [coverageLabel, selectedKeyframeWorkflowLabel, outputResolutionLabel, `${videoFps} fps`].filter(Boolean).join(' / '),
-                      prompt: keyframePrompt,
-                    }))}
+                    {url && renderPreviewButton(() => {
+                      setSelectedShotIndex(index)
+                      setMediaPreview({
+                        kind: 'image',
+                        url,
+                        title: `Shot ${index + 1}: ${shot.scriptShotLabel || scene.label || shot.id}`,
+                        subtitle: [coverageLabel, selectedKeyframeWorkflowLabel, ...keyframeResolutionParts, `${videoFps} fps`].filter(Boolean).join(' / '),
+                        prompt: keyframePrompt,
+                        editablePrompt: true,
+                        sceneId: scene.id,
+                        shotId: shot.id,
+                        shotIndex: index,
+                      })
+                    })}
                   </div>
                   <div className="p-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 text-xs font-semibold text-sf-text-primary">Shot {index + 1}: {shot.scriptShotLabel || scene.label || shot.id}</div>
-                      {renderCopyPromptButton(keyframePrompt, `Shot ${index + 1} keyframe prompt copied.`, setKeyframeStatus)}
+                      <div className="flex shrink-0 items-center gap-1">
+                        {renderKeyframeRunButton({ scene, shot }, index)}
+                        {renderCopyPromptButton(keyframePrompt, `Shot ${index + 1} keyframe prompt copied.`, setKeyframeStatus)}
+                      </div>
                     </div>
                     {coverageLabel && (
                       <div className="mt-1 inline-flex rounded-full border border-sf-dark-600 px-2 py-0.5 text-[10px] text-sf-text-muted">
@@ -1561,184 +2520,77 @@ export default function MusicVideoEasyMode({
               )
             })}
           </div>
-          {selectedShotRow && (
-            <div className="rounded-lg border border-sf-dark-700 bg-sf-dark-950/60 p-3">
-              <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <div className="text-sm font-semibold text-sf-text-primary">
-                    Shot {selectedShotIndex + 1}: {selectedShotRow.shot.scriptShotLabel || selectedShotRow.scene.label || selectedShotRow.shot.id}
-                  </div>
-                  <div className="mt-1 text-[10px] text-sf-text-muted">
-                    {[outputResolutionLabel, `${videoFps} fps`, getCoverageLabel(selectedShotRow.scene, selectedShotRow.shot)].filter(Boolean).join(' / ')}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleRegenerateSelectedKeyframe}
-                  disabled={isQueuingKeyframes || yoloDependencyCheckInProgress}
-                  className="rounded-lg bg-sf-accent px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-sf-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Regenerate Selected Shot
-                </button>
-              </div>
-              <div className="mt-3 text-xs text-sf-text-secondary">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10px] uppercase tracking-wider text-sf-text-muted">Keyframe prompt</span>
-                  {renderCopyPromptButton(
-                    selectedShotRow.shot.imageBeat || selectedShotRow.shot.beat || '',
-                    `Shot ${selectedShotIndex + 1} keyframe prompt copied.`,
-                    setKeyframeStatus
-                  )}
-                </div>
-                <textarea
-                  value={selectedShotRow.shot.imageBeat || selectedShotRow.shot.beat || ''}
-                  onChange={(event) => handleYoloShotImageBeatChange?.(selectedShotRow.scene.id, selectedShotRow.shot.id, event.target.value)}
-                  rows={4}
-                  className="mt-1 w-full resize-y rounded-lg border border-sf-dark-600 bg-sf-dark-900 px-3 py-2 text-xs text-sf-text-primary outline-none focus:border-sf-accent"
-                />
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
   )
 
   const renderAdvancedVideoSettings = () => (
-    <details className="rounded-lg border border-sf-dark-700 bg-sf-dark-900/70 p-4">
-      <summary className="cursor-pointer list-none">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
-            <div className="text-[10px] uppercase tracking-[0.14em] text-sf-accent">Advanced rerender settings</div>
-            <div className="mt-1 text-sm font-semibold text-sf-text-primary">
-              {selectedVideoWorkflowLabel} / {outputResolutionLabel} / {videoFps} fps
-            </div>
-            <p className="mt-1 text-xs leading-5 text-sf-text-secondary">
-              Change these only when you want future renders or rerenders to use a different video model or size.
-            </p>
+    <div className="rounded-lg border border-sf-dark-700 bg-sf-dark-900/70 p-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-sf-text-primary">
+            <Play className="h-4 w-4 text-sf-accent" />
+            Video jobs from your director script
           </div>
-          <span className="rounded-full border border-sf-dark-600 px-2 py-1 text-[10px] text-sf-text-muted">
-            Open settings
-          </span>
+          <p className="mt-1 text-xs leading-5 text-sf-text-secondary">
+            The script decides each shot's motion, while the selected video model renders from its matching keyframe.
+          </p>
         </div>
-      </summary>
-      <div className="mt-4 space-y-3">
-        <div className="rounded-lg border border-sf-dark-700 bg-sf-dark-950/50 p-3">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <div className="text-[10px] uppercase tracking-[0.14em] text-sf-text-muted">Video model pass</div>
-              <div className="mt-1 text-sm font-semibold text-sf-text-primary">Viewing {selectedVideoWorkflowLabel}</div>
-              <p className="mt-1 max-w-3xl text-xs leading-5 text-sf-text-secondary">
-                Use the same keyframes to create or rerun this music-video pass with a different animation model.
-              </p>
-            </div>
-          </div>
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="flex flex-col gap-2 md:items-end">
+          <div className="flex flex-wrap items-center gap-1.5 md:justify-end">
+            <span className="mr-1 text-[10px] uppercase tracking-wider text-sf-text-muted">Video model</span>
             {videoWorkflowOptions.map((option) => (
               <button
                 key={`music-video-model-${option.id}`}
                 type="button"
                 onClick={() => handleVideoWorkflowChange(option.id)}
                 title={option.description}
-                className={`rounded-lg border px-3 py-2 text-left text-xs transition-colors ${buttonClass(selectedVideoWorkflowId === option.id)}`}
+                className={`rounded-lg border px-2.5 py-1.5 text-left text-[10px] font-semibold transition-colors ${buttonClass(selectedVideoWorkflowId === option.id)}`}
               >
-                <div className="font-semibold">{option.label}</div>
-                {option.description && (
-                  <div className="mt-1 text-[10px] leading-4 text-sf-text-muted">{option.description}</div>
-                )}
+                <span>{option.label}</span>
+                {option.runtimeLabel && <span className="ml-1 text-sf-text-muted">({option.runtimeLabel})</span>}
               </button>
             ))}
           </div>
-        </div>
-        <div className="rounded-lg border border-sf-dark-700 bg-sf-dark-950/50 p-3">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <div className="text-[10px] uppercase tracking-[0.14em] text-sf-text-muted">New rerenders use</div>
-              <div className="mt-1 text-sm font-semibold text-sf-text-primary">{outputResolutionLabel}</div>
-              <p className="mt-1 max-w-3xl text-xs leading-5 text-sf-text-secondary">
-                {selectedVideoWorkflowSupports1080
-                  ? 'This affects future video renders only. 1080p is the highest LTX 2.3 Music size available here for reliability.'
-                  : 'WAN 2.2 rerenders are limited to 720p here, so higher resolutions are disabled for this model.'}
-              </p>
-            </div>
-            <div className="grid min-w-[180px] grid-cols-2 gap-2">
-              {RESOLUTION_OPTIONS.map((option) => {
-                const disabled = getResolutionFallbackForWorkflow(selectedVideoWorkflowId, option.id) !== option.id
-                return (
-                  <button
-                    key={`music-video-resolution-${option.id}`}
-                    type="button"
-                    onClick={() => handleResolutionPresetChange(option.id)}
-                    disabled={disabled}
-                    title={disabled ? 'This video model is limited to 720p here.' : ''}
-                    className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
-                      disabled
-                        ? 'cursor-not-allowed border-sf-dark-700 bg-sf-dark-950/50 text-sf-text-muted/40'
-                        : buttonClass(resolutionPreset === option.id)
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                )
-              })}
-            </div>
+          <div className="flex flex-wrap items-center gap-1.5 md:justify-end">
+            <span className="mr-1 text-[10px] uppercase tracking-wider text-sf-text-muted">
+              {customVideoWorkflowSelected ? 'Size input' : 'Video size'}
+            </span>
+            {RESOLUTION_OPTIONS.map((option) => {
+              const disabled = getResolutionFallbackForWorkflow(selectedVideoWorkflowId, option.id) !== option.id
+              return (
+                <button
+                  key={`music-video-resolution-${option.id}`}
+                  type="button"
+                  onClick={() => handleResolutionPresetChange(option.id)}
+                  disabled={disabled}
+                  title={customVideoWorkflowSelected
+                    ? 'Sent to your graph only when it uses COMFYSTUDIO_WIDTH and COMFYSTUDIO_HEIGHT.'
+                    : disabled ? 'This video model is limited to 720p here.' : ''}
+                  className={`rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold transition-colors ${
+                    disabled
+                      ? 'cursor-not-allowed border-sf-dark-700 bg-sf-dark-950/50 text-sf-text-muted/40'
+                      : buttonClass(resolutionPreset === option.id)
+                  }`}
+                >
+                  {option.label}
+                </button>
+              )
+            })}
+            <span className="rounded-lg border border-sf-dark-600 px-2.5 py-1.5 text-[10px] font-semibold text-sf-text-muted">
+              {videoFps} fps
+            </span>
+            {customVideoWorkflowSelected && (
+              <span
+                className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-[10px] font-semibold text-amber-200"
+                title="Custom graphs may use these values, ignore them, or use their own model/provider settings."
+              >
+                Graph-dependent
+              </span>
+            )}
           </div>
-        </div>
-        {selectedVideoWorkflowId !== defaultVideoWorkflowId && (
-          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs leading-5 text-yellow-100">
-            {selectedVideoWorkflowLabel} uses the generated keyframes and motion prompts, but it will not use the song audio for lip-sync. Keep the LTX 2.3 Music pass for vocal-sync coverage.
-          </div>
-        )}
-        <div className="rounded-lg border border-sf-dark-700 bg-sf-dark-950/50 p-3">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="text-[10px] uppercase tracking-[0.14em] text-sf-text-muted">Batch rerender</div>
-              <div className="mt-1 text-sm font-semibold text-sf-text-primary">Regenerate every planned video shot</div>
-              <p className="mt-1 max-w-3xl text-xs leading-5 text-sf-text-secondary">
-                Use this when you intentionally want to replace or create a full new pass with the current model and rerender size.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={handleRegenerateAllVideos}
-              disabled={!canQueueVideos || isQueuingVideos || yoloDependencyCheckInProgress}
-              className="rounded-lg border border-sf-dark-600 px-3 py-2 text-xs font-semibold text-sf-text-secondary transition-colors hover:border-sf-dark-500 hover:text-sf-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Regenerate All With {selectedVideoWorkflowLabel}
-            </button>
-          </div>
-        </div>
-      </div>
-    </details>
-  )
-
-  const renderVideosStep = () => (
-    <div className="space-y-4">
-      {renderStepHeader(
-        'Generate videos from the script.',
-        'Each parsed shot can be generated or rerun on its own using the matching keyframe and song timing.'
-      )}
-      <div className="grid gap-3 md:grid-cols-3">
-        <Stat label="Script shots" value={plannedShotCount} />
-        <Stat label="Ready keyframes" value={yoloStoryboardReadyCount} />
-        <Stat label="Ready videos" value={videoReadyCount} />
-      </div>
-      <div className="rounded-lg border border-sf-dark-700 bg-sf-dark-900/70 p-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-sm font-semibold text-sf-text-primary">
-              <Play className="h-4 w-4 text-sf-accent" />
-              Video jobs from your director script
-            </div>
-            <p className="mt-1 text-xs leading-5 text-sf-text-secondary">
-              The script decides whether each row is lip-sync performance, wide performance coverage, or b-roll.
-            </p>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-sf-text-muted">
-              <span className="rounded-full border border-sf-dark-600 px-2 py-1">Current pass: {selectedVideoWorkflowLabel}</span>
-              <span className="rounded-full border border-sf-dark-600 px-2 py-1">{outputResolutionLabel} / {videoFps} fps</span>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 md:justify-end">
             <button
               type="button"
               onClick={handleQueueVideos}
@@ -1746,7 +2598,7 @@ export default function MusicVideoEasyMode({
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-sf-accent px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-sf-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isQueuingVideos ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              Generate Videos With {selectedVideoWorkflowLabel}
+              Generate Videos
             </button>
             <button
               type="button"
@@ -1760,9 +2612,154 @@ export default function MusicVideoEasyMode({
             </button>
           </div>
         </div>
+      </div>
+      <div className="mt-3 rounded-lg border border-sf-dark-700 bg-sf-dark-950/60 p-3 text-xs leading-5 text-sf-text-secondary">
+        <span className="font-semibold text-sf-text-primary">{selectedVideoWorkflowLabel}</span>
+        {customVideoWorkflowSelected
+          ? ': ComfyStudio sends the generated keyframe image, motion prompt, seed, and available video settings into your ComfyUI graph.'
+          : selectedVideoWorkflow?.description
+          ? `: ${selectedVideoWorkflow.description} New video jobs and rerenders use ${outputResolutionLabel} / ${videoFps} fps.`
+          : ` is used for new or regenerated videos at ${outputResolutionLabel} / ${videoFps} fps.`}
+        {customVideoWorkflowSelected && (
+          <span className="mt-1 block">
+            Resolution and FPS are controlled by ComfyStudio only when your graph uses <span className="font-mono text-sf-text-primary">COMFYSTUDIO_WIDTH</span>, <span className="font-mono text-sf-text-primary">COMFYSTUDIO_HEIGHT</span>, and <span className="font-mono text-sf-text-primary">COMFYSTUDIO_FPS</span>; otherwise your graph controls the final output.
+          </span>
+        )}
+        {customVideoWorkflowSelected ? (
+          <span className="mt-1 block text-amber-200">
+            Lip-sync is not automatic. ComfyStudio can pass song audio through <span className="font-mono text-amber-100">COMFYSTUDIO_AUDIO</span>, but your graph must use that audio in a lip-sync or audio-conditioned video workflow.
+          </span>
+        ) : selectedVideoWorkflowSupports1080 ? (
+          <span className="mt-1 block text-sf-text-muted">
+            1080p is available for this model, with 720p kept as the default reliability setting.
+          </span>
+        ) : (
+          <span className="mt-1 block text-sf-text-muted">
+            This model is limited to 720p here, so higher sizes are disabled.
+          </span>
+        )}
+        {customVideoWorkflowSelected && (
+          <div className="mt-3 rounded-lg border border-sf-dark-700 bg-sf-dark-900/70 p-3">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-sf-text-muted">Custom workflow contract</span>
+                  <span className={`rounded-full border px-2 py-0.5 text-[10px] ${
+                    customVideoValidation.ok
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                      : 'border-amber-500/40 bg-amber-500/10 text-amber-200'
+                  }`}>
+                    {customVideoValidation.ok ? 'Ready' : 'Needs setup'}
+                  </span>
+                </div>
+                <div className="mt-1 text-xs text-sf-text-primary">
+                  {customVideoWorkflowName || 'No custom workflow loaded'}
+                </div>
+                <p className="mt-1 text-[10px] leading-4 text-sf-text-muted">
+                  Keep these node titles in your ComfyUI graph: <span className="font-mono text-sf-text-secondary">COMFYSTUDIO_INPUT_IMAGE</span>, <span className="font-mono text-sf-text-secondary">COMFYSTUDIO_PROMPT</span>, and <span className="font-mono text-sf-text-secondary">COMFYSTUDIO_OUTPUT_VIDEO</span>. Optional: <span className="font-mono text-sf-text-secondary">COMFYSTUDIO_SEED</span>, <span className="font-mono text-sf-text-secondary">COMFYSTUDIO_WIDTH</span>, <span className="font-mono text-sf-text-secondary">COMFYSTUDIO_HEIGHT</span>, <span className="font-mono text-sf-text-secondary">COMFYSTUDIO_FPS</span>, <span className="font-mono text-sf-text-secondary">COMFYSTUDIO_DURATION</span>, <span className="font-mono text-sf-text-secondary">COMFYSTUDIO_AUDIO</span>.
+                </p>
+                <div className={`mt-2 text-[10px] ${customVideoValidation.ok ? 'text-emerald-300' : 'text-amber-200'}`}>
+                  {customVideoValidation.message}
+                </div>
+                {Array.isArray(customVideoValidation.warnings) && customVideoValidation.warnings.length > 0 && (
+                  <div className="mt-1 text-[10px] text-amber-200">
+                    {customVideoValidation.warnings.slice(0, 2).join(' ')}
+                  </div>
+                )}
+              </div>
+              <div className="grid w-full shrink-0 gap-2 sm:w-auto sm:min-w-[180px]">
+                <button
+                  type="button"
+                  onClick={handleOpenYoloMusicCustomVideoWorkflowInComfyUi}
+                  disabled={!canOpenCustomVideoWorkflow}
+                  className="inline-flex items-center justify-center gap-1.5 rounded border border-sf-accent/50 bg-sf-accent/10 px-2 py-1.5 text-[10px] font-semibold text-sf-accent transition-colors hover:bg-sf-accent/20 disabled:cursor-not-allowed disabled:border-sf-dark-600 disabled:bg-sf-dark-800 disabled:text-sf-text-muted"
+                  title={customVideoWorkflowLoaded ? 'Open the loaded custom workflow in the embedded ComfyUI tab.' : 'Load the starter workflow and open it in the embedded ComfyUI tab.'}
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  {openCustomVideoWorkflowLabel}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleImportYoloMusicCustomVideoWorkflow}
+                  className="inline-flex items-center justify-center gap-1.5 rounded border border-sf-dark-600 bg-sf-dark-800 px-2 py-1.5 text-[10px] font-medium text-sf-text-secondary transition-colors hover:border-sf-dark-500 hover:text-sf-text-primary"
+                  title="Import the API JSON you exported from ComfyUI."
+                >
+                  <Clipboard className="h-3 w-3" />
+                  Import JSON
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearYoloMusicCustomVideoWorkflow}
+                  className="inline-flex items-center justify-center gap-1.5 rounded border border-sf-dark-600 bg-sf-dark-800 px-2 py-1.5 text-[10px] font-medium text-sf-text-muted transition-colors hover:border-red-500/60 hover:text-red-300"
+                  title="Clear the loaded custom workflow."
+                >
+                  <X className="h-3 w-3" />
+                  Clear Custom
+                </button>
+              </div>
+            </div>
+            <div className="mt-3 border-t border-sf-dark-700 pt-3">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-sf-text-muted">ComfyStudio bridge</span>
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] ${bridgeBadge.className}`}>
+                      {bridgeBadge.label}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[10px] leading-4 text-sf-text-muted">
+                    Open the starter from this video panel before using Send to ComfyStudio so the graph returns to Step 5.
+                  </p>
+                  {bridgeMessage && (
+                    <div className={`mt-2 text-[10px] ${bridgeInstalled ? 'text-emerald-300' : bridgeState === 'unavailable' ? 'text-amber-200' : 'text-sf-text-secondary'}`}>
+                      {bridgeMessage}
+                    </div>
+                  )}
+                </div>
+                <div className="grid w-full shrink-0 gap-2 sm:w-auto sm:min-w-[160px]">
+                  <button
+                    type="button"
+                    onClick={handleInstallYoloMusicCustomKeyframeBridge}
+                    disabled={!canInstallBridge || customKeyframeBridgeBusy}
+                    className="inline-flex items-center justify-center gap-1.5 rounded border border-sf-accent/50 bg-sf-accent/10 px-2 py-1.5 text-[10px] font-semibold text-sf-accent transition-colors hover:bg-sf-accent/20 disabled:cursor-not-allowed disabled:border-sf-dark-600 disabled:bg-sf-dark-800 disabled:text-sf-text-muted"
+                    title={bridgeState === 'unavailable' ? 'Choose a ComfyUI folder or configure the launcher first.' : 'Install the bundled ComfyStudio Bridge into ComfyUI custom_nodes.'}
+                  >
+                    {customKeyframeBridgeBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                    {bridgeInstalled ? 'Installed' : 'Install Bridge'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCheckYoloMusicCustomKeyframeBridge?.({ silent: false })}
+                    disabled={customKeyframeBridgeBusy || typeof handleCheckYoloMusicCustomKeyframeBridge !== 'function'}
+                    className="inline-flex items-center justify-center gap-1.5 rounded border border-sf-dark-600 bg-sf-dark-800 px-2 py-1.5 text-[10px] font-medium text-sf-text-secondary transition-colors hover:border-sf-dark-500 hover:text-sf-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                    title="Re-check whether the bridge is installed."
+                  >
+                    <RefreshCw className={`h-3 w-3 ${customKeyframeBridgeBusy ? 'animate-spin' : ''}`} />
+                    Re-check
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        {selectedVideoWorkflowId !== defaultVideoWorkflowId && !customVideoWorkflowSelected && (
+          <div className="mt-3 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs leading-5 text-yellow-100">
+            {selectedVideoWorkflowLabel} uses the generated keyframes and motion prompts, but it will not use the song audio for lip-sync. Keep the LTX 2.3 Music pass for vocal-sync coverage.
+          </div>
+        )}
         {yoloStoryboardReadyCount === 0 && (
           <div className="mt-3 rounded-lg border border-sf-dark-700 bg-sf-dark-950/60 p-3 text-xs text-sf-text-muted">
             Create keyframes first so each video job has a starting image.
+          </div>
+        )}
+        {customVideoWorkflowSelected && !customVideoReady && (
+          <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-100">
+            {customVideoValidation.message || 'Load and validate a custom video workflow before generating videos.'}
+          </div>
+        )}
+        {yoloActivePlanIsStale && (
+          <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-100">
+            The director script changed after the plan was parsed. Parse the script again before queueing videos.
           </div>
         )}
         {videoStatus && <div className="mt-3 text-xs text-sf-text-secondary">{videoStatus}</div>}
@@ -1772,13 +2769,38 @@ export default function MusicVideoEasyMode({
           </div>
         )}
       </div>
+    </div>
+  )
+
+  const renderVideosStep = () => (
+    <div className="space-y-4">
+      {renderStepHeader(
+        'Generate videos from the script.',
+        'Each parsed shot can be generated or rerun on its own using the matching keyframe and song timing.'
+      )}
+      <div className="grid gap-3 md:grid-cols-3">
+        <Stat label="Script shots" value={plannedShotCount} />
+        <Stat label="Ready keyframes" value={yoloStoryboardReadyCount} />
+        <Stat label="Ready videos" value={videoReadyCount} />
+      </div>
+      {renderAdvancedVideoSettings()}
       {plannedShotCount > 0 && (
         <div className="space-y-3 rounded-lg border border-sf-dark-700 bg-sf-dark-900/70 p-4">
-          <div>
-            <div className="text-sm font-semibold text-sf-text-primary">Shot videos</div>
-            <p className="mt-1 text-xs leading-5 text-sf-text-secondary">
-              Select a shot to inspect or rerun only that video through {selectedVideoWorkflowLabel}.
-            </p>
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="text-sm font-semibold text-sf-text-primary">Shot videos</div>
+              <p className="mt-1 text-xs leading-5 text-sf-text-secondary">
+                Preview a shot to inspect the video, edit its motion prompt, or rerun it through {selectedVideoWorkflowLabel}.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleRegenerateAllVideos}
+              disabled={!canQueueVideos || isQueuingVideos || yoloDependencyCheckInProgress}
+              className="rounded-lg border border-sf-dark-600 px-3 py-2 text-xs font-semibold text-sf-text-secondary transition-colors hover:border-sf-dark-500 hover:text-sf-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Regenerate All
+            </button>
           </div>
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
             {flatShots.map(({ scene, shot }, index) => {
@@ -1793,6 +2815,7 @@ export default function MusicVideoEasyMode({
               const start = Number(shot?.audioStart ?? 0) || 0
               const length = Number(shot?.length ?? shot?.durationSeconds ?? 0) || 0
               const coverageLabel = getCoverageLabel(scene, shot)
+              const videoPrompt = String(shot.videoBeat || shot.beat || shot.shotPrompt || '').trim()
               return (
                 <div
                   key={`music-video-${scene.id}-${shot.id}`}
@@ -1813,23 +2836,24 @@ export default function MusicVideoEasyMode({
                         ? 'bg-red-950/30'
                         : 'bg-sf-dark-800'
                   }`}>
-                    {videoUrl ? (
-                      <video src={videoUrl} className="h-full w-full object-cover" muted playsInline preload="metadata" />
-                    ) : keyframeUrl ? (
-                      <img src={keyframeUrl} alt="" className="h-full w-full object-cover opacity-70" />
-                    ) : (
-                      <span className="text-[10px] text-sf-text-muted">Needs keyframe</span>
-                    )}
+                    <ShotVideoPreview hasVideo={Boolean(videoUrl)} keyframeUrl={keyframeUrl} />
                     {cardState.state === 'generating' && (
                       <div className="absolute inset-0 animate-pulse bg-gradient-to-r from-transparent via-white/10 to-transparent" />
                     )}
-                    {videoUrl && renderPreviewButton(() => setMediaPreview({
-                      kind: 'video',
-                      url: videoUrl,
-                      title: `Shot ${index + 1}: ${shot.scriptShotLabel || scene.label || shot.id}`,
-                      subtitle: [coverageLabel, shotTypeOption?.label || shotTypeId || 'Script shot', `${start.toFixed(2)}s`, length > 0 ? `${length.toFixed(1)}s` : '', selectedVideoWorkflowLabel].filter(Boolean).join(' / '),
-                      prompt: shot.videoBeat || shot.beat || shot.shotPrompt || '',
-                    }))}
+                    {videoUrl && renderPreviewButton(() => {
+                      setSelectedShotIndex(index)
+                      setMediaPreview({
+                        kind: 'video',
+                        url: videoUrl,
+                        title: `Shot ${index + 1}: ${shot.scriptShotLabel || scene.label || shot.id}`,
+                        subtitle: [coverageLabel, shotTypeOption?.label || shotTypeId || 'Script shot', `${start.toFixed(2)}s`, length > 0 ? `${length.toFixed(1)}s` : '', selectedVideoWorkflowLabel].filter(Boolean).join(' / '),
+                        prompt: videoPrompt,
+                        editablePrompt: true,
+                        sceneId: scene.id,
+                        shotId: shot.id,
+                        shotIndex: index,
+                      })
+                    })}
                     <div className={`absolute left-2 top-2 rounded-full px-2 py-1 text-[10px] ${
                       cardState.state === 'ready'
                         ? 'bg-emerald-500/80 text-white'
@@ -1843,14 +2867,20 @@ export default function MusicVideoEasyMode({
                     </div>
                   </div>
                   <div className="p-2">
-                    <div className="text-xs font-semibold text-sf-text-primary">Shot {index + 1}: {shot.scriptShotLabel || scene.label || shot.id}</div>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 text-xs font-semibold text-sf-text-primary">Shot {index + 1}: {shot.scriptShotLabel || scene.label || shot.id}</div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {renderVideoRunButton({ scene, shot }, index)}
+                        {renderCopyPromptButton(videoPrompt, `Shot ${index + 1} video prompt copied.`, setVideoStatus)}
+                      </div>
+                    </div>
                     <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-sf-text-muted">
                       {coverageLabel && <span>{coverageLabel}</span>}
                       <span>{shotTypeOption?.label || shotTypeId || 'Script shot'}</span>
                       <span>{start.toFixed(2)}s</span>
                       {length > 0 && <span>{length.toFixed(1)}s</span>}
                     </div>
-                    <div className="mt-1 line-clamp-2 text-[10px] text-sf-text-muted">{shot.videoBeat || shot.beat || shot.shotPrompt}</div>
+                    <div className="mt-1 line-clamp-2 text-[10px] text-sf-text-muted">{videoPrompt}</div>
                     {cardState.job?.progress > 0 && (
                       <div className="mt-1 h-1 overflow-hidden rounded-full bg-sf-dark-700">
                         <div className="h-full rounded-full bg-sf-accent" style={{ width: `${Math.min(100, Math.max(0, cardState.job.progress || 0))}%` }} />
@@ -1861,69 +2891,33 @@ export default function MusicVideoEasyMode({
               )
             })}
           </div>
-          {selectedShotRow && (
-            <div className="space-y-3">
-              <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs leading-5 text-yellow-100">
-                Not happy with a shot? Select it here, adjust the motion prompt if needed, then rerun just that shot. Use this area for fixes, alternate takes, or trying a different model or resolution without rebuilding the whole music video.
-              </div>
-              <div className="rounded-lg border border-sf-dark-700 bg-sf-dark-950/60 p-3">
-                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <div className="text-sm font-semibold text-sf-text-primary">
-                      Shot {selectedShotIndex + 1}: {selectedShotRow.shot.scriptShotLabel || selectedShotRow.scene.label || selectedShotRow.shot.id}
-                    </div>
-                    <div className="mt-1 text-[10px] text-sf-text-muted">
-                      {[selectedVideoWorkflowLabel, outputResolutionLabel, `${videoFps} fps`, getCoverageLabel(selectedShotRow.scene, selectedShotRow.shot)].filter(Boolean).join(' / ')}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleRegenerateSelectedVideo}
-                    disabled={isQueuingVideos || yoloDependencyCheckInProgress}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-sf-accent px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-sf-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {isQueuingVideos ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                    Run Selected With {selectedVideoWorkflowLabel}
-                  </button>
-                </div>
-                <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                  <div>
-                    <label className="block text-xs text-sf-text-secondary">
-                      <span className="text-[10px] uppercase tracking-wider text-sf-text-muted">Edit shot motion prompt</span>
-                      <textarea
-                        value={selectedShotRow.shot.videoBeat || selectedShotRow.shot.beat || selectedShotRow.shot.shotPrompt || ''}
-                        onChange={(event) => handleYoloShotVideoBeatChange?.(selectedShotRow.scene.id, selectedShotRow.shot.id, event.target.value)}
-                        rows={5}
-                        className="mt-1 w-full resize-y rounded-lg border border-sf-dark-600 bg-sf-dark-900 px-3 py-2 text-xs leading-5 text-sf-text-primary outline-none focus:border-sf-accent"
-                        placeholder="Describe the motion/action for this one video rerun..."
-                      />
-                    </label>
-                    <p className="mt-1 text-[10px] leading-4 text-sf-text-muted">
-                      This changes the selected shot's video prompt for new renders only. It does not rewrite the original director script.
-                    </p>
-                  </div>
-                  <div>
-                    <div className="text-[10px] uppercase tracking-wider text-sf-text-muted">Timing</div>
-                    <div className="mt-1 rounded-lg border border-sf-dark-700 bg-sf-dark-900 px-3 py-2 text-xs leading-5 text-sf-text-secondary">
-                      <div>Start: {(Number(selectedShotRow.shot.audioStart) || 0).toFixed(2)}s</div>
-                      <div>Length: {(Number(selectedShotRow.shot.length || selectedShotRow.shot.durationSeconds) || 0).toFixed(1)}s</div>
-                      {selectedShotRow.shot.scriptLyricMoment && (
-                        <div className="mt-1 italic text-sf-text-muted">"{selectedShotRow.shot.scriptLyricMoment}"</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       )}
-      {renderAdvancedVideoSettings()}
     </div>
   )
 
   const renderMediaPreviewModal = () => {
     if (!mediaPreview) return null
+
+    const editableKeyframePrompt = Boolean(mediaPreview.editablePrompt && mediaPreview.kind === 'image')
+    const editableVideoPrompt = Boolean(mediaPreview.editablePrompt && mediaPreview.kind === 'video')
+    const editablePreviewPrompt = editableKeyframePrompt || editableVideoPrompt
+    const previewShotIndex = Number(mediaPreview.shotIndex)
+    const previewShotRow = editablePreviewPrompt && Number.isInteger(previewShotIndex)
+      ? flatShots[previewShotIndex] || null
+      : null
+    const previewShot = previewShotRow?.shot || null
+    const hasImageBeat = previewShot && Object.prototype.hasOwnProperty.call(previewShot, 'imageBeat')
+    const previewPrompt = editableKeyframePrompt
+      ? String(hasImageBeat ? previewShot.imageBeat : (previewShot?.beat || previewShot?.referenceImagePrompt || mediaPreview.prompt || ''))
+      : editableVideoPrompt
+        ? String(previewShot?.videoBeat || previewShot?.beat || previewShot?.shotPrompt || mediaPreview.prompt || '')
+        : String(mediaPreview.prompt || '')
+    const previewRunDisabled = !previewShotRow || (editableKeyframePrompt ? singleKeyframeActionDisabled : singleVideoActionDisabled)
+    const previewPromptLabel = editableKeyframePrompt ? 'Keyframe prompt' : 'Video motion prompt'
+    const previewWorkflowLabel = editableKeyframePrompt ? selectedKeyframeWorkflowLabel : selectedVideoWorkflowLabel
+    const previewStatusSetter = editableKeyframePrompt ? setKeyframeStatus : setVideoStatus
+    const previewCopiedMessage = `Shot ${previewShotIndex + 1} ${editableKeyframePrompt ? 'keyframe' : 'video'} prompt copied.`
 
     return (
       <div
@@ -1973,11 +2967,70 @@ export default function MusicVideoEasyMode({
                 />
               )}
             </div>
-            {mediaPreview.prompt && (
-              <div className="border-t border-sf-dark-700 px-4 py-3 text-xs leading-5 text-sf-text-secondary">
-                {mediaPreview.prompt}
+            {editablePreviewPrompt ? (
+              <div className="border-t border-sf-dark-700 px-4 py-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <span className="text-[10px] uppercase tracking-wider text-sf-text-muted">{previewPromptLabel}</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleCopyShotPrompt(
+                          previewPrompt,
+                          previewCopiedMessage,
+                          previewStatusSetter
+                        )
+                      }}
+                      disabled={!previewPrompt.trim()}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-sf-dark-600 bg-sf-dark-900/85 px-2 py-1 text-[10px] font-semibold text-sf-text-secondary transition-colors hover:border-sf-dark-500 hover:text-sf-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Copy prompt"
+                    >
+                      <Clipboard className="h-3 w-3" />
+                      Copy
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!previewShotRow) return
+                        if (editableKeyframePrompt) {
+                          void handleGenerateShotKeyframe(previewShotRow, previewShotIndex)
+                        } else {
+                          void handleGenerateShotVideo(previewShotRow, previewShotIndex)
+                        }
+                      }}
+                      disabled={previewRunDisabled}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-sf-accent/50 bg-sf-accent/10 px-2 py-1 text-[10px] font-semibold text-sf-accent transition-colors hover:bg-sf-accent/20 disabled:cursor-not-allowed disabled:border-sf-dark-600 disabled:bg-sf-dark-900/60 disabled:text-sf-text-muted"
+                      title={previewRunDisabled ? `${editableKeyframePrompt ? 'Keyframes' : 'Videos'} cannot be queued right now.` : `Generate this ${editableKeyframePrompt ? 'keyframe' : 'video'} with ${previewWorkflowLabel}`}
+                    >
+                      {(editableKeyframePrompt ? isQueuingKeyframes : isQueuingVideos) && selectedShotIndex === previewShotIndex
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : editableKeyframePrompt
+                          ? <Wand2 className="h-3 w-3" />
+                          : <Play className="h-3 w-3" />}
+                      Run With {previewWorkflowLabel}
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  value={previewPrompt}
+                  onChange={(event) => {
+                    const nextPrompt = event.target.value
+                    setMediaPreview((current) => current ? { ...current, prompt: nextPrompt } : current)
+                    if (editableKeyframePrompt) {
+                      handleYoloShotImageBeatChange?.(mediaPreview.sceneId, mediaPreview.shotId, nextPrompt)
+                    } else {
+                      handleYoloShotVideoBeatChange?.(mediaPreview.sceneId, mediaPreview.shotId, nextPrompt)
+                    }
+                  }}
+                  rows={4}
+                  className="mt-2 w-full resize-y rounded-lg border border-sf-dark-600 bg-sf-dark-900 px-3 py-2 text-xs leading-5 text-sf-text-primary outline-none focus:border-sf-accent"
+                />
               </div>
-            )}
+            ) : previewPrompt ? (
+              <div className="border-t border-sf-dark-700 px-4 py-3 text-xs leading-5 text-sf-text-secondary">
+                {previewPrompt}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
