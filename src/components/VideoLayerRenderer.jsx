@@ -2902,17 +2902,15 @@ function VideoLayerRenderer({
       return getTransitionStyles(transitionInfo, isOutgoing)
     }
 
+    // For between-clip transitions, defer transition activation entirely
+    // until both clips have decoded enough to render cleanly.
+    if (!transitionReady) return null
+
     if (transitionInfo.clipA?.id === clip.id) {
-      if (!transitionReady) {
-        return { opacity: 1, zIndex: 2 }
-      }
       return getTransitionStyles(transitionInfo, true)
     }
 
     if (transitionInfo.clipB?.id === clip.id) {
-      if (!transitionReady) {
-        return { opacity: 0, display: 'none', zIndex: 1 }
-      }
       return getTransitionStyles(transitionInfo, false)
     }
 
