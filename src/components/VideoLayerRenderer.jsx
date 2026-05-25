@@ -1093,7 +1093,6 @@ const VideoLayer = memo(function VideoLayer({
   getClipTransform,
   onClipPointerDown,
   isInTransition = false, // Whether this clip is part of a transition
-  isTransitionIncoming = false, // Whether this clip is transition clipB
 }) {
   const containerRef = useRef(null)   // Container we attach the cached video element to
   const videoElementRef = useRef(null) // Cached video element we display (avoids black flash at cuts)
@@ -1687,7 +1686,6 @@ const VideoLayer = memo(function VideoLayer({
       const driftThreshold = isInTransition
         ? 0.25
         : (speedMismatch ? 0.9 : 0.7)
-      const suppressTransitionDriftSeek = isInTransition && isTransitionIncoming
       const boundaryEpsilon = 0.03
       const nearForwardEnd = !reverse && clampedTime >= (maxTime - boundaryEpsilon)
       const nearReverseStart = reverse && clampedTime <= (minTime + boundaryEpsilon)
@@ -1716,7 +1714,7 @@ const VideoLayer = memo(function VideoLayer({
           video.pause()
         }
       } else {
-        if (timeDiff > driftThreshold && (!suppressTransitionDriftSeek || timeDiff > 1.5)) {
+        if (timeDiff > driftThreshold) {
           if (debugPlayback && Date.now() - lastPlaybackDebugRef.current > 1000) {
             lastPlaybackDebugRef.current = Date.now()
             console.log('[PlaybackCache] Seek during playback (drift correction):', { clipId: clip.id, timeDiff: timeDiff.toFixed(2), clampedTime: clampedTime.toFixed(2) })
@@ -1807,7 +1805,7 @@ const VideoLayer = memo(function VideoLayer({
         video.pause()
       }
     }
-  }, [clip, clipTime, playheadPosition, isPlaying, spriteData, isInTransition, isTransitionIncoming, timeScale, useSpriteScrub, logLayerDiag, attemptPlaybackCacheFallback])
+  }, [clip, clipTime, playheadPosition, isPlaying, spriteData, isInTransition, timeScale, useSpriteScrub, logLayerDiag, attemptPlaybackCacheFallback])
 
   if (!clip) return null
 
@@ -3088,10 +3086,6 @@ function VideoLayerRenderer({
           playheadPosition={playheadPosition}
           isPlaying={isPlaying}
           isInTransition={transitionStyleByClipId.has(clip.id)}
-          isTransitionIncoming={Boolean(
-            transitionInfo?.transition?.kind === 'between' &&
-            transitionInfo?.clipB?.id === clip.id
-          )}
           buildVideoTransform={(transform) => {
             const transitionStyle = transitionStyleByClipId.get(clip.id) || null
             return transitionStyle
