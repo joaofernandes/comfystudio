@@ -22,6 +22,15 @@ const {
 
 const isDev = !app.isPackaged
 
+// Some Linux/Wayland stacks render a fully black Electron window with GPU
+// compositing enabled. Prefer the safer software path for packaged Linux apps.
+if (process.platform === 'linux') {
+  app.disableHardwareAcceleration()
+  app.commandLine.appendSwitch('disable-gpu-compositing')
+  app.commandLine.appendSwitch('use-gl', 'angle')
+  app.commandLine.appendSwitch('use-angle', 'swiftshader-webgl')
+}
+
 // App icon (build/icon.png) – used for window and taskbar/dock
 const iconPath = path.join(__dirname, '..', 'build', 'icon.png')
 
@@ -242,15 +251,17 @@ async function saveMainWindowStateNow() {
   if (mainWindow.isMinimized()) return
 
   try {
-    const currentBounds = mainWindow.getBounds()
-    const normalBounds = sanitizeWindowBounds(mainWindow.getNormalBounds?.() || currentBounds)
+    const windowRef = mainWindow
+    const currentBounds = windowRef.getBounds()
+    const normalBounds = sanitizeWindowBounds(windowRef.getNormalBounds?.() || currentBounds)
     const display = screen.getDisplayMatching(currentBounds)
+    const isMaximized = windowRef.isMaximized()
     await writeSettingsRaw((settings) => ({
       ...settings,
       [MAIN_WINDOW_STATE_SETTING_KEY]: {
         bounds: normalBounds || sanitizeWindowBounds(currentBounds),
         displayId: display?.id ?? null,
-        isMaximized: mainWindow.isMaximized(),
+        isMaximized,
         updatedAt: new Date().toISOString(),
       },
     }))
