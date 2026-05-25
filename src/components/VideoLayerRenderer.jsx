@@ -1865,9 +1865,13 @@ const VideoLayer = memo(function VideoLayer({
   // to the hold-frame layer (render cache covers that use case better).
   const maskActive = maskSelection.isActive
   const glslPreviewActive = hasClipGlslEffects && !maskActive && canUseGlslEffects()
+  // During transitions, a clip can briefly render as black before its first
+  // decoded frame is available. Keep transition participants hidden until
+  // ready so the outgoing clip remains stable on first playback pass.
+  const transitionWaitingForFrame = isInTransition && !isReady
   const containerOpacity = maskActive
     ? 0
-    : (glslRendered || (showSprite && spriteInfo) || showHoldFrame ? 0 : 1)
+    : (glslRendered || (showSprite && spriteInfo) || showHoldFrame || transitionWaitingForFrame ? 0 : 1)
 
   useEffect(() => {
     if (!glslPreviewActive) setGlslRendered(false)
