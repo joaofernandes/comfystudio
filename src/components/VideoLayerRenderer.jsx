@@ -1329,7 +1329,7 @@ const VideoLayer = memo(function VideoLayer({
       hasSourceChange,
       inTransition: isInTransition,
     })
-    if (hasSourceChange && captureHoldFrame(videoElementRef.current)) {
+    if (!isInTransition && hasSourceChange && captureHoldFrame(videoElementRef.current)) {
       setShowHoldFrame(true)
       logLayerDiag('layer:hold-frame:capture', {
         fromUrl: shortPlaybackUrl(previousUrl),
@@ -1395,13 +1395,12 @@ const VideoLayer = memo(function VideoLayer({
     }
 
     const maybeShowCachedCutFrameOverlay = () => {
+      if (isInTransition) return false
       const cutFrameCanvas = getCutFrameCanvas(clip, clipUrl)
       if (!cutFrameCanvas) return false
       if (!drawCutFrameToCanvas(holdFrameRef.current, cutFrameCanvas)) return false
-      if (isInTransition) {
-        setShowHoldFrame(true)
-        scheduleCutFrameOverlayRelease()
-      }
+      setShowHoldFrame(true)
+      scheduleCutFrameOverlayRelease()
       return true
     }
 
@@ -1515,9 +1514,9 @@ const VideoLayer = memo(function VideoLayer({
 
     const showedCutFrameOverlay = maybeShowCachedCutFrameOverlay()
     attachSync = syncVideoToCurrentPlayhead('attach')
-    if (attachSync.seekNeeded) {
+    if (!isInTransition && attachSync.seekNeeded) {
       scheduleCutFrameCapture(clip, clipUrl, cachedVideo, attachSync.targetTime)
-    } else if (!showedCutFrameOverlay && cachedVideo.readyState >= 2) {
+    } else if (!isInTransition && !showedCutFrameOverlay && cachedVideo.readyState >= 2) {
       scheduleCutFrameCapture(clip, clipUrl, cachedVideo, attachSync.targetTime)
     }
 
@@ -1578,6 +1577,7 @@ const VideoLayer = memo(function VideoLayer({
     clip?.cacheStatus,
     clip?.cacheUrl,
     captureHoldFrame,
+    isInTransition,
     logLayerDiag,
   ])
 
