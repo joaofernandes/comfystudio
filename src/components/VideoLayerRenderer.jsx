@@ -1121,6 +1121,9 @@ const VideoLayer = memo(function VideoLayer({
   const markPlaybackCacheBroken = useAssetsStore(state => state.markPlaybackCacheBroken)
   const spriteData = clip?.assetId ? getAssetSprite(clip.assetId) : null
   const asset = clip?.assetId ? getAssetById(clip.assetId) : null
+  const assetId = asset?.id || null
+  const assetPlaybackCacheUrl = asset?.playbackCacheUrl || null
+  const assetSourceUrl = asset?.url || null
 
   // Feature flag: Enable/disable sprite sheet scrubbing for real-time preview
   // Set to false to disable sprite scrubbing (will use video seeking instead)
@@ -1185,13 +1188,13 @@ const VideoLayer = memo(function VideoLayer({
 
   const attemptPlaybackCacheFallback = useCallback((reason, details = {}) => {
     if (attemptedPlaybackFallbackRef.current) return false
-    if (!clip?.id || !clip?.assetId || !asset) return false
+    if (!clip?.id || !clip?.assetId || !assetId) return false
 
     const usingRenderCache = Boolean(clip.cacheStatus === 'cached' && clip.cacheUrl && clipUrl === clip.cacheUrl)
     if (usingRenderCache) return false
 
-    const playbackCacheUrl = asset.playbackCacheUrl || null
-    const sourceUrl = asset.url || null
+    const playbackCacheUrl = assetPlaybackCacheUrl
+    const sourceUrl = assetSourceUrl
     const usingPlaybackCache = Boolean(playbackCacheUrl && clipUrl && clipUrl === playbackCacheUrl)
     const canFallbackToSource = Boolean(sourceUrl && sourceUrl !== playbackCacheUrl)
     if (!usingPlaybackCache || !canFallbackToSource) return false
@@ -1213,12 +1216,14 @@ const VideoLayer = memo(function VideoLayer({
       })
     }
 
-    markPlaybackCacheBroken(asset.id, reason)
+    markPlaybackCacheBroken(assetId, reason)
     videoCache.invalidateClipSource(clip.id, playbackCacheUrl)
     setIsReady(false)
     return true
   }, [
-    asset,
+    assetId,
+    assetPlaybackCacheUrl,
+    assetSourceUrl,
     clip?.assetId,
     clip?.cacheStatus,
     clip?.cacheUrl,
