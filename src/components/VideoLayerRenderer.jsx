@@ -1163,10 +1163,6 @@ const VideoLayer = memo(function VideoLayer({
     ? trimEnd - clipTime * timeScale
     : trimStart + clipTime * timeScale
 
-  const getClampedTimeForPlayhead = useCallback((timelineTime) => (
-    getClipPlaybackTimeAtTimeline(clip, timelineTime)
-  ), [clip])
-
   const logLayerDiag = useCallback((event, payload = {}, throttleMs = 0) => {
     if (!isPlaybackDiagEnabled()) return
     if (throttleMs > 0) {
@@ -1438,7 +1434,7 @@ const VideoLayer = memo(function VideoLayer({
 
     const syncVideoToCurrentPlayhead = (reason) => {
       const livePlayhead = useTimelineStore.getState().playheadPosition
-      const targetTime = getClampedTimeForPlayhead(livePlayhead)
+      const targetTime = getClipPlaybackTimeAtTimeline(clip, livePlayhead)
       const beforeTime = cachedVideo.currentTime || 0
       const timeDelta = Math.abs(beforeTime - targetTime)
       const seekNeeded = timeDelta > 0.001
@@ -1565,7 +1561,25 @@ const VideoLayer = memo(function VideoLayer({
         videoElementRef.current = null
       }
     }
-  }, [attemptPlaybackCacheFallback, clipUrl, clip?.id, captureHoldFrame, getClampedTimeForPlayhead, logLayerDiag])
+  }, [
+    attemptPlaybackCacheFallback,
+    clipUrl,
+    clip?.id,
+    clip?.startTime,
+    clip?.duration,
+    clip?.trimStart,
+    clip?.trimEnd,
+    clip?.sourceDuration,
+    clip?.sourceTimeScale,
+    clip?.timelineFps,
+    clip?.sourceFps,
+    clip?.speed,
+    clip?.reverse,
+    clip?.cacheStatus,
+    clip?.cacheUrl,
+    captureHoldFrame,
+    logLayerDiag,
+  ])
 
   // Detect scrubbing (rapid playhead changes while paused)
   useEffect(() => {
