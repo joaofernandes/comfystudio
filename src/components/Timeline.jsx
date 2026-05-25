@@ -19,6 +19,7 @@ import { getAllKeyframeTimes } from '../utils/keyframes'
 import { TRANSITION_TYPES, TRANSITION_DURATIONS, FRAME_RATE } from '../constants/transitions'
 import { getAudioClipFadeValues } from '../utils/audioClipFades'
 import { getSpriteFramePosition } from '../services/thumbnailSprites'
+import { getExistingImageThumbnail } from '../services/imageThumbnailCache'
 import { getEffectTypeDefinition } from '../utils/effects'
 import { isTextEditingElement } from '../utils/keyboardFocus'
 import {
